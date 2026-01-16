@@ -108,6 +108,7 @@ ClassicAmp supports classic Winamp 2.x skins (.wsz files). Key supported feature
 - [x] Project setup
 - [x] Audio engine with AVAudioEngine
 - [x] Basic main window
+- [x] Basic unit tests for models
 
 ### Phase 2: Skin Engine (In Progress)
 - [x] WSZ file extraction
@@ -129,6 +130,14 @@ ClassicAmp supports classic Winamp 2.x skins (.wsz files). Key supported feature
 - [ ] Extended format support (OGG, Opus)
 - [ ] Preferences
 - [ ] DMG distribution
+
+### Future: Expanded Test Coverage
+- [ ] BMP Parser tests with real 8/24/32-bit BMPs and RLE compression
+- [ ] SkinLoader tests with actual .wsz files
+- [ ] Sprite coordinate verification tests
+- [ ] M3U/PLS import round-trip tests
+- [ ] Region hit testing tests
+- [ ] Window snapping logic tests
 
 ## License
 
