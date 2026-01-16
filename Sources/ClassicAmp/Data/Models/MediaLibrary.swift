@@ -186,22 +186,25 @@ class MediaLibrary {
     
     // MARK: - Properties
     
-    /// All tracks in the library
-    private(set) var tracks: [LibraryTrack] = []
+    /// Serial queue to guard library state
+    private let dataQueue = DispatchQueue(label: "ClassicAmp.MediaLibrary.data")
     
-    /// Indexed by URL path for quick lookup
+    /// All tracks in the library (guarded by dataQueue)
+    private var tracks: [LibraryTrack] = []
+    
+    /// Indexed by URL path for quick lookup (guarded by dataQueue)
     private var tracksByPath: [String: LibraryTrack] = [:]
     
-    /// Watch folders for automatic scanning
-    private(set) var watchFolders: [URL] = []
+    /// Watch folders for automatic scanning (guarded by dataQueue)
+    private var watchFolders: [URL] = []
     
     /// Library file location
     private let libraryURL: URL
     
-    /// Whether the library is currently scanning
+    /// Whether the library is currently scanning (main thread only)
     private(set) var isScanning = false
     
-    /// Scan progress (0.0 - 1.0)
+    /// Scan progress (0.0 - 1.0) (main thread only)
     private(set) var scanProgress: Double = 0
     
     /// Notification names
@@ -221,6 +224,16 @@ class MediaLibrary {
         
         loadLibrary()
     }
+
+    // MARK: - Thread-Safe Accessors
+    
+    var tracksSnapshot: [LibraryTrack] {
+        dataQueue.sync { tracks }
+    }
+    
+    var watchFoldersSnapshot: [URL] {
+        dataQueue.sync { watchFolders }
+    }
     
     // MARK: - Library Management
     
@@ -228,21 +241,36 @@ class MediaLibrary {
     @discardableResult
     func addTrack(url: URL) -> LibraryTrack? {
         let path = url.path
-        
-        // Check if already in library
-        if tracksByPath[path] != nil {
-            return tracksByPath[path]
+
+        // Quick check under lock
+        if let existing = dataQueue.sync(execute: { tracksByPath[path] }) {
+            return existing
         }
         
-        // Create track with metadata
+        // Create track with metadata outside lock
         var track = LibraryTrack(url: url)
         parseMetadata(for: &track)
         
-        tracks.append(track)
-        tracksByPath[path] = track
+        var didAdd = false
+        var result: LibraryTrack?
         
-        notifyChange()
-        return track
+        dataQueue.sync {
+            if let existing = tracksByPath[path] {
+                result = existing
+                return
+            }
+            
+            tracks.append(track)
+            tracksByPath[path] = track
+            result = track
+            didAdd = true
+        }
+        
+        if didAdd {
+            notifyChange()
+        }
+        
+        return result
     }
     
     /// Add multiple tracks to the library
@@ -255,18 +283,22 @@ class MediaLibrary {
     
     /// Remove a track from the library
     func removeTrack(_ track: LibraryTrack) {
-        tracks.removeAll { $0.id == track.id }
-        tracksByPath.removeValue(forKey: track.url.path)
+        dataQueue.sync {
+            tracks.removeAll { $0.id == track.id }
+            tracksByPath.removeValue(forKey: track.url.path)
+        }
         notifyChange()
         saveLibrary()
     }
     
     /// Remove tracks by URL
     func removeTracks(urls: [URL]) {
-        for url in urls {
-            let path = url.path
-            tracks.removeAll { $0.url.path == path }
-            tracksByPath.removeValue(forKey: path)
+        dataQueue.sync {
+            for url in urls {
+                let path = url.path
+                tracks.removeAll { $0.url.path == path }
+                tracksByPath.removeValue(forKey: path)
+            }
         }
         notifyChange()
         saveLibrary()
@@ -274,36 +306,52 @@ class MediaLibrary {
     
     /// Clear the entire library
     func clearLibrary() {
-        tracks.removeAll()
-        tracksByPath.removeAll()
+        dataQueue.sync {
+            tracks.removeAll()
+            tracksByPath.removeAll()
+        }
         notifyChange()
         saveLibrary()
     }
     
     /// Update play statistics for a track
     func recordPlay(for track: LibraryTrack) {
-        guard let index = tracks.firstIndex(where: { $0.id == track.id }) else { return }
+        var didUpdate = false
+        dataQueue.sync {
+            guard let index = tracks.firstIndex(where: { $0.id == track.id }) else { return }
+            
+            tracks[index].playCount += 1
+            tracks[index].lastPlayed = Date()
+            tracksByPath[track.url.path] = tracks[index]
+            didUpdate = true
+        }
         
-        tracks[index].playCount += 1
-        tracks[index].lastPlayed = Date()
-        tracksByPath[track.url.path] = tracks[index]
-        
-        saveLibrary()
+        if didUpdate {
+            saveLibrary()
+        }
     }
     
     // MARK: - Folder Scanning
     
     /// Add a watch folder
     func addWatchFolder(_ url: URL) {
-        if !watchFolders.contains(url) {
-            watchFolders.append(url)
+        var didAdd = false
+        dataQueue.sync {
+            if !watchFolders.contains(url) {
+                watchFolders.append(url)
+                didAdd = true
+            }
+        }
+        if didAdd {
             saveLibrary()
         }
     }
     
     /// Remove a watch folder
     func removeWatchFolder(_ url: URL) {
-        watchFolders.removeAll { $0 == url }
+        dataQueue.sync {
+            watchFolders.removeAll { $0 == url }
+        }
         saveLibrary()
     }
     
@@ -311,8 +359,10 @@ class MediaLibrary {
     func scanFolder(_ url: URL, recursive: Bool = true) {
         guard !isScanning else { return }
         
-        isScanning = true
-        scanProgress = 0
+        DispatchQueue.main.async {
+            self.isScanning = true
+            self.scanProgress = 0
+        }
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
@@ -350,15 +400,16 @@ class MediaLibrary {
             DispatchQueue.main.async {
                 self.isScanning = false
                 self.scanProgress = 1.0
-                self.saveLibrary()
                 NotificationCenter.default.post(name: Self.libraryDidChangeNotification, object: nil)
             }
+            
+            self.saveLibrary()
         }
     }
     
     /// Rescan all watch folders
     func rescanWatchFolders() {
-        for folder in watchFolders {
+        for folder in watchFoldersSnapshot {
             scanFolder(folder)
         }
     }
@@ -368,8 +419,7 @@ class MediaLibrary {
     /// Get all unique artists
     func allArtists() -> [Artist] {
         var artistDict: [String: [LibraryTrack]] = [:]
-        
-        for track in tracks {
+        for track in tracksSnapshot {
             let artistName = track.artist ?? "Unknown Artist"
             artistDict[artistName, default: []].append(track)
         }
@@ -383,8 +433,7 @@ class MediaLibrary {
     /// Get all unique albums
     func allAlbums() -> [Album] {
         var albumDict: [String: [LibraryTrack]] = [:]
-        
-        for track in tracks {
+        for track in tracksSnapshot {
             let albumName = track.album ?? "Unknown Album"
             let artistName = track.albumArtist ?? track.artist ?? "Unknown Artist"
             let key = "\(artistName)|\(albumName)"
@@ -405,16 +454,17 @@ class MediaLibrary {
     
     /// Get all unique genres
     func allGenres() -> [String] {
-        let genres = Set(tracks.compactMap { $0.genre })
+        let genres = Set(tracksSnapshot.compactMap { $0.genre })
         return genres.sorted()
     }
     
     /// Search tracks
     func search(query: String) -> [LibraryTrack] {
-        guard !query.isEmpty else { return tracks }
+        let snapshot = tracksSnapshot
+        guard !query.isEmpty else { return snapshot }
         
         let lowercaseQuery = query.lowercased()
-        return tracks.filter { track in
+        return snapshot.filter { track in
             track.title.lowercased().contains(lowercaseQuery) ||
             (track.artist?.lowercased().contains(lowercaseQuery) ?? false) ||
             (track.album?.lowercased().contains(lowercaseQuery) ?? false)
@@ -423,7 +473,7 @@ class MediaLibrary {
     
     /// Filter and sort tracks
     func filteredTracks(filter: LibraryFilter, sortBy: LibrarySortOption, ascending: Bool = true) -> [LibraryTrack] {
-        var result = tracks
+        var result = tracksSnapshot
         
         // Apply search filter
         if !filter.searchText.isEmpty {
@@ -581,7 +631,7 @@ class MediaLibrary {
     // MARK: - Persistence
     
     private func saveLibrary() {
-        let data = LibraryData(tracks: tracks, watchFolders: watchFolders)
+        let data = dataQueue.sync { LibraryData(tracks: tracks, watchFolders: watchFolders) }
         
         do {
             let encoder = JSONEncoder()
@@ -600,14 +650,15 @@ class MediaLibrary {
             let data = try Data(contentsOf: libraryURL)
             let decoder = JSONDecoder()
             let libraryData = try decoder.decode(LibraryData.self, from: data)
-            
-            tracks = libraryData.tracks
-            watchFolders = libraryData.watchFolders
-            
-            // Rebuild index
-            tracksByPath.removeAll()
-            for track in tracks {
-                tracksByPath[track.url.path] = track
+            dataQueue.sync {
+                tracks = libraryData.tracks
+                watchFolders = libraryData.watchFolders
+                
+                // Rebuild index
+                tracksByPath.removeAll()
+                for track in tracks {
+                    tracksByPath[track.url.path] = track
+                }
             }
         } catch {
             print("Failed to load library: \(error)")

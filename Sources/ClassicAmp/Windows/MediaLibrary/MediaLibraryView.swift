@@ -351,7 +351,7 @@ class MediaLibraryView: NSView {
         if library.isScanning {
             statusText = String(format: "Scanning... %.0f%%", library.scanProgress * 100)
         } else {
-            statusText = "\(library.tracks.count) tracks in library"
+            statusText = "\(library.tracksSnapshot.count) tracks in library"
         }
         
         let attrs: [NSAttributedString.Key: Any] = [
@@ -397,7 +397,7 @@ class MediaLibraryView: NSView {
         let library = MediaLibrary.shared
         
         // Apply search filter
-        var filteredTracks = library.tracks
+        var filteredTracks = library.tracksSnapshot
         if !searchQuery.isEmpty {
             filteredTracks = library.search(query: searchQuery)
         }
@@ -473,7 +473,7 @@ class MediaLibraryView: NSView {
                     continue
                 }
                 
-                let tracksInGenre = library.tracks.filter { $0.genre == genre }
+                let tracksInGenre = library.tracksSnapshot.filter { $0.genre == genre }
                 displayItems.append(LibraryDisplayItem(
                     id: genre,
                     title: genre,
@@ -650,7 +650,7 @@ class MediaLibraryView: NSView {
             
         case .genre(let genre):
             // Add all tracks of this genre
-            let tracks = MediaLibrary.shared.tracks.filter { $0.genre == genre }
+            let tracks = MediaLibrary.shared.tracksSnapshot.filter { $0.genre == genre }
             let urls = tracks.map { $0.url }
             WindowManager.shared.audioEngine.loadFiles(urls)
             WindowManager.shared.audioEngine.play()
@@ -737,6 +737,7 @@ class MediaLibraryView: NSView {
             return false
         }
         
+        var fileURLs: [URL] = []
         for url in items {
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
@@ -746,10 +747,14 @@ class MediaLibraryView: NSView {
                 } else {
                     let audioExtensions = ["mp3", "m4a", "aac", "wav", "aiff", "flac", "ogg", "alac"]
                     if audioExtensions.contains(url.pathExtension.lowercased()) {
-                        MediaLibrary.shared.addTrack(url: url)
+                        fileURLs.append(url)
                     }
                 }
             }
+        }
+        
+        if !fileURLs.isEmpty {
+            MediaLibrary.shared.addTracks(urls: fileURLs)
         }
         
         return true
