@@ -22,6 +22,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Show the main player window
         windowManager.showMainWindow()
         
+        // Bring app to foreground after windows are created
+        NSApp.activate(ignoringOtherApps: true)
+        windowManager.mainWindowController?.window?.makeKeyAndOrderFront(nil)
+        
         // Set up the application menu
         setupMainMenu()
     }
@@ -37,6 +41,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        return true
+    }
+    
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        windowManager.mainWindowController?.window?.makeKeyAndOrderFront(nil)
         return true
     }
     

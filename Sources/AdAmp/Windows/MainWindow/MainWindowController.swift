@@ -16,10 +16,10 @@ class MainWindowController: NSWindowController {
     // MARK: - Initialization
     
     convenience init() {
-        // Create resizable borderless window
+        // Create borderless window with manual resize handling
         let window = ResizableWindow(
             contentRect: NSRect(origin: .zero, size: Skin.mainWindowSize),
-            styleMask: [.borderless],
+            styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
         )
