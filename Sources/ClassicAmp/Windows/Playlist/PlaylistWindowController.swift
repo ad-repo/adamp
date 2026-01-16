@@ -56,7 +56,7 @@ class PlaylistWindowController: NSWindowController {
     // MARK: - Public Methods
     
     func skinDidChange() {
-        playlistView.needsDisplay = true
+        playlistView.skinDidChange()
     }
     
     func reloadPlaylist() {

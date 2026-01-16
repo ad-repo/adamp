@@ -1,6 +1,6 @@
 import AppKit
 
-/// Equalizer view - 10-band graphic equalizer
+/// Equalizer view - 10-band graphic equalizer with skin support
 class EQView: NSView {
     
     // MARK: - Properties
@@ -26,7 +26,13 @@ class EQView: NSView {
     private var isDragging = false
     private var dragStartPoint: NSPoint = .zero
     
-    // MARK: - Layout
+    /// Button being pressed
+    private var pressedButton: ButtonType?
+    
+    /// Region manager for hit testing
+    private let regionManager = RegionManager.shared
+    
+    // MARK: - Layout Constants
     
     private struct Layout {
         static let titleBarHeight: CGFloat = 14
@@ -88,209 +94,46 @@ class EQView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         
+        // Flip coordinate system to match Winamp's top-down coordinates
+        context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        
         let skin = WindowManager.shared.currentSkin
+        let renderer = SkinRenderer(skin: skin ?? SkinLoader.shared.loadDefault())
         
-        // Draw background
-        if let eqImage = skin?.eqmain {
-            drawImage(eqImage, in: bounds, context: context)
-        } else {
-            drawDefaultBackground(context: context)
-        }
+        let isActive = window?.isKeyWindow ?? true
         
-        // Draw title bar
-        drawTitleBar(context: context)
+        // Draw EQ background
+        renderer.drawEqualizerBackground(in: context, bounds: bounds, isActive: isActive)
         
-        // Draw toggle buttons
-        drawToggleButtons(context: context)
+        // Draw ON/OFF button
+        let onState: ButtonState = isEnabled ? .active : .normal
+        renderer.drawButton(.eqOnOff, state: onState,
+                           at: SkinElements.Equalizer.Positions.onButton, in: context)
+        
+        // Draw AUTO button
+        let autoState: ButtonState = isAuto ? .active : .normal
+        renderer.drawButton(.eqAuto, state: autoState,
+                           at: SkinElements.Equalizer.Positions.autoButton, in: context)
+        
+        // Draw PRESETS button
+        let presetsState: ButtonState = pressedButton == .eqPresets ? .pressed : .normal
+        renderer.drawButton(.eqPresets, state: presetsState,
+                           at: SkinElements.Equalizer.Positions.presetsButton, in: context)
         
         // Draw preamp slider
-        drawPreampSlider(context: context)
+        renderer.drawEQSlider(bandIndex: -1, value: CGFloat(preamp), isPreamp: true, in: context)
         
         // Draw EQ band sliders
-        drawBandSliders(context: context)
+        for i in 0..<10 {
+            renderer.drawEQSlider(bandIndex: i, value: CGFloat(bands[i]), isPreamp: false, in: context)
+        }
         
         // Draw EQ curve graph
         drawEQGraph(context: context)
-    }
-    
-    private func drawDefaultBackground(context: CGContext) {
-        // Dark background
-        NSColor(calibratedWhite: 0.15, alpha: 1.0).setFill()
-        context.fill(bounds)
-    }
-    
-    private func drawTitleBar(context: CGContext) {
-        let titleRect = NSRect(x: 0, y: bounds.height - Layout.titleBarHeight,
-                               width: bounds.width, height: Layout.titleBarHeight)
         
-        // Gradient title bar
-        let gradient = NSGradient(colors: [
-            NSColor(calibratedRed: 0.1, green: 0.1, blue: 0.4, alpha: 1.0),
-            NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.2, alpha: 1.0)
-        ])
-        gradient?.draw(in: titleRect, angle: 90)
-        
-        // Title text
-        let title = "EQUALIZER"
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor.white,
-            .font: NSFont.boldSystemFont(ofSize: 8)
-        ]
-        let titlePoint = NSPoint(x: 6, y: bounds.height - Layout.titleBarHeight + 2)
-        title.draw(at: titlePoint, withAttributes: attrs)
-        
-        // Close button
-        NSColor.red.withAlphaComponent(0.8).setFill()
-        context.fillEllipse(in: Layout.closeRect)
-    }
-    
-    private func drawToggleButtons(context: CGContext) {
-        // ON/OFF button
-        drawToggleButton(
-            in: Layout.onOffRect,
-            title: "ON",
-            isActive: isEnabled,
-            context: context
-        )
-        
-        // AUTO button
-        drawToggleButton(
-            in: Layout.autoRect,
-            title: "AUTO",
-            isActive: isAuto,
-            context: context
-        )
-        
-        // PRESETS button
-        drawButton(
-            in: Layout.presetsRect,
-            title: "PRESETS",
-            context: context
-        )
-    }
-    
-    private func drawToggleButton(in rect: NSRect, title: String, isActive: Bool, context: CGContext) {
-        // Background
-        let bgColor = isActive ? NSColor.green.withAlphaComponent(0.3) : NSColor(calibratedWhite: 0.2, alpha: 1.0)
-        bgColor.setFill()
-        let path = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
-        path.fill()
-        
-        // Border
-        let borderColor = isActive ? NSColor.green : NSColor.gray
-        borderColor.setStroke()
-        path.stroke()
-        
-        // Text
-        let textColor = isActive ? NSColor.green : NSColor.gray
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: textColor,
-            .font: NSFont.boldSystemFont(ofSize: 7)
-        ]
-        let textSize = title.size(withAttributes: attrs)
-        let textPoint = NSPoint(
-            x: rect.midX - textSize.width / 2,
-            y: rect.midY - textSize.height / 2
-        )
-        title.draw(at: textPoint, withAttributes: attrs)
-    }
-    
-    private func drawButton(in rect: NSRect, title: String, context: CGContext) {
-        // Background
-        NSColor(calibratedWhite: 0.2, alpha: 1.0).setFill()
-        let path = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
-        path.fill()
-        
-        // Border
-        NSColor.gray.setStroke()
-        path.stroke()
-        
-        // Text
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor.lightGray,
-            .font: NSFont.systemFont(ofSize: 7)
-        ]
-        let textSize = title.size(withAttributes: attrs)
-        let textPoint = NSPoint(
-            x: rect.midX - textSize.width / 2,
-            y: rect.midY - textSize.height / 2
-        )
-        title.draw(at: textPoint, withAttributes: attrs)
-    }
-    
-    private func drawPreampSlider(context: CGContext) {
-        drawSlider(
-            in: Layout.preampRect,
-            value: preamp,
-            label: "PRE",
-            context: context
-        )
-    }
-    
-    private func drawBandSliders(context: CGContext) {
-        for i in 0..<10 {
-            let rect = NSRect(
-                x: Layout.bandStartX + CGFloat(i) * Layout.bandSpacing,
-                y: Layout.bandY,
-                width: Layout.bandWidth,
-                height: Layout.bandHeight
-            )
-            
-            drawSlider(
-                in: rect,
-                value: bands[i],
-                label: Layout.frequencies[i],
-                context: context
-            )
-        }
-    }
-    
-    private func drawSlider(in rect: NSRect, value: Float, label: String, context: CGContext) {
-        // Track background
-        let trackRect = NSRect(x: rect.midX - 2, y: rect.minY, width: 4, height: rect.height)
-        NSColor(calibratedWhite: 0.1, alpha: 1.0).setFill()
-        context.fill(trackRect)
-        
-        // Center line (0 dB)
-        NSColor.gray.setStroke()
-        let centerY = rect.midY
-        context.move(to: CGPoint(x: rect.minX, y: centerY))
-        context.addLine(to: CGPoint(x: rect.maxX, y: centerY))
-        context.strokePath()
-        
-        // Slider thumb position
-        let normalizedValue = (value + 12) / 24  // -12..+12 to 0..1
-        let thumbY = rect.minY + rect.height * CGFloat(normalizedValue)
-        let thumbRect = NSRect(x: rect.minX, y: thumbY - 5, width: rect.width, height: 10)
-        
-        // Draw fill from center to thumb
-        let fillColor = value >= 0 ? NSColor.green : NSColor.orange
-        fillColor.withAlphaComponent(0.5).setFill()
-        
-        if value >= 0 {
-            let fillRect = NSRect(x: rect.midX - 2, y: centerY, width: 4, height: thumbY - centerY)
-            context.fill(fillRect)
-        } else {
-            let fillRect = NSRect(x: rect.midX - 2, y: thumbY, width: 4, height: centerY - thumbY)
-            context.fill(fillRect)
-        }
-        
-        // Thumb
-        fillColor.setFill()
-        let thumbPath = NSBezierPath(roundedRect: thumbRect, xRadius: 2, yRadius: 2)
-        thumbPath.fill()
-        
-        // Label
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor.gray,
-            .font: NSFont.systemFont(ofSize: 6)
-        ]
-        let labelSize = label.size(withAttributes: attrs)
-        let labelPoint = NSPoint(
-            x: rect.midX - labelSize.width / 2,
-            y: rect.minY - 10
-        )
-        label.draw(at: labelPoint, withAttributes: attrs)
+        context.restoreGState()
     }
     
     private func drawEQGraph(context: CGContext) {
@@ -336,57 +179,55 @@ class EQView: NSView {
         context.stroke(rect)
     }
     
-    private func drawImage(_ image: NSImage, in rect: NSRect, context: CGContext) {
-        image.draw(in: rect,
-                   from: NSRect(origin: .zero, size: image.size),
-                   operation: .sourceOver,
-                   fraction: 1.0)
+    // MARK: - Public Methods
+    
+    func skinDidChange() {
+        needsDisplay = true
     }
     
     // MARK: - Mouse Events
     
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        let winampPoint = NSPoint(x: point.x, y: bounds.height - point.y)
         
         // Check title bar for dragging
-        let titleRect = NSRect(x: 0, y: bounds.height - Layout.titleBarHeight,
-                               width: bounds.width - 15, height: Layout.titleBarHeight)
-        
-        if titleRect.contains(point) {
+        if winampPoint.y < Layout.titleBarHeight && winampPoint.x < bounds.width - 15 {
             isDragging = true
             dragStartPoint = event.locationInWindow
             return
         }
         
         // Close button
-        if Layout.closeRect.contains(point) {
+        if Layout.closeRect.contains(winampPoint) {
             window?.close()
             return
         }
         
         // Toggle buttons
-        if Layout.onOffRect.contains(point) {
+        if Layout.onOffRect.contains(winampPoint) {
             isEnabled.toggle()
             WindowManager.shared.audioEngine.setEQEnabled(isEnabled)
             needsDisplay = true
             return
         }
         
-        if Layout.autoRect.contains(point) {
+        if Layout.autoRect.contains(winampPoint) {
             isAuto.toggle()
             needsDisplay = true
             return
         }
         
-        if Layout.presetsRect.contains(point) {
-            showPresetsMenu(at: point)
+        if Layout.presetsRect.contains(winampPoint) {
+            pressedButton = .eqPresets
+            needsDisplay = true
             return
         }
         
         // Check sliders
-        if let sliderIndex = hitTestSlider(at: point) {
+        if let sliderIndex = hitTestSlider(at: winampPoint) {
             draggingSlider = sliderIndex
-            updateSlider(at: point)
+            updateSlider(at: winampPoint)
         }
     }
     
@@ -410,18 +251,33 @@ class EQView: NSView {
         
         if draggingSlider != nil {
             let point = convert(event.locationInWindow, from: nil)
-            updateSlider(at: point)
+            let winampPoint = NSPoint(x: point.x, y: bounds.height - point.y)
+            updateSlider(at: winampPoint)
         }
     }
     
     override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let winampPoint = NSPoint(x: point.x, y: bounds.height - point.y)
+        
+        // Handle presets button release
+        if pressedButton == .eqPresets {
+            if Layout.presetsRect.contains(winampPoint) {
+                showPresetsMenu(at: point)
+            }
+            pressedButton = nil
+            needsDisplay = true
+        }
+        
         isDragging = false
         draggingSlider = nil
     }
     
     private func hitTestSlider(at point: NSPoint) -> Int? {
-        // Check preamp
-        if Layout.preampRect.contains(point) {
+        // Check preamp (Winamp coordinates - y increases downward)
+        let preampRect = Layout.preampRect
+        if point.x >= preampRect.minX && point.x <= preampRect.maxX &&
+           point.y >= preampRect.minY && point.y <= preampRect.minY + preampRect.height {
             return -1
         }
         
@@ -434,7 +290,8 @@ class EQView: NSView {
                 height: Layout.bandHeight
             )
             
-            if rect.contains(point) {
+            if point.x >= rect.minX && point.x <= rect.maxX &&
+               point.y >= rect.minY && point.y <= rect.minY + rect.height {
                 return i
             }
         }
@@ -457,8 +314,9 @@ class EQView: NSView {
             )
         }
         
-        // Calculate value from position
-        let normalizedY = (point.y - rect.minY) / rect.height
+        // Calculate value from position (Winamp coordinates - y=0 at top)
+        // Bottom of slider = +12dB, Top of slider = -12dB
+        let normalizedY = 1.0 - (point.y - rect.minY) / rect.height
         let clampedY = max(0, min(1, normalizedY))
         let value = Float(clampedY) * 24 - 12  // 0..1 to -12..+12
         

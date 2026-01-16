@@ -110,21 +110,27 @@ ClassicAmp supports classic Winamp 2.x skins (.wsz files). Key supported feature
 - [x] Basic main window
 - [x] Basic unit tests for models
 
-### Phase 2: Skin Engine (In Progress)
+### Phase 2: Skin Engine ✅
 - [x] WSZ file extraction
 - [x] BMP parsing (8/24/32-bit, RLE)
-- [ ] Complete sprite rendering
-- [ ] Region-based hit testing
+- [x] Complete sprite rendering (SkinRenderer)
+- [x] Sprite coordinate definitions (SkinElements)
+- [x] Region-based hit testing (SkinRegion)
+- [x] Skin-aware main window view
+- [x] Skin-aware EQ and Playlist views
+- [x] Fallback rendering for missing skin assets
 
-### Phase 3: All Windows
-- [ ] Complete main window
-- [ ] Playlist editor
-- [ ] Equalizer
+### Phase 3: All Windows (In Progress)
+- [x] Complete main window with skin support
+- [x] Playlist editor with skin support
+- [x] Equalizer with skin support
+- [ ] Shade mode for all windows
+- [ ] Complete all button interactions
 
 ### Phase 4: Features
 - [ ] Media library
-- [ ] Shade mode
-- [ ] Window docking
+- [ ] Window docking improvements
+- [ ] Visualization support
 
 ### Phase 5: Polish
 - [ ] Extended format support (OGG, Opus)

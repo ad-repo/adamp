@@ -4,10 +4,10 @@ overview: Build a native Swift/AppKit macOS application that faithfully recreate
 todos:
   - id: phase1-foundation
     content: "Phase 1: Project setup, audio engine, basic main window"
-    status: pending
+    status: completed
   - id: phase2-skins
     content: "Phase 2: Skin parser, renderer, and region detection"
-    status: pending
+    status: completed
   - id: phase3-windows
     content: "Phase 3: Playlist, EQ, and additional windows"
     status: pending

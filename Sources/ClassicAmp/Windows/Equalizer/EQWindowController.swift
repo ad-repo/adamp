@@ -54,7 +54,7 @@ class EQWindowController: NSWindowController {
     // MARK: - Public Methods
     
     func skinDidChange() {
-        eqView.needsDisplay = true
+        eqView.skinDidChange()
     }
     
     // MARK: - Private Properties
