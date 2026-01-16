@@ -35,7 +35,8 @@ class MainWindowController: NSWindowController {
     private func setupWindow() {
         guard let window = window else { return }
         
-        window.isMovableByWindowBackground = false
+        // Enable dragging from anywhere in the window (like normal Mac apps)
+        window.isMovableByWindowBackground = true
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = true
@@ -48,7 +49,7 @@ class MainWindowController: NSWindowController {
         // Center on screen initially
         window.center()
         
-        // Set up window delegate for movement handling
+        // Set up window delegate
         window.delegate = self
     }
     

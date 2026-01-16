@@ -171,78 +171,10 @@ class WindowManager {
         dockedWindowsToMove.removeAll()
     }
     
-    /// Called when a window is being dragged - handles snapping and grouped movement
+    /// Called when a window is being dragged - just return the new position without constraints
     func windowWillMove(_ window: NSWindow, to newOrigin: NSPoint) -> NSPoint {
-        var snappedOrigin = newOrigin
-        
-        // Get all other windows (excluding docked ones that will move together)
-        let otherWindows = allWindows().filter { $0 !== window && !dockedWindowsToMove.contains($0) }
-        
-        // Check for snapping to other windows
-        for otherWindow in otherWindows {
-            let otherFrame = otherWindow.frame
-            let windowFrame = NSRect(origin: newOrigin, size: window.frame.size)
-            
-            // Snap right edge to left edge
-            if abs(windowFrame.maxX - otherFrame.minX) < snapThreshold {
-                snappedOrigin.x = otherFrame.minX - window.frame.width
-            }
-            // Snap left edge to right edge
-            if abs(windowFrame.minX - otherFrame.maxX) < snapThreshold {
-                snappedOrigin.x = otherFrame.maxX
-            }
-            // Snap bottom edge to top edge
-            if abs(windowFrame.minY - otherFrame.maxY) < snapThreshold {
-                snappedOrigin.y = otherFrame.maxY
-            }
-            // Snap top edge to bottom edge
-            if abs(windowFrame.maxY - otherFrame.minY) < snapThreshold {
-                snappedOrigin.y = otherFrame.minY - window.frame.height
-            }
-            
-            // Align tops
-            if abs(windowFrame.maxY - otherFrame.maxY) < snapThreshold {
-                snappedOrigin.y = otherFrame.maxY - window.frame.height
-            }
-            // Align bottoms
-            if abs(windowFrame.minY - otherFrame.minY) < snapThreshold {
-                snappedOrigin.y = otherFrame.minY
-            }
-        }
-        
-        // Snap to screen edges
-        if let screen = window.screen {
-            let visibleFrame = screen.visibleFrame
-            
-            if abs(snappedOrigin.x - visibleFrame.minX) < snapThreshold {
-                snappedOrigin.x = visibleFrame.minX
-            }
-            if abs(snappedOrigin.x + window.frame.width - visibleFrame.maxX) < snapThreshold {
-                snappedOrigin.x = visibleFrame.maxX - window.frame.width
-            }
-            if abs(snappedOrigin.y - visibleFrame.minY) < snapThreshold {
-                snappedOrigin.y = visibleFrame.minY
-            }
-            if abs(snappedOrigin.y + window.frame.height - visibleFrame.maxY) < snapThreshold {
-                snappedOrigin.y = visibleFrame.maxY - window.frame.height
-            }
-        }
-        
-        // Move docked windows together
-        let finalDelta = NSPoint(
-            x: snappedOrigin.x - window.frame.origin.x,
-            y: snappedOrigin.y - window.frame.origin.y
-        )
-        
-        for dockedWindow in dockedWindowsToMove {
-            let newDockedOrigin = NSPoint(
-                x: dockedWindow.frame.origin.x + finalDelta.x,
-                y: dockedWindow.frame.origin.y + finalDelta.y
-            )
-            dockedWindow.setFrameOrigin(newDockedOrigin)
-        }
-        
-        return snappedOrigin
+        // Let macOS handle window positioning naturally - no snapping or constraints
+        return newOrigin
     }
     
     /// Find all windows that are docked (touching) the given window

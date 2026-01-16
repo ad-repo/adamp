@@ -17,8 +17,6 @@ class PlaylistView: NSView {
     private let itemHeight: CGFloat = 13
     
     /// Dragging state
-    private var isDragging = false
-    private var dragStartPoint: NSPoint = .zero
     
     /// Region manager
     private let regionManager = RegionManager.shared
@@ -32,10 +30,16 @@ class PlaylistView: NSView {
     // MARK: - Layout
     
     private struct Layout {
+        // Skin-based layout
         static let titleBarHeight: CGFloat = 20
-        static let buttonBarHeight: CGFloat = 29
-        static let padding: CGFloat = 3
-        static let scrollbarWidth: CGFloat = 12
+        static let bottomBarHeight: CGFloat = 38
+        static let leftBorder: CGFloat = 4   // Small padding for content
+        static let rightBorder: CGFloat = 4  // Small padding for content
+        static let scrollbarWidth: CGFloat = 8
+        
+        // Fallback layout (when no skin)
+        static let fallbackButtonBarHeight: CGFloat = 29
+        static let fallbackPadding: CGFloat = 3
     }
     
     // MARK: - Initialization
@@ -62,87 +66,250 @@ class PlaylistView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         
-        // Flip coordinate system to match Winamp's top-down coordinates
-        context.saveGState()
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
-        
         let skin = WindowManager.shared.currentSkin
         let renderer = SkinRenderer(skin: skin ?? SkinLoader.shared.loadDefault())
         
         if isShadeMode {
-            // Draw shade mode
+            // Draw shade mode with flipped coordinates for skin sprites
+            context.saveGState()
+            context.translateBy(x: 0, y: bounds.height)
+            context.scaleBy(x: 1, y: -1)
+            
             let isActive = window?.isKeyWindow ?? true
             renderer.drawPlaylistShade(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
+            
+            context.restoreGState()
         } else {
-            // Draw normal mode
+            // Draw normal mode - use standard macOS coordinates for text
+            // Only flip context when drawing skin sprites
             drawNormalMode(renderer: renderer, context: context, skin: skin)
         }
-        
-        context.restoreGState()
     }
     
     /// Draw normal (non-shade) mode
     private func drawNormalMode(renderer: SkinRenderer, context: CGContext, skin: Skin?) {
-        // Draw playlist background (handles tiled rendering for resizable window)
-        renderer.drawPlaylistBackground(in: context, bounds: bounds)
+        // Draw everything in standard macOS coordinates (no flipping)
+        // This avoids coordinate confusion between skin sprites and programmatic drawing
         
-        // Draw title bar
-        drawTitleBar(context: context)
-        
-        // Draw track list
         let colors = skin?.playlistColors ?? .default
+        
+        // Fill entire background with playlist color first
+        colors.normalBackground.setFill()
+        context.fill(bounds)
+        
+        // Draw title bar at top
+        drawPlaylistTitleBar(context: context)
+        
+        // Draw track list in the middle
         drawTrackList(context: context, colors: colors)
         
-        // Draw button bar
-        drawButtonBar(context: context)
+        // Draw scrollbar
+        drawPlaylistScrollbar(context: context)
         
-        // Draw resize handle
-        drawResizeHandle(context: context)
+        // Draw bottom bar with buttons
+        drawPlaylistBottomBar(context: context)
     }
     
-    private func drawTitleBar(context: CGContext) {
-        let titleRect = NSRect(x: 0, y: 0,
+    /// Draw Winamp-style playlist title bar
+    private func drawPlaylistTitleBar(context: CGContext) {
+        let titleRect = NSRect(x: 0, y: bounds.height - Layout.titleBarHeight,
                                width: bounds.width, height: Layout.titleBarHeight)
         
-        if WindowManager.shared.currentSkin?.pledit == nil {
-            // Dark gradient title bar (fallback when no skin image)
-            let gradient = NSGradient(colors: [
-                NSColor(calibratedRed: 0.1, green: 0.1, blue: 0.4, alpha: 1.0),
-                NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.2, alpha: 1.0)
-            ])
-            gradient?.draw(in: titleRect, angle: 90)
-        }
+        // Dark blue gradient background
+        let gradient = NSGradient(colors: [
+            NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.25, alpha: 1.0),
+            NSColor(calibratedRed: 0.10, green: 0.10, blue: 0.18, alpha: 1.0)
+        ])
+        gradient?.draw(in: titleRect, angle: 90)
+        
+        // Left decorative bar
+        NSColor(calibratedRed: 0.5, green: 0.5, blue: 0.3, alpha: 1.0).setFill()
+        context.fill(NSRect(x: 4, y: bounds.height - 14, width: 8, height: 8))
         
         // Title text
-        let title = "Playlist Editor"
+        let title = "WINAMP PLAYLIST"
         let attrs: [NSAttributedString.Key: Any] = [
             .foregroundColor: NSColor.white,
             .font: NSFont.boldSystemFont(ofSize: 9)
         ]
         let titleSize = title.size(withAttributes: attrs)
-        let titlePoint = NSPoint(x: (bounds.width - titleSize.width) / 2,
-                                 y: Layout.titleBarHeight / 2 - titleSize.height / 2 + 2)
-        title.draw(at: titlePoint, withAttributes: attrs)
+        title.draw(at: NSPoint(x: 16, y: bounds.height - Layout.titleBarHeight / 2 - titleSize.height / 2), 
+                   withAttributes: attrs)
         
+        // Decorative pattern after title
+        let patternStart = 16 + titleSize.width + 4
+        NSColor(calibratedRed: 0.3, green: 0.3, blue: 0.4, alpha: 1.0).setFill()
+        var x = patternStart
+        while x < bounds.width - 30 {
+            context.fill(NSRect(x: x, y: bounds.height - 12, width: 2, height: 4))
+            x += 4
+        }
+        
+        // Window control buttons (shade, close)
+        // Shade button
+        NSColor(calibratedWhite: 0.4, alpha: 1.0).setFill()
+        context.fill(NSRect(x: bounds.width - 22, y: bounds.height - 14, width: 9, height: 9))
         // Close button
-        let closeRect = NSRect(x: bounds.width - 12, y: 5, width: 9, height: 9)
-        NSColor.red.withAlphaComponent(0.8).setFill()
-        context.fillEllipse(in: closeRect)
+        NSColor(calibratedWhite: 0.4, alpha: 1.0).setFill()
+        context.fill(NSRect(x: bounds.width - 11, y: bounds.height - 14, width: 9, height: 9))
+    }
+    
+    /// Draw Winamp-style scrollbar
+    private func drawPlaylistScrollbar(context: CGContext) {
+        let scrollbarWidth: CGFloat = 20
+        let titleHeight = Layout.titleBarHeight
+        let bottomHeight = Layout.bottomBarHeight
+        
+        let scrollRect = NSRect(
+            x: bounds.width - scrollbarWidth,
+            y: bottomHeight,
+            width: scrollbarWidth,
+            height: bounds.height - titleHeight - bottomHeight
+        )
+        
+        // Scrollbar background
+        NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0).setFill()
+        context.fill(scrollRect)
+        
+        // Scrollbar thumb (golden/tan color like Winamp)
+        let tracks = WindowManager.shared.audioEngine.playlist
+        let listHeight = scrollRect.height
+        let totalContentHeight = CGFloat(tracks.count) * itemHeight
+        
+        if totalContentHeight > 0 {
+            let thumbHeight = max(20, listHeight * min(1, listHeight / max(1, totalContentHeight)))
+            let scrollRange = totalContentHeight - listHeight
+            let thumbY: CGFloat
+            if scrollRange > 0 {
+                let progress = scrollOffset / scrollRange
+                thumbY = scrollRect.minY + (scrollRect.height - thumbHeight) * (1 - progress)
+            } else {
+                thumbY = scrollRect.minY
+            }
+            
+            // Draw thumb with Winamp golden color
+            NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.35, alpha: 1.0).setFill()
+            let thumbRect = NSRect(x: scrollRect.minX + 2, y: thumbY, 
+                                   width: scrollRect.width - 4, height: thumbHeight)
+            context.fill(thumbRect)
+            
+            // Thumb highlight
+            NSColor(calibratedRed: 0.7, green: 0.65, blue: 0.45, alpha: 1.0).setFill()
+            context.fill(NSRect(x: thumbRect.minX, y: thumbRect.maxY - 2, 
+                                width: thumbRect.width, height: 2))
+        }
+    }
+    
+    /// Draw Winamp-style bottom bar with buttons
+    private func drawPlaylistBottomBar(context: CGContext) {
+        let barRect = NSRect(x: 0, y: 0, width: bounds.width, height: Layout.bottomBarHeight)
+        
+        // Background
+        NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0).setFill()
+        context.fill(barRect)
+        
+        // Top border line
+        NSColor(calibratedRed: 0.25, green: 0.25, blue: 0.35, alpha: 1.0).setFill()
+        context.fill(NSRect(x: 0, y: Layout.bottomBarHeight - 1, width: bounds.width, height: 1))
+        
+        // Draw buttons: ADD, REM, SEL, MISC
+        let buttonY: CGFloat = 4
+        let buttonHeight: CGFloat = 18
+        let buttonColor = NSColor(calibratedRed: 0.25, green: 0.25, blue: 0.3, alpha: 1.0)
+        let buttonHighlight = NSColor(calibratedRed: 0.35, green: 0.35, blue: 0.4, alpha: 1.0)
+        let buttonShadow = NSColor(calibratedRed: 0.1, green: 0.1, blue: 0.15, alpha: 1.0)
+        
+        let buttons = ["ADD", "REM", "SEL", "MISC"]
+        var x: CGFloat = 4
+        
+        for title in buttons {
+            let buttonWidth: CGFloat = 40
+            let buttonRect = NSRect(x: x, y: buttonY, width: buttonWidth, height: buttonHeight)
+            
+            // Button face
+            buttonColor.setFill()
+            context.fill(buttonRect)
+            
+            // Highlight (top and left)
+            buttonHighlight.setFill()
+            context.fill(NSRect(x: buttonRect.minX, y: buttonRect.maxY - 1, width: buttonRect.width, height: 1))
+            context.fill(NSRect(x: buttonRect.minX, y: buttonRect.minY, width: 1, height: buttonRect.height))
+            
+            // Shadow (bottom and right)
+            buttonShadow.setFill()
+            context.fill(NSRect(x: buttonRect.minX, y: buttonRect.minY, width: buttonRect.width, height: 1))
+            context.fill(NSRect(x: buttonRect.maxX - 1, y: buttonRect.minY, width: 1, height: buttonRect.height))
+            
+            // Button text
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 8)
+            ]
+            let textSize = title.size(withAttributes: attrs)
+            let textPoint = NSPoint(
+                x: buttonRect.midX - textSize.width / 2,
+                y: buttonRect.midY - textSize.height / 2
+            )
+            title.draw(at: textPoint, withAttributes: attrs)
+            
+            x += buttonWidth + 2
+        }
+        
+        // Time display in center
+        let tracks = WindowManager.shared.audioEngine.playlist
+        let engine = WindowManager.shared.audioEngine
+        let currentTime = engine.currentTime
+        let duration = engine.duration
+        let timeStr = String(format: "%d:%02d/%d:%02d", 
+                            Int(currentTime) / 60, Int(currentTime) % 60,
+                            Int(duration) / 60, Int(duration) % 60)
+        
+        let timeAttrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.green,
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        ]
+        let timeSize = timeStr.size(withAttributes: timeAttrs)
+        let timeX = bounds.width / 2 - timeSize.width / 2
+        timeStr.draw(at: NSPoint(x: timeX, y: 8), withAttributes: timeAttrs)
+        
+        // LIST OPTS button on right
+        let listOptsRect = NSRect(x: bounds.width - 50, y: buttonY, width: 46, height: buttonHeight)
+        buttonColor.setFill()
+        context.fill(listOptsRect)
+        buttonHighlight.setFill()
+        context.fill(NSRect(x: listOptsRect.minX, y: listOptsRect.maxY - 1, width: listOptsRect.width, height: 1))
+        buttonShadow.setFill()
+        context.fill(NSRect(x: listOptsRect.minX, y: listOptsRect.minY, width: listOptsRect.width, height: 1))
+        
+        let listAttrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.systemFont(ofSize: 7)
+        ]
+        "LIST".draw(at: NSPoint(x: listOptsRect.midX - 10, y: listOptsRect.midY + 2), withAttributes: listAttrs)
+        "OPTS".draw(at: NSPoint(x: listOptsRect.midX - 10, y: listOptsRect.midY - 6), withAttributes: listAttrs)
+        
+        // Track count
+        let countStr = "\(tracks.count) tracks"
+        let countAttrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.green,
+            .font: NSFont.systemFont(ofSize: 8)
+        ]
+        let countSize = countStr.size(withAttributes: countAttrs)
+        countStr.draw(at: NSPoint(x: bounds.width - 55 - countSize.width, y: 24), withAttributes: countAttrs)
     }
     
     private func drawTrackList(context: CGContext, colors: PlaylistColors) {
-        // List area in Winamp coordinates (y=0 at top)
-        let listRect = NSRect(
-            x: Layout.padding,
-            y: Layout.titleBarHeight + Layout.padding,
-            width: bounds.width - Layout.padding * 2 - Layout.scrollbarWidth - 3,
-            height: bounds.height - Layout.titleBarHeight - Layout.buttonBarHeight - Layout.padding * 2
-        )
+        let titleHeight = Layout.titleBarHeight
+        let bottomHeight = Layout.bottomBarHeight
+        let scrollbarWidth: CGFloat = 20
         
-        // Background
-        colors.normalBackground.setFill()
-        context.fill(listRect)
+        // List area - leave room for scrollbar on right
+        let listRect = NSRect(
+            x: 2,
+            y: bottomHeight,
+            width: bounds.width - 4 - scrollbarWidth,
+            height: bounds.height - titleHeight - bottomHeight
+        )
         
         // Clip to list area
         context.saveGState()
@@ -156,7 +323,8 @@ class PlaylistView: NSView {
         let visibleEnd = min(tracks.count, visibleStart + Int(listRect.height / itemHeight) + 2)
         
         for index in visibleStart..<visibleEnd {
-            let y = listRect.minY + CGFloat(index) * itemHeight - scrollOffset
+            // In macOS coords, items go from top to bottom
+            let y = listRect.maxY - CGFloat(index + 1) * itemHeight + scrollOffset
             
             // Skip if outside visible area
             if y + itemHeight < listRect.minY || y > listRect.maxY {
@@ -171,113 +339,32 @@ class PlaylistView: NSView {
                 context.fill(itemRect)
             }
             
-            // Draw text
+            // Draw track info like Winamp: "1. Title                    0:00"
             let track = tracks[index]
-            let textColor = index == currentIndex ? colors.currentText : colors.normalText
-            let attrs: [NSAttributedString.Key: Any] = [
+            let isCurrentTrack = index == currentIndex
+            let textColor = isCurrentTrack ? colors.currentText : colors.normalText
+            
+            // Track number and title
+            let titleAttrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: textColor,
                 .font: colors.font
             ]
+            let titleText = "\(index + 1). \(track.displayTitle)"
+            titleText.draw(at: NSPoint(x: itemRect.minX + 2, y: itemRect.minY + 1), withAttributes: titleAttrs)
             
-            // Format: "1. Artist - Title"
-            let displayText = "\(index + 1). \(track.displayTitle)"
-            displayText.draw(in: itemRect.insetBy(dx: 2, dy: 1), withAttributes: attrs)
+            // Duration (right-aligned)
+            let duration = track.duration ?? 0
+            let durationStr = String(format: "%d:%02d", Int(duration) / 60, Int(duration) % 60)
+            let durationAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: textColor,
+                .font: colors.font
+            ]
+            let durationSize = durationStr.size(withAttributes: durationAttrs)
+            durationStr.draw(at: NSPoint(x: itemRect.maxX - durationSize.width - 4, y: itemRect.minY + 1), 
+                            withAttributes: durationAttrs)
         }
         
         context.restoreGState()
-        
-        // Draw scrollbar
-        let scrollbarRect = NSRect(
-            x: bounds.width - Layout.padding - Layout.scrollbarWidth,
-            y: listRect.minY,
-            width: Layout.scrollbarWidth,
-            height: listRect.height
-        )
-        drawScrollbar(in: scrollbarRect, context: context, trackCount: tracks.count, listHeight: listRect.height)
-    }
-    
-    private func drawScrollbar(in rect: NSRect, context: CGContext, trackCount: Int, listHeight: CGFloat) {
-        // Background
-        NSColor(calibratedWhite: 0.2, alpha: 1.0).setFill()
-        context.fill(rect)
-        
-        let totalHeight = CGFloat(trackCount) * itemHeight
-        if totalHeight <= listHeight { return }
-        
-        // Calculate thumb size and position
-        let thumbHeight = max(20, rect.height * (listHeight / totalHeight))
-        let scrollRange = totalHeight - listHeight
-        let scrollProgress = scrollOffset / scrollRange
-        let thumbY = rect.minY + (rect.height - thumbHeight) * scrollProgress
-        
-        let thumbRect = NSRect(x: rect.minX + 1, y: thumbY, width: rect.width - 2, height: thumbHeight)
-        NSColor(calibratedWhite: 0.5, alpha: 1.0).setFill()
-        context.fill(thumbRect)
-    }
-    
-    private func drawButtonBar(context: CGContext) {
-        // Button bar at bottom in Winamp coordinates
-        let barRect = NSRect(x: 0, y: bounds.height - Layout.buttonBarHeight,
-                            width: bounds.width, height: Layout.buttonBarHeight)
-        
-        // Dark background
-        NSColor(calibratedWhite: 0.15, alpha: 1.0).setFill()
-        context.fill(barRect)
-        
-        // Draw buttons: Add, Remove, Select, Misc, List
-        let buttonTitles = ["+ADD", "-REM", "SEL", "MISC", "LIST"]
-        let buttonWidth: CGFloat = 40
-        var x: CGFloat = 10
-        let buttonY = barRect.minY + 7
-        
-        for title in buttonTitles {
-            let buttonRect = NSRect(x: x, y: buttonY, width: buttonWidth, height: 15)
-            
-            // Button background
-            NSColor(calibratedWhite: 0.25, alpha: 1.0).setFill()
-            let path = NSBezierPath(roundedRect: buttonRect, xRadius: 2, yRadius: 2)
-            path.fill()
-            
-            // Button text
-            let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor.lightGray,
-                .font: NSFont.systemFont(ofSize: 8)
-            ]
-            let textSize = title.size(withAttributes: attrs)
-            let textPoint = NSPoint(
-                x: buttonRect.midX - textSize.width / 2,
-                y: buttonRect.midY - textSize.height / 2
-            )
-            title.draw(at: textPoint, withAttributes: attrs)
-            
-            x += buttonWidth + 5
-        }
-        
-        // Track count and total time
-        let tracks = WindowManager.shared.audioEngine.playlist
-        let infoText = "\(tracks.count) tracks"
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor.green,
-            .font: NSFont.systemFont(ofSize: 8)
-        ]
-        let infoSize = infoText.size(withAttributes: attrs)
-        infoText.draw(at: NSPoint(x: bounds.width - infoSize.width - 15, y: buttonY + 3), withAttributes: attrs)
-    }
-    
-    private func drawResizeHandle(context: CGContext) {
-        // Resize handle at bottom-right in Winamp coordinates
-        let handleRect = NSRect(x: bounds.width - 20, y: bounds.height - 20, width: 20, height: 20)
-        
-        // Draw diagonal lines
-        NSColor.gray.setStroke()
-        for i in 0..<3 {
-            let offset = CGFloat(i) * 4 + 4
-            let path = NSBezierPath()
-            path.move(to: NSPoint(x: handleRect.maxX - offset, y: handleRect.maxY))
-            path.line(to: NSPoint(x: handleRect.maxX, y: handleRect.maxY - offset))
-            path.lineWidth = 1
-            path.stroke()
-        }
     }
     
     // MARK: - Public Methods
@@ -308,49 +395,51 @@ class PlaylistView: NSView {
     
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let winampPoint = NSPoint(x: point.x, y: bounds.height - point.y)
+        let hasSkin = WindowManager.shared.currentSkin?.pledit != nil
         
         // Check for double-click on title bar to toggle shade mode
+        // Title bar is at TOP of window in macOS coords
         if event.clickCount == 2 {
-            if winampPoint.y < Layout.titleBarHeight && winampPoint.x < bounds.width - 30 {
+            if point.y > bounds.height - Layout.titleBarHeight && point.x < bounds.width - 30 {
                 toggleShadeMode()
                 return
             }
         }
         
         if isShadeMode {
+            // For shade mode, convert to Winamp coordinates
+            let winampPoint = NSPoint(x: point.x, y: bounds.height - point.y)
             handleShadeMouseDown(at: winampPoint, event: event)
             return
         }
         
-        // Check title bar for dragging
-        if winampPoint.y < Layout.titleBarHeight && winampPoint.x < bounds.width - 15 {
-            isDragging = true
-            dragStartPoint = event.locationInWindow
-            // Notify WindowManager that dragging is starting
-            if let window = window {
-                WindowManager.shared.windowWillStartDragging(window)
+        // Window dragging is handled by macOS via isMovableByWindowBackground
+        
+        // Check close button (top right in macOS coords) - only for fallback rendering
+        if !hasSkin {
+            let closeRect = NSRect(x: bounds.width - 12, y: bounds.height - 14, width: 9, height: 9)
+            if closeRect.contains(point) {
+                window?.close()
+                return
             }
-            return
         }
         
-        // Check close button
-        let closeRect = NSRect(x: bounds.width - 12, y: 5, width: 9, height: 9)
-        if closeRect.contains(winampPoint) {
-            window?.close()
-            return
-        }
+        // Calculate list area based on skin/fallback layout
+        let bottomHeight = hasSkin ? Layout.bottomBarHeight : Layout.fallbackButtonBarHeight
+        let leftPadding = hasSkin ? Layout.leftBorder : Layout.fallbackPadding
+        let rightPadding = hasSkin ? Layout.rightBorder : Layout.fallbackPadding
         
-        // Check track list click
+        let listHeight = bounds.height - Layout.titleBarHeight - bottomHeight
         let listRect = NSRect(
-            x: Layout.padding,
-            y: Layout.titleBarHeight + Layout.padding,
-            width: bounds.width - Layout.padding * 2 - Layout.scrollbarWidth - 3,
-            height: bounds.height - Layout.titleBarHeight - Layout.buttonBarHeight - Layout.padding * 2
+            x: leftPadding,
+            y: bottomHeight,
+            width: bounds.width - leftPadding - rightPadding - Layout.scrollbarWidth,
+            height: listHeight
         )
         
-        if listRect.contains(winampPoint) {
-            let relativeY = winampPoint.y - listRect.minY + scrollOffset
+        if listRect.contains(point) {
+            // Calculate which track was clicked
+            let relativeY = listRect.maxY - point.y + scrollOffset
             let clickedIndex = Int(relativeY / itemHeight)
             
             let tracks = WindowManager.shared.audioEngine.playlist
@@ -410,31 +499,7 @@ class PlaylistView: NSView {
             return
         }
         
-        // Otherwise, start dragging
-        isDragging = true
-        dragStartPoint = event.locationInWindow
-        // Notify WindowManager that dragging is starting
-        if let window = window {
-            WindowManager.shared.windowWillStartDragging(window)
-        }
-    }
-    
-    override func mouseDragged(with event: NSEvent) {
-        if isDragging {
-            guard let window = window else { return }
-            let currentPoint = event.locationInWindow
-            let delta = NSPoint(
-                x: currentPoint.x - dragStartPoint.x,
-                y: currentPoint.y - dragStartPoint.y
-            )
-            
-            var newOrigin = window.frame.origin
-            newOrigin.x += delta.x
-            newOrigin.y += delta.y
-            
-            newOrigin = WindowManager.shared.windowWillMove(window, to: newOrigin)
-            window.setFrameOrigin(newOrigin)
-        }
+        // Window dragging is handled by macOS via isMovableByWindowBackground
     }
     
     override func mouseUp(with event: NSEvent) {
@@ -469,19 +534,14 @@ class PlaylistView: NSView {
                 needsDisplay = true
             }
         }
-        
-        if isDragging {
-            // Notify WindowManager that dragging has ended
-            if let window = window {
-                WindowManager.shared.windowDidFinishDragging(window)
-            }
-        }
-        isDragging = false
     }
     
     override func scrollWheel(with event: NSEvent) {
+        let hasSkin = WindowManager.shared.currentSkin?.pledit != nil
+        let bottomHeight = hasSkin ? Layout.bottomBarHeight : Layout.fallbackButtonBarHeight
+        
         let tracks = WindowManager.shared.audioEngine.playlist
-        let listHeight = bounds.height - Layout.titleBarHeight - Layout.buttonBarHeight - Layout.padding * 2
+        let listHeight = bounds.height - Layout.titleBarHeight - bottomHeight
         let totalHeight = CGFloat(tracks.count) * itemHeight
         
         if totalHeight > listHeight {

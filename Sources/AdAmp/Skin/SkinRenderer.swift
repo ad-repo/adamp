@@ -591,35 +591,67 @@ class SkinRenderer {
     /// Draw playlist window background (handles resizable windows)
     func drawPlaylistBackground(in context: CGContext, bounds: NSRect) {
         if let pleditImage = skin.pledit {
-            // Draw corners
-            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topLeftCorner,
-                      to: NSRect(x: 0, y: 0, width: 25, height: 20), in: context)
+            // Title bar height is 20 pixels
+            let titleHeight: CGFloat = 20
+            // Bottom bar height is 38 pixels
+            let bottomHeight: CGFloat = 38
             
-            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topRightCorner,
-                      to: NSRect(x: bounds.width - 25, y: 0, width: 25, height: 20), in: context)
+            // For standard width (275), draw without tiling
+            // For wider windows, tile the middle sections
+            let standardWidth: CGFloat = 275
             
-            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.bottomLeftCorner,
-                      to: NSRect(x: 0, y: bounds.height - 38, width: 125, height: 38), in: context)
-            
-            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.bottomRightCorner,
-                      to: NSRect(x: bounds.width - 150, y: bounds.height - 38, width: 150, height: 38), in: context)
-            
-            // Tile the middle sections
-            // Top tile
-            var x = CGFloat(25)
-            while x < bounds.width - 25 {
-                let tileWidth = min(100, bounds.width - 25 - x)
-                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topTile,
-                          to: NSRect(x: x, y: 0, width: tileWidth, height: 20), in: context)
-                x += 100
+            // === TITLE BAR (TOP) ===
+            if bounds.width <= standardWidth {
+                // Draw the full title bar as one piece (no stretching)
+                let fullTitleRect = NSRect(x: 0, y: 0, width: 275, height: 20)
+                drawSprite(from: pleditImage, sourceRect: fullTitleRect,
+                          to: NSRect(x: 0, y: 0, width: min(bounds.width, 275), height: titleHeight), in: context)
+            } else {
+                // Left corner (25 pixels)
+                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topLeftCorner,
+                          to: NSRect(x: 0, y: 0, width: 25, height: titleHeight), in: context)
+                
+                // Right corner (25 pixels) - positioned at right edge
+                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topRightCorner,
+                          to: NSRect(x: bounds.width - 25, y: 0, width: 25, height: titleHeight), in: context)
+                
+                // Middle section - tile the title bar pattern (not stretch)
+                var x: CGFloat = 25
+                let tileWidth: CGFloat = 25  // Use small tiles to avoid text repetition
+                while x < bounds.width - 25 {
+                    let w = min(tileWidth, bounds.width - 25 - x)
+                    // Use a small section from the title bar that's just pattern
+                    let tileSource = NSRect(x: 127, y: 0, width: 25, height: 20)
+                    drawSprite(from: pleditImage, sourceRect: tileSource,
+                              to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
+                    x += tileWidth
+                }
             }
             
-            // Fill center with playlist background color
+            // === BOTTOM BAR ===
+            // The bottom bar is complex - for now, draw a solid background matching the skin theme
+            // This avoids rendering incorrect graphics from wrong skin coordinates
+            let bottomBarRect = NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: bottomHeight)
+            
+            // Use a dark color that matches Winamp's playlist style
+            NSColor(calibratedRed: 0.14, green: 0.14, blue: 0.18, alpha: 1.0).setFill()
+            context.fill(bottomBarRect)
+            
+            // Draw a subtle top border
+            NSColor(calibratedWhite: 0.3, alpha: 1.0).setStroke()
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: 0, y: bounds.height - bottomHeight))
+            context.addLine(to: CGPoint(x: bounds.width, y: bounds.height - bottomHeight))
+            context.strokePath()
+            
+            // === CENTER CONTENT AREA ===
+            // Fill the entire content area with the playlist background color
+            // (Skip side borders as their coordinates may not match this skin)
             let centerRect = NSRect(
-                x: 12,
-                y: SkinElements.Playlist.titleHeight,
-                width: bounds.width - 31,
-                height: bounds.height - SkinElements.Playlist.titleHeight - 38
+                x: 0,
+                y: titleHeight,
+                width: bounds.width,
+                height: bounds.height - titleHeight - bottomHeight
             )
             skin.playlistColors.normalBackground.setFill()
             context.fill(centerRect)
@@ -627,10 +659,6 @@ class SkinRenderer {
             // Fallback playlist background
             skin.playlistColors.normalBackground.setFill()
             context.fill(bounds)
-            
-            // Title bar
-            NSColor.darkGray.setFill()
-            context.fill(NSRect(x: 0, y: bounds.height - 20, width: bounds.width, height: 20))
         }
     }
     

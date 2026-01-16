@@ -32,8 +32,6 @@ class MainWindowView: NSView {
     private var pressedButton: ButtonType?
     
     /// Dragging state
-    private var isDragging = false
-    private var dragStartPoint: NSPoint = .zero
     
     /// Slider drag tracker
     private let sliderTracker = SliderDragTracker()
@@ -318,16 +316,7 @@ class MainWindowView: NSView {
             return
         }
         
-        // Check if in title bar for dragging
-        if regionManager.isInTitleBar(point, windowType: .main, windowSize: hitTestSize) {
-            isDragging = true
-            dragStartPoint = event.locationInWindow
-            // Notify WindowManager that dragging is starting
-            if let window = window {
-                WindowManager.shared.windowWillStartDragging(window)
-            }
-            return
-        }
+        // Title bar dragging is now handled by macOS via isMovableByWindowBackground
         
         // Hit test for actions
         if let action = regionManager.hitTest(point: point, in: .main, windowSize: hitTestSize) {
@@ -364,13 +353,7 @@ class MainWindowView: NSView {
             return
         }
         
-        // Otherwise, start dragging
-        isDragging = true
-        dragStartPoint = event.locationInWindow
-        // Notify WindowManager that dragging is starting
-        if let window = window {
-            WindowManager.shared.windowWillStartDragging(window)
-        }
+        // Window dragging is handled by macOS via isMovableByWindowBackground
     }
     
     private func handleMouseDown(action: PlayerAction, at point: NSPoint) {
@@ -426,23 +409,9 @@ class MainWindowView: NSView {
         let viewPoint = convert(event.locationInWindow, from: nil)
         let point = convertToOriginalCoordinates(viewPoint)
         
-        if isDragging {
-            // Window dragging
-            guard let window = window else { return }
-            let currentPoint = event.locationInWindow
-            let delta = NSPoint(
-                x: currentPoint.x - dragStartPoint.x,
-                y: currentPoint.y - dragStartPoint.y
-            )
-            
-            var newOrigin = window.frame.origin
-            newOrigin.x += delta.x
-            newOrigin.y += delta.y
-            
-            // Apply snapping
-            newOrigin = WindowManager.shared.windowWillMove(window, to: newOrigin)
-            window.setFrameOrigin(newOrigin)
-        } else if sliderTracker.isDragging {
+        // Window dragging is handled by macOS via isMovableByWindowBackground
+        // We only handle slider dragging here
+        if sliderTracker.isDragging {
             // Slider dragging
             let rect: NSRect
             switch sliderTracker.sliderType {
@@ -481,14 +450,7 @@ class MainWindowView: NSView {
         let viewPoint = convert(event.locationInWindow, from: nil)
         let point = convertToOriginalCoordinates(viewPoint)
         
-        if isDragging {
-            isDragging = false
-            // Notify WindowManager that dragging has ended
-            if let window = window {
-                WindowManager.shared.windowDidFinishDragging(window)
-            }
-            return
-        }
+        // Window dragging is handled by macOS
         
         if sliderTracker.isDragging {
             // Complete slider interaction

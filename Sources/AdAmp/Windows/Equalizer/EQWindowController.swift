@@ -34,7 +34,7 @@ class EQWindowController: NSWindowController {
     private func setupWindow() {
         guard let window = window else { return }
         
-        window.isMovableByWindowBackground = false
+        window.isMovableByWindowBackground = true
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = true

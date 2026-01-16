@@ -23,8 +23,6 @@ class EQView: NSView {
     private var draggingSlider: Int?
     
     /// Dragging state for window
-    private var isDragging = false
-    private var dragStartPoint: NSPoint = .zero
     
     /// Button being pressed
     private var pressedButton: ButtonType?
@@ -282,16 +280,7 @@ class EQView: NSView {
             return
         }
         
-        // Check title bar for dragging
-        if winampPoint.y < Layout.titleBarHeight && winampPoint.x < bounds.width - 15 {
-            isDragging = true
-            dragStartPoint = event.locationInWindow
-            // Notify WindowManager that dragging is starting
-            if let window = window {
-                WindowManager.shared.windowWillStartDragging(window)
-            }
-            return
-        }
+        // Window dragging is handled by macOS via isMovableByWindowBackground
         
         // Close button
         if Layout.closeRect.contains(winampPoint) {
@@ -344,33 +333,12 @@ class EQView: NSView {
             return
         }
         
-        // Otherwise, start dragging
-        isDragging = true
-        dragStartPoint = event.locationInWindow
-        // Notify WindowManager that dragging is starting
-        if let window = window {
-            WindowManager.shared.windowWillStartDragging(window)
-        }
+        // Window dragging is handled by macOS via isMovableByWindowBackground
     }
     
     override func mouseDragged(with event: NSEvent) {
-        if isDragging {
-            guard let window = window else { return }
-            let currentPoint = event.locationInWindow
-            let delta = NSPoint(
-                x: currentPoint.x - dragStartPoint.x,
-                y: currentPoint.y - dragStartPoint.y
-            )
-            
-            var newOrigin = window.frame.origin
-            newOrigin.x += delta.x
-            newOrigin.y += delta.y
-            
-            newOrigin = WindowManager.shared.windowWillMove(window, to: newOrigin)
-            window.setFrameOrigin(newOrigin)
-            return
-        }
-        
+        // Window dragging is handled by macOS via isMovableByWindowBackground
+        // We only handle EQ slider dragging here
         if draggingSlider != nil {
             let viewPoint = convert(event.locationInWindow, from: nil)
             let point = convertToOriginalCoordinates(viewPoint)
@@ -407,8 +375,6 @@ class EQView: NSView {
                 pressedButton = nil
                 needsDisplay = true
             }
-            
-            isDragging = false
             return
         }
         
@@ -421,13 +387,6 @@ class EQView: NSView {
             needsDisplay = true
         }
         
-        if isDragging {
-            // Notify WindowManager that dragging has ended
-            if let window = window {
-                WindowManager.shared.windowDidFinishDragging(window)
-            }
-        }
-        isDragging = false
         draggingSlider = nil
     }
     

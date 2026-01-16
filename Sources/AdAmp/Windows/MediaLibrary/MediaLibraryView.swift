@@ -40,8 +40,6 @@ class MediaLibraryView: NSView {
     private let itemHeight: CGFloat = 18
     
     /// Dragging state
-    private var isDragging = false
-    private var dragStartPoint: NSPoint = .zero
     
     /// Current display items
     private var displayItems: [LibraryDisplayItem] = []
@@ -492,16 +490,7 @@ class MediaLibraryView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         let winampPoint = NSPoint(x: point.x, y: bounds.height - point.y)
         
-        // Check title bar for dragging
-        if winampPoint.y < Layout.titleBarHeight && winampPoint.x < bounds.width - 20 {
-            isDragging = true
-            dragStartPoint = event.locationInWindow
-            // Notify WindowManager that dragging is starting
-            if let window = window {
-                WindowManager.shared.windowWillStartDragging(window)
-            }
-            return
-        }
+        // Window dragging is handled by macOS via isMovableByWindowBackground
         
         // Check close button
         let closeRect = NSRect(x: bounds.width - 14, y: 5, width: 10, height: 10)
@@ -583,33 +572,7 @@ class MediaLibraryView: NSView {
         }
     }
     
-    override func mouseDragged(with event: NSEvent) {
-        if isDragging {
-            guard let window = window else { return }
-            let currentPoint = event.locationInWindow
-            let delta = NSPoint(
-                x: currentPoint.x - dragStartPoint.x,
-                y: currentPoint.y - dragStartPoint.y
-            )
-            
-            var newOrigin = window.frame.origin
-            newOrigin.x += delta.x
-            newOrigin.y += delta.y
-            
-            newOrigin = WindowManager.shared.windowWillMove(window, to: newOrigin)
-            window.setFrameOrigin(newOrigin)
-        }
-    }
-    
-    override func mouseUp(with event: NSEvent) {
-        if isDragging {
-            // Notify WindowManager that dragging has ended
-            if let window = window {
-                WindowManager.shared.windowDidFinishDragging(window)
-            }
-        }
-        isDragging = false
-    }
+    // Window dragging is handled by macOS via isMovableByWindowBackground
     
     override func scrollWheel(with event: NSEvent) {
         let listY = Layout.titleBarHeight + Layout.tabBarHeight + Layout.searchBarHeight
