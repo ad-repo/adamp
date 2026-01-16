@@ -9,6 +9,8 @@ A faithful recreation of the classic Winamp 2.x music player for macOS.
 - **All classic windows**: Main player, Playlist editor, 10-band Equalizer
 - **Window snapping**: Classic Winamp window docking behavior
 - **Audio format support**: MP3, FLAC, AAC, WAV, AIFF, ALAC, and more
+- **Media library**: Organize and browse your music collection
+- **Spectrum analyzer**: Real-time audio visualization
 
 ## Screenshots
 
@@ -65,6 +67,7 @@ open Package.swift
 | Volume down | ↓ |
 | Toggle Equalizer | Alt+E |
 | Toggle Playlist | Alt+P |
+| Toggle Media Library | Cmd+L |
 | Load file | Cmd+O |
 
 ### Loading Skins
@@ -78,13 +81,15 @@ open Package.swift
 ```
 ClassicAmp/
 ├── App/                    # Application lifecycle
-├── Audio/                  # AVAudioEngine-based playback
+├── Audio/                  # AVAudioEngine-based playback + spectrum analysis
 ├── Skin/                   # WSZ skin loading and rendering
 ├── Windows/                # Window controllers and views
 │   ├── MainWindow/         # Main player window
 │   ├── Playlist/           # Playlist editor
-│   └── Equalizer/          # 10-band EQ
+│   ├── Equalizer/          # 10-band EQ
+│   └── MediaLibrary/       # Media library browser
 ├── Data/                   # Models and persistence
+│   └── Models/             # Track, Playlist, MediaLibrary, EQPreset
 └── Utilities/              # BMP parsing, ZIP extraction
 ```
 
@@ -127,12 +132,13 @@ ClassicAmp supports classic Winamp 2.x skins (.wsz files). Key supported feature
 - [x] Shade mode for all windows (main, EQ, playlist)
 - [x] Complete all button interactions
 
-### Phase 4: Features (In Progress)
-- [ ] Media library
-- [ ] Window docking improvements
-- [ ] Visualization support
+### Phase 4: Features ✅
+- [x] Media library with metadata parsing
+- [x] Media library window (browse by tracks/artists/albums/genres)
+- [x] Window docking improvements (grouped movement)
+- [x] Spectrum analyzer visualization
 
-### Phase 5: Polish
+### Phase 5: Polish (In Progress)
 - [ ] Extended format support (OGG, Opus)
 - [ ] Preferences
 - [ ] DMG distribution

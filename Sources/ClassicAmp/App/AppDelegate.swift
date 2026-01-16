@@ -10,6 +10,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize the window manager
         windowManager = WindowManager.shared
         
+        // Set up audio engine delegate
+        windowManager.audioEngine.delegate = self
+        
         // Show the main player window
         windowManager.showMainWindow()
         
@@ -71,6 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Main Window", action: #selector(toggleMainWindow), keyEquivalent: "1")
         viewMenu.addItem(withTitle: "Playlist", action: #selector(togglePlaylist), keyEquivalent: "2")
         viewMenu.addItem(withTitle: "Equalizer", action: #selector(toggleEqualizer), keyEquivalent: "3")
+        viewMenu.addItem(withTitle: "Media Library", action: #selector(toggleMediaLibrary), keyEquivalent: "l")
         
         // Playback menu
         let playbackMenuItem = NSMenuItem()
@@ -149,6 +153,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager.toggleEqualizer()
     }
     
+    @objc private func toggleMediaLibrary() {
+        windowManager.toggleMediaLibrary()
+    }
+    
     @objc private func play() {
         windowManager.audioEngine.play()
     }
@@ -167,5 +175,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc private func next() {
         windowManager.audioEngine.next()
+    }
+}
+
+// MARK: - AudioEngineDelegate
+
+extension AppDelegate: AudioEngineDelegate {
+    func audioEngineDidChangeState(_ state: PlaybackState) {
+        windowManager.mainWindowController?.updatePlaybackState()
+    }
+    
+    func audioEngineDidUpdateTime(current: TimeInterval, duration: TimeInterval) {
+        windowManager.mainWindowController?.updateTime(current: current, duration: duration)
+    }
+    
+    func audioEngineDidChangeTrack(_ track: Track?) {
+        windowManager.mainWindowController?.updateTrackInfo(track)
+    }
+    
+    func audioEngineDidUpdateSpectrum(_ levels: [Float]) {
+        windowManager.mainWindowController?.updateSpectrum(levels)
     }
 }

@@ -234,6 +234,10 @@ class EQView: NSView {
         if winampPoint.y < Layout.titleBarHeight && winampPoint.x < bounds.width - 15 {
             isDragging = true
             dragStartPoint = event.locationInWindow
+            // Notify WindowManager that dragging is starting
+            if let window = window {
+                WindowManager.shared.windowWillStartDragging(window)
+            }
             return
         }
         
@@ -291,6 +295,10 @@ class EQView: NSView {
         // Otherwise, start dragging
         isDragging = true
         dragStartPoint = event.locationInWindow
+        // Notify WindowManager that dragging is starting
+        if let window = window {
+            WindowManager.shared.windowWillStartDragging(window)
+        }
     }
     
     override func mouseDragged(with event: NSEvent) {
@@ -359,6 +367,12 @@ class EQView: NSView {
             needsDisplay = true
         }
         
+        if isDragging {
+            // Notify WindowManager that dragging has ended
+            if let window = window {
+                WindowManager.shared.windowDidFinishDragging(window)
+            }
+        }
         isDragging = false
         draggingSlider = nil
     }

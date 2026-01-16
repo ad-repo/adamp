@@ -25,11 +25,23 @@ class WindowManager {
     /// Equalizer window controller
     private var equalizerWindowController: EQWindowController?
     
+    /// Media library window controller
+    private var mediaLibraryWindowController: MediaLibraryWindowController?
+    
     /// Snap threshold in pixels
     private let snapThreshold: CGFloat = 10
     
-    /// Currently docked window groups
-    private var dockedGroups: [[NSWindow]] = []
+    /// Docking threshold - windows closer than this are considered docked
+    private let dockThreshold: CGFloat = 2
+    
+    /// Track which window is currently being dragged
+    private var draggingWindow: NSWindow?
+    
+    /// Track the last drag delta for grouped movement
+    private var lastDragDelta: NSPoint = .zero
+    
+    /// Windows that should move together with the dragging window
+    private var dockedWindowsToMove: [NSWindow] = []
     
     // MARK: - Initialization
     
@@ -96,6 +108,25 @@ class WindowManager {
         }
         notifyMainWindowVisibilityChanged()
     }
+    
+    func showMediaLibrary() {
+        if mediaLibraryWindowController == nil {
+            mediaLibraryWindowController = MediaLibraryWindowController()
+        }
+        mediaLibraryWindowController?.showWindow(nil)
+    }
+    
+    var isMediaLibraryVisible: Bool {
+        mediaLibraryWindowController?.window?.isVisible == true
+    }
+    
+    func toggleMediaLibrary() {
+        if let controller = mediaLibraryWindowController, controller.window?.isVisible == true {
+            controller.window?.orderOut(nil)
+        } else {
+            showMediaLibrary()
+        }
+    }
 
     func notifyMainWindowVisibilityChanged() {
         mainWindowController?.windowVisibilityDidChange()
@@ -122,16 +153,30 @@ class WindowManager {
         mainWindowController?.skinDidChange()
         playlistWindowController?.skinDidChange()
         equalizerWindowController?.skinDidChange()
+        mediaLibraryWindowController?.skinDidChange()
     }
     
-    // MARK: - Window Snapping
+    // MARK: - Window Snapping & Docking
     
-    /// Called when a window is being dragged
+    /// Called when a window drag begins
+    func windowWillStartDragging(_ window: NSWindow) {
+        draggingWindow = window
+        // Find all windows that are docked to this window
+        dockedWindowsToMove = findDockedWindows(to: window)
+    }
+    
+    /// Called when a window drag ends
+    func windowDidFinishDragging(_ window: NSWindow) {
+        draggingWindow = nil
+        dockedWindowsToMove.removeAll()
+    }
+    
+    /// Called when a window is being dragged - handles snapping and grouped movement
     func windowWillMove(_ window: NSWindow, to newOrigin: NSPoint) -> NSPoint {
         var snappedOrigin = newOrigin
         
-        // Get all other windows
-        let otherWindows = allWindows().filter { $0 !== window }
+        // Get all other windows (excluding docked ones that will move together)
+        let otherWindows = allWindows().filter { $0 !== window && !dockedWindowsToMove.contains($0) }
         
         // Check for snapping to other windows
         for otherWindow in otherWindows {
@@ -183,16 +228,83 @@ class WindowManager {
             }
         }
         
+        // Move docked windows together
+        let finalDelta = NSPoint(
+            x: snappedOrigin.x - window.frame.origin.x,
+            y: snappedOrigin.y - window.frame.origin.y
+        )
+        
+        for dockedWindow in dockedWindowsToMove {
+            let newDockedOrigin = NSPoint(
+                x: dockedWindow.frame.origin.x + finalDelta.x,
+                y: dockedWindow.frame.origin.y + finalDelta.y
+            )
+            dockedWindow.setFrameOrigin(newDockedOrigin)
+        }
+        
         return snappedOrigin
+    }
+    
+    /// Find all windows that are docked (touching) the given window
+    private func findDockedWindows(to window: NSWindow) -> [NSWindow] {
+        var dockedWindows: [NSWindow] = []
+        var windowsToCheck: [NSWindow] = [window]
+        var checkedWindows: Set<ObjectIdentifier> = [ObjectIdentifier(window)]
+        
+        // Use BFS to find all transitively docked windows
+        while !windowsToCheck.isEmpty {
+            let currentWindow = windowsToCheck.removeFirst()
+            
+            for otherWindow in allWindows() {
+                let otherId = ObjectIdentifier(otherWindow)
+                if checkedWindows.contains(otherId) { continue }
+                
+                if areWindowsDocked(currentWindow, otherWindow) {
+                    dockedWindows.append(otherWindow)
+                    windowsToCheck.append(otherWindow)
+                    checkedWindows.insert(otherId)
+                }
+            }
+        }
+        
+        return dockedWindows
+    }
+    
+    /// Check if two windows are docked (touching edges)
+    private func areWindowsDocked(_ window1: NSWindow, _ window2: NSWindow) -> Bool {
+        let frame1 = window1.frame
+        let frame2 = window2.frame
+        
+        // Check if windows are touching horizontally (side by side)
+        let horizontallyAligned = (frame1.minY < frame2.maxY && frame1.maxY > frame2.minY)
+        let touchingHorizontally = horizontallyAligned && (
+            abs(frame1.maxX - frame2.minX) <= dockThreshold ||  // window1 left of window2
+            abs(frame1.minX - frame2.maxX) <= dockThreshold     // window1 right of window2
+        )
+        
+        // Check if windows are touching vertically (stacked)
+        let verticallyAligned = (frame1.minX < frame2.maxX && frame1.maxX > frame2.minX)
+        let touchingVertically = verticallyAligned && (
+            abs(frame1.maxY - frame2.minY) <= dockThreshold ||  // window1 below window2
+            abs(frame1.minY - frame2.maxY) <= dockThreshold     // window1 above window2
+        )
+        
+        return touchingHorizontally || touchingVertically
     }
     
     /// Get all managed windows
     private func allWindows() -> [NSWindow] {
         var windows: [NSWindow] = []
-        if let w = mainWindowController?.window { windows.append(w) }
-        if let w = playlistWindowController?.window { windows.append(w) }
-        if let w = equalizerWindowController?.window { windows.append(w) }
+        if let w = mainWindowController?.window, w.isVisible { windows.append(w) }
+        if let w = playlistWindowController?.window, w.isVisible { windows.append(w) }
+        if let w = equalizerWindowController?.window, w.isVisible { windows.append(w) }
+        if let w = mediaLibraryWindowController?.window, w.isVisible { windows.append(w) }
         return windows
+    }
+    
+    /// Get all visible windows
+    func visibleWindows() -> [NSWindow] {
+        return allWindows()
     }
     
     // MARK: - State Persistence
@@ -208,6 +320,9 @@ class WindowManager {
         }
         if let frame = equalizerWindowController?.window?.frame {
             defaults.set(NSStringFromRect(frame), forKey: "EqualizerWindowFrame")
+        }
+        if let frame = mediaLibraryWindowController?.window?.frame {
+            defaults.set(NSStringFromRect(frame), forKey: "MediaLibraryWindowFrame")
         }
     }
     
@@ -226,6 +341,11 @@ class WindowManager {
         }
         if let frameString = defaults.string(forKey: "EqualizerWindowFrame"),
            let window = equalizerWindowController?.window {
+            let frame = NSRectFromString(frameString)
+            window.setFrame(frame, display: true)
+        }
+        if let frameString = defaults.string(forKey: "MediaLibraryWindowFrame"),
+           let window = mediaLibraryWindowController?.window {
             let frame = NSRectFromString(frameString)
             window.setFrame(frame, display: true)
         }

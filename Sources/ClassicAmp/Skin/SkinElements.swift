@@ -513,6 +513,23 @@ struct SkinElements {
         }
     }
     
+    // MARK: - Visualization Area
+    
+    struct Visualization {
+        /// The visualization display area on the main window
+        /// Located where the spectrum analyzer/oscilloscope appears
+        static let displayArea = NSRect(x: 24, y: 43, width: 76, height: 16)
+        
+        /// Number of bars in the spectrum analyzer
+        static let barCount = 19
+        
+        /// Bar width
+        static let barWidth: CGFloat = 3
+        
+        /// Bar spacing
+        static let barSpacing: CGFloat = 1
+    }
+    
     // MARK: - Equalizer Elements (eqmain.bmp - 275x116)
     
     struct Equalizer {

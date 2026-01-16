@@ -220,6 +220,65 @@ class SkinRenderer {
         context.restoreGState()
     }
     
+    // MARK: - Visualization
+    
+    /// Draw spectrum analyzer visualization
+    func drawSpectrumAnalyzer(levels: [Float], in context: CGContext) {
+        let rect = SkinElements.Visualization.displayArea
+        let barCount = SkinElements.Visualization.barCount
+        let barWidth = SkinElements.Visualization.barWidth
+        let barSpacing = SkinElements.Visualization.barSpacing
+        
+        // Background
+        NSColor.black.setFill()
+        context.fill(rect)
+        
+        // Draw bars
+        for i in 0..<barCount {
+            // Map spectrum data to bars (logarithmic distribution)
+            let spectrumIndex = Int(Float(i) / Float(barCount - 1) * Float(levels.count - 1))
+            let level = levels.isEmpty ? 0 : levels[min(spectrumIndex, levels.count - 1)]
+            
+            let barX = rect.minX + CGFloat(i) * (barWidth + barSpacing)
+            let barHeight = rect.height * CGFloat(level)
+            let barY = rect.maxY - barHeight
+            
+            // Draw bar with gradient effect (green to yellow to red)
+            let barRect = NSRect(x: barX, y: barY, width: barWidth, height: barHeight)
+            
+            // Color based on level
+            let color: NSColor
+            if level > 0.8 {
+                color = NSColor(calibratedRed: 1.0, green: 0.3, blue: 0.0, alpha: 1.0)  // Red
+            } else if level > 0.5 {
+                color = NSColor(calibratedRed: 1.0, green: 0.8, blue: 0.0, alpha: 1.0)  // Yellow
+            } else {
+                color = NSColor(calibratedRed: 0.0, green: 0.9, blue: 0.0, alpha: 1.0)  // Green
+            }
+            
+            color.setFill()
+            context.fill(barRect)
+            
+            // Draw peak indicator
+            if barHeight > 2 {
+                NSColor.white.setFill()
+                context.fill(NSRect(x: barX, y: barY, width: barWidth, height: 1))
+            }
+        }
+        
+        // Draw grid lines
+        NSColor(calibratedWhite: 0.2, alpha: 1.0).setStroke()
+        context.setLineWidth(0.5)
+        
+        // Horizontal lines
+        for i in 1..<4 {
+            let y = rect.minY + rect.height * CGFloat(i) / 4
+            context.move(to: CGPoint(x: rect.minX, y: y))
+            context.addLine(to: CGPoint(x: rect.maxX, y: y))
+        }
+        context.strokePath()
+    }
+    
     // MARK: - Status Indicators
     
     /// Draw playback status indicator (play/pause/stop)
@@ -335,6 +394,150 @@ class SkinRenderer {
             let normalizedValue = (value + 1) / 2
             drawFallbackSlider(value: normalizedValue, rect: sliderRect, in: context)
         }
+    }
+    
+    // MARK: - Shade Mode Rendering
+    
+    /// Draw main window in shade mode
+    func drawMainWindowShade(in context: CGContext, bounds: NSRect, isActive: Bool,
+                             currentTime: TimeInterval, duration: TimeInterval,
+                             trackTitle: String, marqueeOffset: CGFloat, pressedButton: ButtonType?) {
+        // Draw shade mode background
+        if let titlebarImage = skin.titlebar {
+            let sourceRect = isActive ? SkinElements.MainShade.backgroundActive : SkinElements.MainShade.backgroundInactive
+            drawSprite(from: titlebarImage, sourceRect: sourceRect, to: bounds, in: context)
+        } else {
+            // Fallback shade background
+            let gradient = NSGradient(colors: [
+                isActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.5, alpha: 1.0) : NSColor(calibratedWhite: 0.3, alpha: 1.0),
+                isActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.3, alpha: 1.0) : NSColor(calibratedWhite: 0.2, alpha: 1.0)
+            ])
+            gradient?.draw(in: bounds, angle: 90)
+        }
+        
+        // Draw window control buttons
+        let controls: [(ButtonType, NSRect)] = [
+            (.minimize, SkinElements.TitleBar.ShadePositions.minimizeButton),
+            (.unshade, SkinElements.TitleBar.ShadePositions.unshadeButton),
+            (.close, SkinElements.TitleBar.ShadePositions.closeButton)
+        ]
+        
+        for (button, position) in controls {
+            let state: ButtonState = (pressedButton == button) ? .pressed : .normal
+            drawButton(button, state: state, at: position, in: context)
+        }
+        
+        // Draw mini position bar
+        if duration > 0 {
+            let posRect = SkinElements.MainShade.Positions.positionBar
+            let progress = CGFloat(currentTime / duration)
+            
+            NSColor.darkGray.setFill()
+            context.fill(posRect)
+            
+            let fillWidth = posRect.width * progress
+            NSColor.green.setFill()
+            context.fill(NSRect(x: posRect.minX, y: posRect.minY, width: fillWidth, height: posRect.height))
+        }
+        
+        // Draw scrolling title text
+        let textArea = SkinElements.MainShade.textArea
+        context.saveGState()
+        context.clip(to: textArea)
+        
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.green,
+            .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
+        ]
+        let textPoint = NSPoint(x: textArea.minX - marqueeOffset, y: textArea.minY)
+        trackTitle.draw(at: textPoint, withAttributes: attrs)
+        
+        context.restoreGState()
+    }
+    
+    /// Draw equalizer window in shade mode
+    func drawEqualizerShade(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: ButtonType?) {
+        // Draw shade mode background
+        if let eqImage = skin.eqmain {
+            let sourceRect = isActive ? SkinElements.EQShade.backgroundActive : SkinElements.EQShade.backgroundInactive
+            drawSprite(from: eqImage, sourceRect: sourceRect, to: bounds, in: context)
+        } else {
+            // Fallback shade background
+            let gradient = NSGradient(colors: [
+                isActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.5, alpha: 1.0) : NSColor(calibratedWhite: 0.3, alpha: 1.0),
+                isActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.3, alpha: 1.0) : NSColor(calibratedWhite: 0.2, alpha: 1.0)
+            ])
+            gradient?.draw(in: bounds, angle: 90)
+            
+            // Draw EQ label
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.boldSystemFont(ofSize: 9)
+            ]
+            "EQUALIZER".draw(at: NSPoint(x: 6, y: 3), withAttributes: attrs)
+        }
+        
+        // Draw window control buttons
+        let closePos = SkinElements.EQShade.Positions.closeButton
+        let shadePos = SkinElements.EQShade.Positions.shadeButton
+        
+        let closeState: ButtonState = (pressedButton == .close) ? .pressed : .normal
+        drawButton(.close, state: closeState, at: closePos, in: context)
+        
+        let shadeState: ButtonState = (pressedButton == .unshade) ? .pressed : .normal
+        drawButton(.unshade, state: shadeState, at: shadePos, in: context)
+    }
+    
+    /// Draw playlist window in shade mode
+    func drawPlaylistShade(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: ButtonType?) {
+        // Draw shade mode background (tiled)
+        if let pleditImage = skin.pledit {
+            // Left corner
+            drawSprite(from: pleditImage, sourceRect: SkinElements.PlaylistShade.leftCorner,
+                      to: NSRect(x: 0, y: 0, width: 25, height: 14), in: context)
+            
+            // Right corner
+            let rightCornerX = bounds.width - 75
+            drawSprite(from: pleditImage, sourceRect: SkinElements.PlaylistShade.rightCorner,
+                      to: NSRect(x: rightCornerX, y: 0, width: 75, height: 14), in: context)
+            
+            // Tile middle
+            var x: CGFloat = 25
+            while x < rightCornerX {
+                let tileWidth = min(25, rightCornerX - x)
+                drawSprite(from: pleditImage, sourceRect: SkinElements.PlaylistShade.tile,
+                          to: NSRect(x: x, y: 0, width: tileWidth, height: 14), in: context)
+                x += 25
+            }
+        } else {
+            // Fallback shade background
+            let gradient = NSGradient(colors: [
+                isActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.5, alpha: 1.0) : NSColor(calibratedWhite: 0.3, alpha: 1.0),
+                isActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.3, alpha: 1.0) : NSColor(calibratedWhite: 0.2, alpha: 1.0)
+            ])
+            gradient?.draw(in: bounds, angle: 90)
+            
+            // Draw PL label
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.boldSystemFont(ofSize: 9)
+            ]
+            "PLAYLIST".draw(at: NSPoint(x: 6, y: 3), withAttributes: attrs)
+        }
+        
+        // Draw window control buttons (relative to right edge)
+        let closeRect = NSRect(x: bounds.width + SkinElements.PlaylistShade.Positions.closeButton.minX,
+                               y: SkinElements.PlaylistShade.Positions.closeButton.minY,
+                               width: 9, height: 9)
+        let shadeRect = NSRect(x: bounds.width + SkinElements.PlaylistShade.Positions.shadeButton.minX,
+                               y: SkinElements.PlaylistShade.Positions.shadeButton.minY,
+                               width: 9, height: 9)
+        
+        let closeState: ButtonState = (pressedButton == .close) ? .pressed : .normal
+        drawButton(.close, state: closeState, at: closeRect, in: context)
+        
+        let shadeState: ButtonState = (pressedButton == .unshade) ? .pressed : .normal
+        drawButton(.unshade, state: shadeState, at: shadeRect, in: context)
     }
     
     // MARK: - Equalizer Window

@@ -72,6 +72,10 @@ class MainWindowController: NSWindowController {
     func updateTrackInfo(_ track: Track?) {
         mainView.updateTrackInfo(track)
     }
+    
+    func updateSpectrum(_ levels: [Float]) {
+        mainView.updateSpectrum(levels)
+    }
 
     func windowVisibilityDidChange() {
         mainView.needsDisplay = true

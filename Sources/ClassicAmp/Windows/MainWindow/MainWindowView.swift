@@ -16,6 +16,9 @@ class MainWindowView: NSView {
     /// Current track info
     private var currentTrack: Track?
     
+    /// Spectrum analyzer levels
+    private var spectrumLevels: [Float] = []
+    
     /// Marquee scroll offset
     private var marqueeOffset: CGFloat = 0
     
@@ -145,6 +148,9 @@ class MainWindowView: NSView {
         let isStereo = (currentTrack?.channels ?? 2) >= 2
         renderer.drawMonoStereo(isStereo: isStereo, in: context)
         
+        // Draw spectrum analyzer
+        renderer.drawSpectrumAnalyzer(levels: spectrumLevels, in: context)
+        
         // Draw position slider (seek bar)
         let positionValue = duration > 0 ? CGFloat(currentTime / duration) : 0
         let positionPressed = sliderTracker.isDragging && sliderTracker.sliderType == .position
@@ -189,6 +195,12 @@ class MainWindowView: NSView {
         self.currentTrack = track
         marqueeOffset = 0  // Reset scroll position
         needsDisplay = true
+    }
+    
+    func updateSpectrum(_ levels: [Float]) {
+        self.spectrumLevels = levels
+        // Only redraw the visualization area for performance
+        setNeedsDisplay(SkinElements.Visualization.displayArea)
     }
     
     // MARK: - Marquee Animation
@@ -255,6 +267,10 @@ class MainWindowView: NSView {
         if regionManager.isInTitleBar(point, windowType: .main, windowSize: bounds.size) {
             isDragging = true
             dragStartPoint = event.locationInWindow
+            // Notify WindowManager that dragging is starting
+            if let window = window {
+                WindowManager.shared.windowWillStartDragging(window)
+            }
             return
         }
         
@@ -294,6 +310,10 @@ class MainWindowView: NSView {
         // Otherwise, start dragging
         isDragging = true
         dragStartPoint = event.locationInWindow
+        // Notify WindowManager that dragging is starting
+        if let window = window {
+            WindowManager.shared.windowWillStartDragging(window)
+        }
     }
     
     private func handleMouseDown(action: PlayerAction, at point: NSPoint) {
@@ -403,6 +423,10 @@ class MainWindowView: NSView {
         
         if isDragging {
             isDragging = false
+            // Notify WindowManager that dragging has ended
+            if let window = window {
+                WindowManager.shared.windowDidFinishDragging(window)
+            }
             return
         }
         

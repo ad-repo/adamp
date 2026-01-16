@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import Accelerate
 
 /// Audio playback state
 enum PlaybackState {
@@ -78,6 +79,16 @@ class AudioEngine {
     /// Timer for time updates
     private var timeUpdateTimer: Timer?
     
+    /// Spectrum analyzer data (75 bands for Winamp-style visualization)
+    private(set) var spectrumData: [Float] = Array(repeating: 0, count: 75)
+    
+    /// FFT setup for spectrum analysis
+    private var fftSetup: vDSP_DFT_Setup?
+    private let fftSize: Int = 2048
+    
+    /// Tap for audio analysis
+    private var analysisTap: AVAudioNodeTapBlock?
+    
     /// Standard Winamp EQ frequencies
     static let eqFrequencies: [Float] = [
         60, 170, 310, 600, 1000,
@@ -89,11 +100,15 @@ class AudioEngine {
     init() {
         setupAudioEngine()
         setupEqualizer()
+        setupSpectrumAnalyzer()
     }
     
     deinit {
         timeUpdateTimer?.invalidate()
+        playerNode.removeTap(onBus: 0)
         engine.stop()
+        // FFT setup is automatically released when set to nil
+        fftSetup = nil
     }
     
     // MARK: - Setup
@@ -121,6 +136,116 @@ class AudioEngine {
             band.bandwidth = 1.0  // Q factor
             band.gain = 0.0       // Flat by default
             band.bypass = false
+        }
+    }
+    
+    private func setupSpectrumAnalyzer() {
+        // Create FFT setup
+        fftSetup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD)
+        
+        // Install tap on player node for spectrum analysis
+        let format = engine.mainMixerNode.outputFormat(forBus: 0)
+        
+        playerNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftSize), format: format) { [weak self] buffer, _ in
+            self?.processAudioBuffer(buffer)
+        }
+    }
+    
+    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData,
+              let fftSetup = fftSetup else { return }
+        
+        let frameCount = Int(buffer.frameLength)
+        guard frameCount >= fftSize else { return }
+        
+        // Get audio samples (mono mix if stereo)
+        var samples = [Float](repeating: 0, count: fftSize)
+        let channelCount = Int(buffer.format.channelCount)
+        
+        if channelCount == 1 {
+            memcpy(&samples, channelData[0], fftSize * MemoryLayout<Float>.size)
+        } else {
+            // Mix stereo to mono
+            for i in 0..<fftSize {
+                samples[i] = (channelData[0][i] + channelData[1][i]) / 2.0
+            }
+        }
+        
+        // Apply Hann window
+        var window = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+        vDSP_vmul(samples, 1, window, 1, &samples, 1, vDSP_Length(fftSize))
+        
+        // Perform FFT
+        var realIn = [Float](repeating: 0, count: fftSize)
+        var imagIn = [Float](repeating: 0, count: fftSize)
+        var realOut = [Float](repeating: 0, count: fftSize)
+        var imagOut = [Float](repeating: 0, count: fftSize)
+        
+        realIn = samples
+        
+        vDSP_DFT_Execute(fftSetup, &realIn, &imagIn, &realOut, &imagOut)
+        
+        // Calculate magnitudes
+        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
+        
+        for i in 0..<fftSize / 2 {
+            magnitudes[i] = sqrt(realOut[i] * realOut[i] + imagOut[i] * imagOut[i])
+        }
+        
+        // Convert to dB and normalize
+        var logMagnitudes = [Float](repeating: 0, count: fftSize / 2)
+        var one: Float = 1.0
+        vDSP_vdbcon(magnitudes, 1, &one, &logMagnitudes, 1, vDSP_Length(fftSize / 2), 0)
+        
+        // Map to 75 bands (Winamp-style)
+        let bandCount = 75
+        var newSpectrum = [Float](repeating: 0, count: bandCount)
+        
+        // Logarithmic frequency mapping
+        let minFreq: Float = 20
+        let maxFreq: Float = 20000
+        let sampleRate = Float(buffer.format.sampleRate)
+        let binWidth = sampleRate / Float(fftSize)
+        
+        for band in 0..<bandCount {
+            // Calculate frequency range for this band (logarithmic)
+            let freqRatio = Float(band) / Float(bandCount - 1)
+            let freq = minFreq * pow(maxFreq / minFreq, freqRatio)
+            
+            // Find corresponding FFT bin
+            let bin = Int(freq / binWidth)
+            
+            if bin < fftSize / 2 && bin >= 0 {
+                // Average nearby bins for smoother result
+                var sum: Float = 0
+                var count: Float = 0
+                let range = max(1, bin / 10)
+                
+                for j in max(0, bin - range)..<min(fftSize / 2, bin + range + 1) {
+                    sum += logMagnitudes[j]
+                    count += 1
+                }
+                
+                // Normalize to 0-1 range (assuming -80dB to 0dB range)
+                let db = sum / count
+                let normalized = max(0, min(1, (db + 80) / 80))
+                newSpectrum[band] = normalized
+            }
+        }
+        
+        // Smooth with previous values (decay)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            for i in 0..<bandCount {
+                // Fast attack, slow decay
+                if newSpectrum[i] > self.spectrumData[i] {
+                    self.spectrumData[i] = newSpectrum[i]
+                } else {
+                    self.spectrumData[i] = self.spectrumData[i] * 0.85 + newSpectrum[i] * 0.15
+                }
+            }
+            self.delegate?.audioEngineDidUpdateSpectrum(self.spectrumData)
         }
     }
     
