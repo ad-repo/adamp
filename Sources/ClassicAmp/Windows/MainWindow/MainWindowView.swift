@@ -170,7 +170,6 @@ class MainWindowView: NSView {
             .foregroundColor: NSColor.white,
             .font: NSFont.boldSystemFont(ofSize: 9)
         ]
-        let titleSize = title.size(withAttributes: attrs)
         let titlePoint = NSPoint(x: 6, y: bounds.height - Layout.titleBarHeight + 2)
         title.draw(at: titlePoint, withAttributes: attrs)
         

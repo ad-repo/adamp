@@ -16,8 +16,6 @@ let package = Package(
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.0"),
         // SQLite for media library
         .package(url: "https://github.com/stephencelis/SQLite.swift.git", from: "0.14.0"),
-        // ID3 tag parsing for metadata
-        .package(url: "https://github.com/chrs1885/ID3TagEditor.git", from: "4.0.0"),
     ],
     targets: [
         .executableTarget(
@@ -25,7 +23,6 @@ let package = Package(
             dependencies: [
                 "ZIPFoundation",
                 .product(name: "SQLite", package: "SQLite.swift"),
-                "ID3TagEditor"
             ],
             path: "Sources/ClassicAmp",
             resources: [
