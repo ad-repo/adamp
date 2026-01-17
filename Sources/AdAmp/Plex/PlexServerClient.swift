@@ -219,30 +219,55 @@ class PlexServerClient {
     
     /// Search for content in a library
     func search(query: String, libraryID: String, type: SearchType = .all) async throws -> PlexSearchResults {
-        var queryItems = [
-            URLQueryItem(name: "query", value: query)
+        // Use the hubs/search endpoint which is more reliable
+        let queryItems = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "sectionId", value: libraryID),
+            URLQueryItem(name: "limit", value: "50")
         ]
         
-        if type != .all {
-            queryItems.append(URLQueryItem(name: "type", value: String(type.rawValue)))
-        }
-        
-        guard let request = buildRequest(path: "/library/sections/\(libraryID)/search", queryItems: queryItems) else {
+        guard let request = buildRequest(path: "/hubs/search", queryItems: queryItems) else {
             throw PlexServerError.invalidURL
         }
         
-        let response: PlexResponse<PlexMetadataResponse> = try await performRequest(request)
-        let metadata = response.mediaContainer.metadata ?? []
+        // Hub search returns a different structure with multiple hubs
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw PlexServerError.invalidResponse
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            NSLog("Search failed with status %d", httpResponse.statusCode)
+            throw PlexServerError.httpError(statusCode: httpResponse.statusCode)
+        }
+        
+        // Parse hub search response
+        struct HubSearchResponse: Decodable {
+            let MediaContainer: HubContainer
+        }
+        struct HubContainer: Decodable {
+            let Hub: [Hub]?
+        }
+        struct Hub: Decodable {
+            let type: String
+            let Metadata: [PlexMetadataDTO]?
+        }
+        
+        let decoder = JSONDecoder()
+        let hubResponse = try decoder.decode(HubSearchResponse.self, from: data)
         
         var results = PlexSearchResults()
-        for item in metadata {
-            switch item.type {
+        for hub in hubResponse.MediaContainer.Hub ?? [] {
+            guard let metadata = hub.Metadata else { continue }
+            
+            switch hub.type {
             case "artist":
-                results.artists.append(item.toArtist())
+                results.artists.append(contentsOf: metadata.map { $0.toArtist() })
             case "album":
-                results.albums.append(item.toAlbum())
+                results.albums.append(contentsOf: metadata.map { $0.toAlbum() })
             case "track":
-                results.tracks.append(item.toTrack())
+                results.tracks.append(contentsOf: metadata.map { $0.toTrack() })
             default:
                 break
             }

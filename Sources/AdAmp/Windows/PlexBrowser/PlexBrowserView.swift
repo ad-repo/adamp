@@ -297,10 +297,21 @@ class PlexBrowserView: NSView {
         let searchRect = NSRect(x: Layout.padding, y: searchY + 3,
                                width: bounds.width - Layout.padding * 2, height: Layout.searchBarHeight - 6)
         
-        // Search field background
-        NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0).setFill()
+        // Search field background - highlight if focused
+        let isFocused = window?.firstResponder === self
+        let bgColor = isFocused 
+            ? NSColor(calibratedRed: 0.18, green: 0.18, blue: 0.25, alpha: 1.0)
+            : NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0)
+        bgColor.setFill()
         let path = NSBezierPath(roundedRect: searchRect, xRadius: 3, yRadius: 3)
         path.fill()
+        
+        // Focus border
+        if isFocused {
+            Colors.textSelected.withAlphaComponent(0.5).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }
         
         // Search icon
         let iconAttrs: [NSAttributedString.Key: Any] = [
@@ -314,8 +325,17 @@ class PlexBrowserView: NSView {
             .foregroundColor: searchQuery.isEmpty ? Colors.textDim : Colors.textNormal,
             .font: NSFont.systemFont(ofSize: 10)
         ]
-        let displayText = searchQuery.isEmpty ? "Search Plex library..." : searchQuery
-        displayText.draw(at: NSPoint(x: searchRect.minX + 24, y: searchRect.midY - 6), withAttributes: textAttrs)
+        let displayText = searchQuery.isEmpty ? "Type to search..." : searchQuery
+        let textPoint = NSPoint(x: searchRect.minX + 24, y: searchRect.midY - 6)
+        displayText.draw(at: textPoint, withAttributes: textAttrs)
+        
+        // Draw cursor if focused and has text (or empty)
+        if isFocused {
+            let textSize = (searchQuery.isEmpty ? "" : searchQuery).size(withAttributes: textAttrs)
+            let cursorX = searchRect.minX + 24 + textSize.width + 1
+            Colors.textNormal.setFill()
+            context.fill(CGRect(x: cursorX, y: searchRect.midY - 5, width: 1, height: 10))
+        }
     }
     
     private func drawNotLinkedState(context: CGContext) {
@@ -836,8 +856,20 @@ class PlexBrowserView: NSView {
                 selectedIndices.removeAll()
                 scrollOffset = 0
                 loadDataForCurrentMode()
+                
+                // Make view first responder for keyboard input (especially search)
+                window?.makeFirstResponder(self)
             }
             return
+        }
+        
+        // Check search bar click (make first responder for typing)
+        if browseMode == .search {
+            let searchY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
+            if winampPoint.y >= searchY && winampPoint.y < searchY + Layout.searchBarHeight {
+                window?.makeFirstResponder(self)
+                return
+            }
         }
         
         // Check list area
