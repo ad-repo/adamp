@@ -65,7 +65,7 @@ class AudioEngine {
     private(set) var currentIndex: Int = -1
     
     /// Volume level (0.0 - 1.0)
-    var volume: Float = 0.5 {
+    var volume: Float = 0.2 {
         didSet {
             playerNode.volume = volume
             streamPlayer?.volume = volume
