@@ -169,11 +169,11 @@ class PlaylistView: NSView {
             let colors = skin?.playlistColors ?? .default
             drawTrackList(in: context, colors: colors, drawBounds: drawBounds)
             
-            // Draw time/track info in bottom bar middle section
-            drawBottomBarInfo(in: context, drawBounds: drawBounds)
+            // Draw time/track info in bottom bar middle section using skin font
+            drawBottomBarInfo(in: context, drawBounds: drawBounds, renderer: renderer)
             
-            // Draw playback time in the colon area
-            drawPlaybackTime(in: context, drawBounds: drawBounds)
+            // Draw playback time in the colon area using skin font
+            drawPlaybackTime(in: context, drawBounds: drawBounds, renderer: renderer)
         }
         
         context.restoreGState()
@@ -340,8 +340,8 @@ class PlaylistView: NSView {
         context.restoreGState()
     }
     
-    /// Draw track count and total time info in bottom bar
-    private func drawBottomBarInfo(in context: CGContext, drawBounds: NSRect) {
+    /// Draw track count and total time info in bottom bar using skin font
+    private func drawBottomBarInfo(in context: CGContext, drawBounds: NSRect, renderer: SkinRenderer) {
         let engine = WindowManager.shared.audioEngine
         let tracks = engine.playlist
         
@@ -356,6 +356,8 @@ class PlaylistView: NSView {
         let totalMinutes = totalSeconds / 60
         let totalHours = totalMinutes / 60
         
+        // Build the info string for skin font
+        let trackCountStr = "\(tracks.count) TRACKS / "
         let totalTimeStr: String
         if totalHours > 0 {
             totalTimeStr = String(format: "%d:%02d:%02d", totalHours, totalMinutes % 60, totalSeconds % 60)
@@ -363,39 +365,26 @@ class PlaylistView: NSView {
             totalTimeStr = String(format: "%d:%02d", totalMinutes, totalSeconds % 60)
         }
         
-        let infoStr = "\(tracks.count) tracks / \(totalTimeStr)"
-        
-        // Text attributes - small green text
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor(calibratedRed: 0.0, green: 0.8, blue: 0.0, alpha: 1.0),
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .regular)
-        ]
-        
-        let textSize = infoStr.size(withAttributes: attrs)
+        // Calculate width using skin font dimensions (5px per char for text)
+        let charWidth = SkinElements.TextFont.charWidth  // 5px
+        let textWidth = CGFloat(trackCountStr.count) * charWidth + CGFloat(totalTimeStr.count) * charWidth
         
         // Position INSIDE the bottom bar area, centered horizontally
-        // Bottom bar is 38px tall, buttons occupy left 125px and right 150px
         let bottomBarTop = drawBounds.height - Layout.bottomBarHeight
         let leftEdge: CGFloat = 125
         let rightEdge = drawBounds.width - 150
-        let centerX = leftEdge + (rightEdge - leftEdge - textSize.width) / 2
+        let centerX = leftEdge + (rightEdge - leftEdge - textWidth) / 2
         let textX = max(leftEdge + 5, centerX)
-        let textY = bottomBarTop + 8  // 8px into the bottom bar (centered in info box)
+        let textY = bottomBarTop + 10  // Centered vertically in info area
         
-        // Save state and flip for text rendering
-        context.saveGState()
-        let flipY = textY + textSize.height / 2
-        context.translateBy(x: 0, y: flipY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -flipY)
-        
-        infoStr.draw(at: NSPoint(x: textX, y: textY), withAttributes: attrs)
-        
-        context.restoreGState()
+        // Draw using skin font (no coordinate flip needed for sprites)
+        var xPos = textX
+        xPos += renderer.drawSkinText(trackCountStr, at: NSPoint(x: xPos, y: textY), in: context)
+        renderer.drawSkinText(totalTimeStr, at: NSPoint(x: xPos, y: textY), in: context)
     }
     
-    /// Draw current playback time in the colon area of the bottom bar
-    private func drawPlaybackTime(in context: CGContext, drawBounds: NSRect) {
+    /// Draw current playback time in the colon area of the bottom bar using skin font
+    private func drawPlaybackTime(in context: CGContext, drawBounds: NSRect, renderer: SkinRenderer) {
         let engine = WindowManager.shared.audioEngine
         
         // Only draw if playing or has position
@@ -405,41 +394,25 @@ class PlaylistView: NSView {
         let minutes = Int(currentTime) / 60
         let seconds = Int(currentTime) % 60
         
-        // Format as MM:SS (without the colon since it's in the skin)
-        let minutesStr = String(format: "%d", minutes)
-        let secondsStr = String(format: "%02d", seconds)
-        
-        // Small green text matching the skin
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor(calibratedRed: 0.0, green: 0.8, blue: 0.0, alpha: 1.0),
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .regular)
-        ]
-        
-        let minSize = minutesStr.size(withAttributes: attrs)
+        // Use skin text font (5x6 pixels per character)
+        let charWidth = SkinElements.TextFont.charWidth
+        let minutesStr = String(minutes)
+        let minWidth = CGFloat(minutesStr.count) * charWidth
         
         // Position relative to the right edge
         // The colon in the skin is to the left of the LIST button
-        // Adjusted position based on visual feedback
         let colonX: CGFloat = drawBounds.width - 68
         let bottomBarTop = drawBounds.height - Layout.bottomBarHeight
-        let textY = bottomBarTop + 20  // Lower in the bottom bar
+        let textY = bottomBarTop + 22  // Lowered for skin font
         
         // Draw minutes to the left of the colon
-        let minX = colonX - minSize.width - 1
+        let minX = colonX - minWidth - 1
+        renderer.drawSkinText(minutesStr, at: NSPoint(x: minX, y: textY), in: context)
         
-        // Draw seconds to the right of the colon
-        let secX = colonX + 4  // After the colon character
-        
-        context.saveGState()
-        let flipY = textY + minSize.height / 2
-        context.translateBy(x: 0, y: flipY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -flipY)
-        
-        minutesStr.draw(at: NSPoint(x: minX, y: textY), withAttributes: attrs)
-        secondsStr.draw(at: NSPoint(x: secX, y: textY), withAttributes: attrs)
-        
-        context.restoreGState()
+        // Draw seconds to the right of the colon  
+        let secX = colonX + 4
+        let secondsStr = String(format: "%02d", seconds)
+        renderer.drawSkinText(secondsStr, at: NSPoint(x: secX, y: textY), in: context)
     }
     
     // MARK: - Public Methods

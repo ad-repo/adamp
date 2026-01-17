@@ -203,6 +203,120 @@ class SkinRenderer {
         drawSprite(from: image, sourceRect: sourceRect, to: destRect, in: context)
     }
     
+    // MARK: - Public Text/Digit Drawing Methods
+    
+    /// Draw text using the skin's text.bmp font at any position
+    /// Returns the width of the drawn text
+    @discardableResult
+    func drawSkinText(_ text: String, at position: NSPoint, in context: CGContext) -> CGFloat {
+        guard let textImage = skin.text else {
+            // Fallback to system font
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.green,
+                .font: NSFont.monospacedSystemFont(ofSize: 6, weight: .regular)
+            ]
+            text.draw(at: position, withAttributes: attrs)
+            return CGFloat(text.count) * 5
+        }
+        
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
+        var xPos = position.x
+        
+        for char in text.uppercased() {
+            let charRect = SkinElements.TextFont.character(char)
+            let destRect = NSRect(x: xPos, y: position.y, width: charWidth, height: charHeight)
+            drawSprite(from: textImage, sourceRect: charRect, to: destRect, in: context)
+            xPos += charWidth
+        }
+        
+        return CGFloat(text.count) * charWidth
+    }
+    
+    /// Draw digits using the skin's numbers.bmp at any position
+    /// Returns the width of the drawn digits
+    @discardableResult
+    func drawSkinDigits(_ number: Int, at position: NSPoint, in context: CGContext, minDigits: Int = 1) -> CGFloat {
+        guard let numbersImage = skin.numbers else {
+            // Fallback to system font
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.green,
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+            ]
+            let str = String(number)
+            str.draw(at: position, withAttributes: attrs)
+            return CGFloat(str.count) * 9
+        }
+        
+        let digitWidth = SkinElements.Numbers.digitWidth
+        let digitHeight = SkinElements.Numbers.digitHeight
+        
+        // Convert number to string with minimum digits
+        let str = String(format: "%0\(minDigits)d", number)
+        var xPos = position.x
+        
+        for char in str {
+            let digit = Int(String(char)) ?? 0
+            let sourceRect = SkinElements.Numbers.digit(digit)
+            let destRect = NSRect(x: xPos, y: position.y, width: digitWidth, height: digitHeight)
+            drawSprite(from: numbersImage, sourceRect: sourceRect, to: destRect, in: context)
+            xPos += digitWidth
+        }
+        
+        return CGFloat(str.count) * digitWidth
+    }
+    
+    /// Draw time in MM:SS format using skin digits at any position
+    /// Returns the total width drawn
+    @discardableResult
+    func drawSkinTime(minutes: Int, seconds: Int, at position: NSPoint, in context: CGContext) -> CGFloat {
+        guard let numbersImage = skin.numbers, let textImage = skin.text else {
+            // Fallback
+            let str = String(format: "%d:%02d", minutes, seconds)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.green,
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+            ]
+            str.draw(at: position, withAttributes: attrs)
+            return CGFloat(str.count) * 9
+        }
+        
+        let digitWidth = SkinElements.Numbers.digitWidth
+        let digitHeight = SkinElements.Numbers.digitHeight
+        var xPos = position.x
+        
+        // Draw minutes (variable width)
+        let minStr = String(minutes)
+        for char in minStr {
+            let digit = Int(String(char)) ?? 0
+            let sourceRect = SkinElements.Numbers.digit(digit)
+            let destRect = NSRect(x: xPos, y: position.y, width: digitWidth, height: digitHeight)
+            drawSprite(from: numbersImage, sourceRect: sourceRect, to: destRect, in: context)
+            xPos += digitWidth
+        }
+        
+        // Draw colon using text font (centered vertically with digits)
+        let colonRect = SkinElements.TextFont.character(":")
+        let colonY = position.y + (digitHeight - SkinElements.TextFont.charHeight) / 2
+        let colonDest = NSRect(x: xPos, y: colonY, 
+                              width: SkinElements.TextFont.charWidth, 
+                              height: SkinElements.TextFont.charHeight)
+        drawSprite(from: textImage, sourceRect: colonRect, to: colonDest, in: context)
+        xPos += SkinElements.TextFont.charWidth
+        
+        // Draw seconds (always 2 digits)
+        let secStr = String(format: "%02d", seconds)
+        for char in secStr {
+            let digit = Int(String(char)) ?? 0
+            let sourceRect = SkinElements.Numbers.digit(digit)
+            let destRect = NSRect(x: xPos, y: position.y, width: digitWidth, height: digitHeight)
+            drawSprite(from: numbersImage, sourceRect: sourceRect, to: destRect, in: context)
+            xPos += digitWidth
+        }
+        
+        return xPos - position.x
+    }
+    
     // MARK: - Marquee Text
     
     /// Draw scrolling marquee text with circular/seamless wrapping
