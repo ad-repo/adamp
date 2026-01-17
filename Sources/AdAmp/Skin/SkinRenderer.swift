@@ -879,8 +879,8 @@ class SkinRenderer {
     private func drawEQSliderColorBars(at xPos: CGFloat, sliderY: CGFloat, sliderHeight: CGFloat,
                                         normalizedValue: CGFloat, in context: CGContext) {
         let thumbSize: CGFloat = 11
-        // Bar fills the entire track width (both sides of knob)
-        let barWidth: CGFloat = 7
+        // Slim bar centered in track
+        let barWidth: CGFloat = 4
         let barX = xPos + (thumbSize - barWidth) / 2  // Center in track
         
         // Color scale: knob position determines the single color for entire track
@@ -898,9 +898,13 @@ class SkinRenderer {
         // Get the single color based on knob position
         let trackColor = interpolateColor(at: normalizedValue, stops: colorStops)
         
-        // Fill the entire track with this single color
+        // Draw rounded rect for the track (rounded top and bottom)
+        let barRect = NSRect(x: barX, y: sliderY, width: barWidth, height: sliderHeight)
+        let cornerRadius: CGFloat = 2  // Slight rounding at top and bottom
+        
         trackColor.setFill()
-        context.fill(NSRect(x: barX, y: sliderY, width: barWidth, height: sliderHeight))
+        let path = NSBezierPath(roundedRect: barRect, xRadius: cornerRadius, yRadius: cornerRadius)
+        path.fill()
     }
     
     /// Interpolate color between gradient stops

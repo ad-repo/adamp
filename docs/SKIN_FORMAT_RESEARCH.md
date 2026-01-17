@@ -109,22 +109,45 @@ The equalizer sprite sheet contains all EQ window elements:
 | EQ_GRAPH_BACKGROUND | 0 | 294 | 113 | 19 | Graph area background |
 | EQ_GRAPH_LINE_COLORS | 115 | 294 | 1 | 19 | Color palette for graph line |
 
-### Colored Slider Bars
-The colored bars (green/yellow/orange/red gradient) that show EQ levels are pre-rendered sprites at different fill levels.
+### Colored Slider Bars (Programmatic Implementation)
 
-| Element | X | Y | Width | Height | Notes |
-|---------|---|---|-------|--------|-------|
-| EQ_SLIDER_BACKGROUND | 13 | 164 | 209 | 63 | Contains all 28 fill states |
+**Important Discovery:** The EQ slider colored bars are NOT sprite-based with multiple fill states. Instead, they are programmatically drawn with a **single solid color** that represents the current knob position.
 
-**Fill State Sprites (28 states, horizontally arranged):**
-- Total width: 209 pixels
-- State width: 209/28 ≈ 7.46 pixels per state
-- State height: 63 pixels (full slider track height)
-- State 0: x=13 (minimal fill, knob at top/+12dB)
-- State 27: x=13+(27*7.46)≈214 (full fill, knob at bottom/-12dB)
-- Colors: Green at top (boost) → Yellow → Orange → Red at bottom (cut)
+**How it works:**
+- The entire slider track is filled with ONE color
+- The color is determined by WHERE the knob is positioned on the gradient scale
+- The knob sits on top of this colored track
 
-**Usage:** Get source rect with `x = 13 + (fillState * 7.46), y = 164, width = 7.46, height = 63`
+**Color Scale (based on knob position):**
+| Knob Position | dB Value | Color |
+|---------------|----------|-------|
+| Top | +12dB (boost) | RED |
+| Upper-middle | +6dB | Orange |
+| Middle | 0dB | YELLOW |
+| Lower-middle | -6dB | Yellow-green |
+| Bottom | -12dB (cut) | GREEN |
+
+**Visual Style:**
+- Bar width: 4 pixels (slim, centered in track)
+- Corner radius: 2 pixels (slightly rounded top and bottom)
+- Drawn behind the slider thumb
+
+**Implementation (SkinRenderer.swift):**
+```swift
+// Normalize knob position to 0-1 range
+let normalized = (value + 12) / 24  // 0 = -12dB, 1 = +12dB
+
+// Interpolate color from gradient stops
+// Green (0.0) → Yellow (0.5) → Red (1.0)
+let trackColor = interpolateColor(at: normalized, stops: colorStops)
+
+// Draw rounded rect for the track
+let path = NSBezierPath(roundedRect: barRect, xRadius: 2, yRadius: 2)
+trackColor.setFill()
+path.fill()
+```
+
+**Note:** The EQ_SLIDER_BACKGROUND sprite at (13, 164) in EQMAIN.BMP may contain pre-rendered states, but the programmatic approach provides more flexibility and matches the classic Winamp appearance better.
 
 ---
 
@@ -192,13 +215,15 @@ let thumbY = sliderY + (sliderHeight - thumbSize) * (1 - normalizedValue)
 ## Known Issues & Future Work
 
 ### EQ Window
-1. **Colored slider bars** - ✅ IMPLEMENTED. Uses pre-rendered sprites from EQMAIN.BMP at y=164. The bars:
-   - Display behind the slider thumb
-   - Show gradient: GREEN (top/boost) → YELLOW → ORANGE → RED (bottom/cut)
-   - Use 28 fill states (sprite-based rendering)
-   - Source: x=13, y=164, each state ~7.46px wide, 63px tall
+1. **Colored slider bars** - ✅ IMPLEMENTED. Programmatically drawn (not sprite-based). The bars:
+   - Fill the entire track with a single solid color based on knob position
+   - Color scale: RED (+12dB boost) → YELLOW (0dB) → GREEN (-12dB cut)
+   - Slim design (4px wide) with rounded corners (2px radius)
+   - Drawn behind the slider thumb
 
-2. **Graph curve** - The EQ response curve in the graph area needs verification for correct orientation
+2. **Graph curve** - ✅ IMPLEMENTED. Uses the same color scale as slider bars:
+   - Each line segment colored based on the band values it connects
+   - RED for boosted frequencies, YELLOW for neutral, GREEN for cut
 
 3. **Shade mode** - EQ shade mode (compact view) needs implementation
 
@@ -267,10 +292,13 @@ curl -s "https://raw.githubusercontent.com/captbaritone/webamp/master/packages/w
 
 ## Version History
 
-- **2026-01-17**: EQ colored slider bars implementation
-  - Implemented colored slider bar sprites (28 fill states at x=13, y=164)
-  - Added `sliderBarSource(state:)` helper to SkinElements.Equalizer
-  - Bars now display behind slider thumbs with green→yellow→orange→red gradient
+- **2026-01-17**: EQ colored slider bars and graph curve
+  - Implemented colored slider track backgrounds (programmatic, not sprite-based)
+  - Key insight: bars use a SINGLE solid color based on knob position, not gradient fill
+  - Color scale: RED (+12dB) → YELLOW (0dB) → GREEN (-12dB)
+  - Slim bar design (4px) with rounded corners (2px radius)
+  - EQ graph curve now uses same color scale for line segments
+  - Removed sprite-based approach in favor of programmatic drawing for flexibility
 
 - **2026-01-16**: Initial research document created
   - Documented EQMAIN.BMP sprite coordinates from webamp

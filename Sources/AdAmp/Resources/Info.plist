@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>AdAmp</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.adamp.player</string>
+    <key>CFBundleName</key>
+    <string>AdAmp</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    
+    <!-- Local Network Access -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>AdAmp needs access to your local network to discover and cast audio to Chromecast, Sonos, and DLNA devices.</string>
+    
+    <!-- Bonjour Services for Device Discovery -->
+    <key>NSBonjourServices</key>
+    <array>
+        <!-- Chromecast devices -->
+        <string>_googlecast._tcp</string>
+        <!-- AirPlay devices (existing) -->
+        <string>_airplay._tcp</string>
+        <!-- RAOP (Remote Audio Output Protocol) -->
+        <string>_raop._tcp</string>
+    </array>
+    
+    <!-- App Transport Security for local network communication -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+    
+    <!-- Privacy descriptions for potential future features -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>AdAmp may use the microphone for audio input features.</string>
+</dict>
+</plist>
