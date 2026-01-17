@@ -72,7 +72,11 @@ class PlexBrowserView: NSView {
         static let statusBarHeight: CGFloat = 20
         static let padding: CGFloat = 3
         static let scrollbarWidth: CGFloat = 14
+        static let alphabetWidth: CGFloat = 16
     }
+    
+    /// Alphabet index for quick navigation
+    private let alphabetLetters = ["#"] + (65...90).map { String(UnicodeScalar($0)) } // # A-Z
     
     // MARK: - Colors (Winamp-inspired dark theme)
     
@@ -93,6 +97,10 @@ class PlexBrowserView: NSView {
         static let scrollbarThumb = NSColor(calibratedRed: 0.4, green: 0.4, blue: 0.5, alpha: 1.0)
         static let border = NSColor(calibratedRed: 0.2, green: 0.2, blue: 0.3, alpha: 1.0)
     }
+    
+    // MARK: - Flipped Coordinates
+    
+    override var isFlipped: Bool { true }
     
     // MARK: - Initialization
     
@@ -142,13 +150,12 @@ class PlexBrowserView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         
-        // Flip coordinate system
-        context.saveGState()
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
+        // Get skin colors
+        let skin = WindowManager.shared.currentSkin
+        let bgColor = skin?.playlistColors.normalBackground ?? Colors.listBackground
         
         // Draw background
-        Colors.background.setFill()
+        bgColor.setFill()
         context.fill(bounds)
         
         // Draw title bar
@@ -182,8 +189,6 @@ class PlexBrowserView: NSView {
         // Draw border
         Colors.border.setStroke()
         context.stroke(bounds.insetBy(dx: 0.5, dy: 0.5))
-        
-        context.restoreGState()
     }
     
     private func drawTitleBar(context: CGContext) {
@@ -383,12 +388,22 @@ class PlexBrowserView: NSView {
             listY += Layout.searchBarHeight
         }
         let listHeight = bounds.height - listY - Layout.statusBarHeight
+        
+        // Account for alphabet index on the right
+        let alphabetWidth = Layout.alphabetWidth
         let listRect = NSRect(x: Layout.padding, y: listY,
-                             width: bounds.width - Layout.padding * 2 - Layout.scrollbarWidth,
+                             width: bounds.width - Layout.padding * 2 - Layout.scrollbarWidth - alphabetWidth,
                              height: listHeight)
         
+        // Get skin colors
+        let skin = WindowManager.shared.currentSkin
+        let listBgColor = skin?.playlistColors.normalBackground ?? Colors.listBackground
+        let normalTextColor = skin?.playlistColors.normalText ?? Colors.textNormal
+        let selectedTextColor = skin?.playlistColors.currentText ?? Colors.textSelected
+        let selectedBgColor = skin?.playlistColors.selectedBackground ?? Colors.selectedBackground
+        
         // List background
-        Colors.listBackground.setFill()
+        listBgColor.setFill()
         context.fill(listRect)
         
         // Clip to list area
@@ -411,7 +426,7 @@ class PlexBrowserView: NSView {
             
             // Selection background
             if selectedIndices.contains(index) {
-                Colors.selectedBackground.setFill()
+                selectedBgColor.setFill()
                 context.fill(itemRect)
             }
             
@@ -424,14 +439,14 @@ class PlexBrowserView: NSView {
                 let expanded = isExpanded(item)
                 let indicator = expanded ? "▼" : "▶"
                 let indicatorAttrs: [NSAttributedString.Key: Any] = [
-                    .foregroundColor: Colors.textDim,
+                    .foregroundColor: normalTextColor.withAlphaComponent(0.6),
                     .font: NSFont.systemFont(ofSize: 8)
                 ]
                 indicator.draw(at: NSPoint(x: textX - 12, y: itemRect.midY - 5), withAttributes: indicatorAttrs)
             }
             
             // Main text
-            let textColor = selectedIndices.contains(index) ? Colors.textSelected : Colors.textNormal
+            let textColor = selectedIndices.contains(index) ? selectedTextColor : normalTextColor
             let attrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: textColor,
                 .font: NSFont.systemFont(ofSize: 10)
@@ -444,7 +459,7 @@ class PlexBrowserView: NSView {
             // Secondary info
             if let info = item.info {
                 let infoAttrs: [NSAttributedString.Key: Any] = [
-                    .foregroundColor: Colors.textDim,
+                    .foregroundColor: normalTextColor.withAlphaComponent(0.6),
                     .font: NSFont.systemFont(ofSize: 9)
                 ]
                 let infoSize = info.size(withAttributes: infoAttrs)
@@ -455,10 +470,63 @@ class PlexBrowserView: NSView {
         
         context.restoreGState()
         
+        // Draw alphabet index
+        let alphabetRect = NSRect(x: bounds.width - Layout.padding - Layout.scrollbarWidth - alphabetWidth,
+                                 y: listY, width: alphabetWidth, height: listHeight)
+        drawAlphabetIndex(in: alphabetRect, context: context)
+        
         // Draw scrollbar
         let scrollbarRect = NSRect(x: bounds.width - Layout.padding - Layout.scrollbarWidth,
                                   y: listY, width: Layout.scrollbarWidth, height: listHeight)
         drawScrollbar(in: scrollbarRect, context: context, itemCount: displayItems.count, listHeight: listHeight)
+    }
+    
+    private func drawAlphabetIndex(in rect: NSRect, context: CGContext) {
+        let skin = WindowManager.shared.currentSkin
+        let normalColor = skin?.playlistColors.normalText ?? Colors.textNormal
+        let accentColor = skin?.playlistColors.currentText ?? Colors.textSelected
+        
+        // Background
+        Colors.tabBackground.withAlphaComponent(0.5).setFill()
+        context.fill(rect)
+        
+        // Calculate letter height based on available space
+        let letterCount = CGFloat(alphabetLetters.count)
+        let letterHeight = rect.height / letterCount
+        let fontSize = min(9, letterHeight * 0.8)
+        
+        // Build set of first letters that exist in current items
+        var availableLetters = Set<String>()
+        for item in displayItems {
+            if let firstChar = item.title.uppercased().first {
+                if firstChar.isLetter {
+                    availableLetters.insert(String(firstChar))
+                } else {
+                    availableLetters.insert("#")
+                }
+            }
+        }
+        
+        for (index, letter) in alphabetLetters.enumerated() {
+            let y = rect.minY + CGFloat(index) * letterHeight
+            let letterRect = NSRect(x: rect.minX, y: y, width: rect.width, height: letterHeight)
+            
+            // Highlight if this letter has items
+            let hasItems = availableLetters.contains(letter)
+            let color = hasItems ? accentColor : normalColor.withAlphaComponent(0.3)
+            
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: color,
+                .font: NSFont.boldSystemFont(ofSize: fontSize)
+            ]
+            
+            let letterSize = letter.size(withAttributes: attrs)
+            let drawPoint = NSPoint(
+                x: letterRect.midX - letterSize.width / 2,
+                y: letterRect.midY - letterSize.height / 2
+            )
+            letter.draw(at: drawPoint, withAttributes: attrs)
+        }
     }
     
     private func drawScrollbar(in rect: NSRect, context: CGContext, itemCount: Int, listHeight: CGFloat) {
@@ -550,6 +618,10 @@ class PlexBrowserView: NSView {
                 case .tracks:
                     if cachedTracks.isEmpty {
                         cachedTracks = try await PlexManager.shared.fetchTracks(offset: 0, limit: 500)
+                        // Debug: Check if tracks have media info
+                        for track in cachedTracks.prefix(3) {
+                            print("Track: \(track.title), media count: \(track.media.count), partKey: \(track.partKey ?? "nil")")
+                        }
                     }
                     buildTrackItems()
                     
@@ -728,7 +800,8 @@ class PlexBrowserView: NSView {
     
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let winampPoint = NSPoint(x: point.x, y: bounds.height - point.y)
+        // With isFlipped=true, point is already in flipped coordinates
+        let winampPoint = point
         
         // Check close button
         let closeRect = NSRect(x: bounds.width - 14, y: 5, width: 10, height: 10)
@@ -737,13 +810,18 @@ class PlexBrowserView: NSView {
             return
         }
         
-        // Check server bar (for linking)
+        // Check server bar (for linking or server/library selection)
         let serverBarY = Layout.titleBarHeight
         if winampPoint.y >= serverBarY && winampPoint.y < serverBarY + Layout.serverBarHeight {
             if !PlexManager.shared.isLinked {
                 controller?.showLinkSheet()
             } else {
-                // TODO: Show server/library selection popover
+                // Left half = server selection, right half = library selection
+                if winampPoint.x < bounds.width / 2 {
+                    showServerMenu(at: event)
+                } else {
+                    showLibraryMenu(at: event)
+                }
             }
             return
         }
@@ -768,6 +846,15 @@ class PlexBrowserView: NSView {
             listY += Layout.searchBarHeight
         }
         let listHeight = bounds.height - listY - Layout.statusBarHeight
+        
+        // Check alphabet index click
+        let alphabetX = bounds.width - Layout.padding - Layout.scrollbarWidth - Layout.alphabetWidth
+        if winampPoint.x >= alphabetX && winampPoint.x < alphabetX + Layout.alphabetWidth {
+            if winampPoint.y >= listY && winampPoint.y < listY + listHeight {
+                handleAlphabetClick(at: winampPoint, listY: listY, listHeight: listHeight)
+                return
+            }
+        }
         
         if winampPoint.y >= listY && winampPoint.y < listY + listHeight {
             let relativeY = winampPoint.y - listY + scrollOffset
@@ -801,9 +888,16 @@ class PlexBrowserView: NSView {
                     }
                 } else {
                     selectedIndices = [clickedIndex]
+                    
+                    // Single-click on track plays it immediately
+                    NSLog("Single click on item: %@, type: %@", item.title, String(describing: item.type))
+                    if case .track = item.type {
+                        NSLog("Item is a track, calling playTrack")
+                        playTrack(item)
+                    }
                 }
                 
-                // Double-click to play/expand
+                // Double-click to play album or expand artist
                 if event.clickCount == 2 {
                     handleDoubleClick(on: item)
                 }
@@ -865,28 +959,74 @@ class PlexBrowserView: NSView {
         needsDisplay = true
     }
     
+    private func playTrack(_ item: PlexDisplayItem) {
+        guard case .track(let track) = item.type else { 
+            NSLog("playTrack: item is not a track")
+            return 
+        }
+        
+        NSLog("playTrack: %@", track.title)
+        NSLog("  partKey: %@", track.partKey ?? "nil")
+        NSLog("  serverClient: %@", PlexManager.shared.serverClient != nil ? "exists" : "nil")
+        
+        if let convertedTrack = PlexManager.shared.convertToTrack(track) {
+            NSLog("  streamURL: %@", convertedTrack.url.absoluteString)
+            NSLog("  title: %@, artist: %@", convertedTrack.title, convertedTrack.artist ?? "nil")
+            // Clear playlist and add just this track with metadata
+            WindowManager.shared.audioEngine.clearPlaylist()
+            WindowManager.shared.audioEngine.loadTracks([convertedTrack])
+            WindowManager.shared.audioEngine.play()
+            NSLog("  Called play()")
+        } else {
+            NSLog("  ERROR: Failed to convert track - streamURL is nil")
+        }
+    }
+    
+    private func playAlbum(_ album: PlexAlbum) {
+        Task { @MainActor in
+            do {
+                let tracks = try await PlexManager.shared.fetchTracks(forAlbum: album)
+                let convertedTracks = PlexManager.shared.convertToTracks(tracks)
+                NSLog("Playing album %@ with %d tracks", album.title, convertedTracks.count)
+                WindowManager.shared.audioEngine.clearPlaylist()
+                WindowManager.shared.audioEngine.loadTracks(convertedTracks)
+                WindowManager.shared.audioEngine.play()
+            } catch {
+                NSLog("Failed to play album: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    private func playArtist(_ artist: PlexArtist) {
+        Task { @MainActor in
+            do {
+                // Fetch all albums for artist, then all tracks
+                let albums = try await PlexManager.shared.fetchAlbums(forArtist: artist)
+                var allTracks: [PlexTrack] = []
+                for album in albums {
+                    let tracks = try await PlexManager.shared.fetchTracks(forAlbum: album)
+                    allTracks.append(contentsOf: tracks)
+                }
+                let convertedTracks = PlexManager.shared.convertToTracks(allTracks)
+                NSLog("Playing artist %@ with %d tracks", artist.title, convertedTracks.count)
+                WindowManager.shared.audioEngine.clearPlaylist()
+                WindowManager.shared.audioEngine.loadTracks(convertedTracks)
+                WindowManager.shared.audioEngine.play()
+            } catch {
+                NSLog("Failed to play artist: %@", error.localizedDescription)
+            }
+        }
+    }
+    
     private func handleDoubleClick(on item: PlexDisplayItem) {
         switch item.type {
-        case .track(let track):
-            // Play the track
-            if let convertedTrack = PlexManager.shared.convertToTrack(track) {
-                WindowManager.shared.audioEngine.loadFiles([convertedTrack.url])
-                WindowManager.shared.audioEngine.play()
-            }
+        case .track:
+            // Single click already plays, double-click does same
+            playTrack(item)
             
         case .album(let album):
             // Play all tracks in album
-            Task { @MainActor in
-                do {
-                    let tracks = try await PlexManager.shared.fetchTracks(forAlbum: album)
-                    let convertedTracks = PlexManager.shared.convertToTracks(tracks)
-                    let urls = convertedTracks.map { $0.url }
-                    WindowManager.shared.audioEngine.loadFiles(urls)
-                    WindowManager.shared.audioEngine.play()
-                } catch {
-                    print("Failed to play album: \(error)")
-                }
-            }
+            playAlbum(album)
             
         case .artist:
             // Toggle expansion
@@ -894,6 +1034,264 @@ class PlexBrowserView: NSView {
             
         case .header:
             break
+        }
+    }
+    
+    // MARK: - Right-Click Context Menu
+    
+    override func rightMouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        
+        // Check list area
+        var listY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
+        if browseMode == .search {
+            listY += Layout.searchBarHeight
+        }
+        let listHeight = bounds.height - listY - Layout.statusBarHeight
+        
+        if point.y >= listY && point.y < listY + listHeight {
+            let relativeY = point.y - listY + scrollOffset
+            let clickedIndex = Int(relativeY / itemHeight)
+            
+            if clickedIndex >= 0 && clickedIndex < displayItems.count {
+                // Select the clicked item if not already selected
+                if !selectedIndices.contains(clickedIndex) {
+                    selectedIndices = [clickedIndex]
+                    needsDisplay = true
+                }
+                
+                let item = displayItems[clickedIndex]
+                showContextMenu(for: item, at: event)
+                return
+            }
+        }
+        
+        // Default context menu
+        super.rightMouseDown(with: event)
+    }
+    
+    private func showContextMenu(for item: PlexDisplayItem, at event: NSEvent) {
+        let menu = NSMenu()
+        
+        switch item.type {
+        case .track(let track):
+            let playItem = NSMenuItem(title: "Play", action: #selector(contextMenuPlay(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = item
+            menu.addItem(playItem)
+            
+            let addItem = NSMenuItem(title: "Add to Playlist", action: #selector(contextMenuAddToPlaylist(_:)), keyEquivalent: "")
+            addItem.target = self
+            addItem.representedObject = track
+            menu.addItem(addItem)
+            
+        case .album(let album):
+            let playItem = NSMenuItem(title: "Play Album", action: #selector(contextMenuPlayAlbum(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = album
+            menu.addItem(playItem)
+            
+            let addItem = NSMenuItem(title: "Add Album to Playlist", action: #selector(contextMenuAddAlbumToPlaylist(_:)), keyEquivalent: "")
+            addItem.target = self
+            addItem.representedObject = album
+            menu.addItem(addItem)
+            
+        case .artist(let artist):
+            let playItem = NSMenuItem(title: "Play All by Artist", action: #selector(contextMenuPlayArtist(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = artist
+            menu.addItem(playItem)
+            
+            let expandItem = NSMenuItem(title: expandedArtists.contains(artist.id) ? "Collapse" : "Expand", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem.target = self
+            expandItem.representedObject = item
+            menu.addItem(expandItem)
+            
+        case .header:
+            return
+        }
+        
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+    
+    @objc private func contextMenuPlay(_ sender: NSMenuItem) {
+        guard let item = sender.representedObject as? PlexDisplayItem else { return }
+        playTrack(item)
+    }
+    
+    @objc private func contextMenuAddToPlaylist(_ sender: NSMenuItem) {
+        guard let track = sender.representedObject as? PlexTrack,
+              let convertedTrack = PlexManager.shared.convertToTrack(track) else { return }
+        WindowManager.shared.audioEngine.loadTracks([convertedTrack])
+    }
+    
+    @objc private func contextMenuPlayAlbum(_ sender: NSMenuItem) {
+        guard let album = sender.representedObject as? PlexAlbum else { return }
+        playAlbum(album)
+    }
+    
+    @objc private func contextMenuAddAlbumToPlaylist(_ sender: NSMenuItem) {
+        guard let album = sender.representedObject as? PlexAlbum else { return }
+        Task { @MainActor in
+            do {
+                let tracks = try await PlexManager.shared.fetchTracks(forAlbum: album)
+                let convertedTracks = PlexManager.shared.convertToTracks(tracks)
+                WindowManager.shared.audioEngine.loadTracks(convertedTracks)
+            } catch {
+                NSLog("Failed to add album to playlist: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    @objc private func contextMenuPlayArtist(_ sender: NSMenuItem) {
+        guard let artist = sender.representedObject as? PlexArtist else { return }
+        playArtist(artist)
+    }
+    
+    @objc private func contextMenuToggleExpand(_ sender: NSMenuItem) {
+        guard let item = sender.representedObject as? PlexDisplayItem else { return }
+        toggleExpand(item)
+    }
+    
+    // MARK: - Server/Library Selection Menus
+    
+    private func showServerMenu(at event: NSEvent) {
+        let menu = NSMenu()
+        
+        let servers = PlexManager.shared.servers
+        if servers.isEmpty {
+            let noServers = NSMenuItem(title: "No servers available", action: nil, keyEquivalent: "")
+            noServers.isEnabled = false
+            menu.addItem(noServers)
+        } else {
+            for server in servers {
+                let item = NSMenuItem(title: server.name, action: #selector(selectServer(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = server.id
+                item.state = server.id == PlexManager.shared.currentServer?.id ? .on : .off
+                menu.addItem(item)
+            }
+        }
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        let refreshItem = NSMenuItem(title: "Refresh Servers", action: #selector(refreshServers), keyEquivalent: "")
+        refreshItem.target = self
+        menu.addItem(refreshItem)
+        
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+    
+    private func showLibraryMenu(at event: NSEvent) {
+        let menu = NSMenu()
+        
+        let libraries = PlexManager.shared.availableLibraries
+        if libraries.isEmpty {
+            let noLibraries = NSMenuItem(title: "No libraries available", action: nil, keyEquivalent: "")
+            noLibraries.isEnabled = false
+            menu.addItem(noLibraries)
+        } else {
+            for library in libraries {
+                let item = NSMenuItem(title: library.title, action: #selector(selectLibrary(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = library.id
+                item.state = library.id == PlexManager.shared.currentLibrary?.id ? .on : .off
+                menu.addItem(item)
+            }
+        }
+        
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+    
+    @objc private func selectServer(_ sender: NSMenuItem) {
+        guard let serverID = sender.representedObject as? String,
+              let server = PlexManager.shared.servers.first(where: { $0.id == serverID }) else {
+            return
+        }
+        
+        Task { @MainActor in
+            do {
+                try await PlexManager.shared.connect(to: server)
+                // Clear cached data and reload
+                cachedArtists = []
+                cachedAlbums = []
+                cachedTracks = []
+                artistAlbums = [:]
+                albumTracks = [:]
+                reloadData()
+            } catch {
+                NSLog("Failed to connect to server: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    @objc private func selectLibrary(_ sender: NSMenuItem) {
+        guard let libraryID = sender.representedObject as? String,
+              let library = PlexManager.shared.availableLibraries.first(where: { $0.id == libraryID }) else {
+            return
+        }
+        
+        PlexManager.shared.selectLibrary(library)
+        // Clear cached data and reload
+        cachedArtists = []
+        cachedAlbums = []
+        cachedTracks = []
+        artistAlbums = [:]
+        albumTracks = [:]
+        reloadData()
+    }
+    
+    @objc private func refreshServers() {
+        Task { @MainActor in
+            do {
+                try await PlexManager.shared.refreshServers()
+                needsDisplay = true
+            } catch {
+                NSLog("Failed to refresh servers: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    // MARK: - Alphabet Index Navigation
+    
+    private func handleAlphabetClick(at point: NSPoint, listY: CGFloat, listHeight: CGFloat) {
+        let relativeY = point.y - listY
+        let letterCount = CGFloat(alphabetLetters.count)
+        let letterHeight = listHeight / letterCount
+        let letterIndex = Int(relativeY / letterHeight)
+        
+        guard letterIndex >= 0 && letterIndex < alphabetLetters.count else { return }
+        
+        let targetLetter = alphabetLetters[letterIndex]
+        scrollToLetter(targetLetter)
+    }
+    
+    private func scrollToLetter(_ letter: String) {
+        // Find first item starting with this letter
+        for (index, item) in displayItems.enumerated() {
+            let firstChar = item.title.uppercased().first.map(String.init) ?? ""
+            
+            let itemLetter: String
+            if let char = firstChar.first, char.isLetter {
+                itemLetter = firstChar
+            } else {
+                itemLetter = "#"
+            }
+            
+            if itemLetter == letter {
+                // Scroll to this item
+                var listY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
+                if browseMode == .search {
+                    listY += Layout.searchBarHeight
+                }
+                let listHeight = bounds.height - listY - Layout.statusBarHeight
+                let maxScroll = max(0, CGFloat(displayItems.count) * itemHeight - listHeight)
+                
+                scrollOffset = min(maxScroll, CGFloat(index) * itemHeight)
+                selectedIndices = [index]
+                needsDisplay = true
+                return
+            }
         }
     }
     

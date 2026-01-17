@@ -1,12 +1,18 @@
 import Foundation
 import Security
 
-/// Helper for secure storage of sensitive data in the macOS Keychain
+/// Helper for secure storage of sensitive data
+/// Uses UserDefaults for development (to avoid keychain prompts with unsigned builds)
+/// In production, set useKeychain = true for proper security
 class KeychainHelper {
     
     // MARK: - Singleton
     
     static let shared = KeychainHelper()
+    
+    /// Set to true for production builds with proper code signing
+    /// Set to false for development to avoid keychain permission prompts
+    private let useKeychain = false
     
     private init() {}
     
@@ -88,8 +94,49 @@ class KeychainHelper {
     }
     
     private func setData(_ data: Data, forKey key: String) -> Bool {
+        if useKeychain {
+            return setDataKeychain(data, forKey: key)
+        } else {
+            return setDataUserDefaults(data, forKey: key)
+        }
+    }
+    
+    private func getData(forKey key: String) -> Data? {
+        if useKeychain {
+            return getDataKeychain(forKey: key)
+        } else {
+            return getDataUserDefaults(forKey: key)
+        }
+    }
+    
+    private func delete(forKey key: String) {
+        if useKeychain {
+            deleteKeychain(forKey: key)
+        } else {
+            deleteUserDefaults(forKey: key)
+        }
+    }
+    
+    // MARK: - UserDefaults Storage (Development)
+    
+    private func setDataUserDefaults(_ data: Data, forKey key: String) -> Bool {
+        UserDefaults.standard.set(data, forKey: "\(Keys.service).\(key)")
+        return true
+    }
+    
+    private func getDataUserDefaults(forKey key: String) -> Data? {
+        return UserDefaults.standard.data(forKey: "\(Keys.service).\(key)")
+    }
+    
+    private func deleteUserDefaults(forKey key: String) {
+        UserDefaults.standard.removeObject(forKey: "\(Keys.service).\(key)")
+    }
+    
+    // MARK: - Keychain Storage (Production)
+    
+    private func setDataKeychain(_ data: Data, forKey key: String) -> Bool {
         // Delete any existing item first
-        delete(forKey: key)
+        deleteKeychain(forKey: key)
         
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -103,7 +150,7 @@ class KeychainHelper {
         return status == errSecSuccess
     }
     
-    private func getData(forKey key: String) -> Data? {
+    private func getDataKeychain(forKey key: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Keys.service,
@@ -119,7 +166,7 @@ class KeychainHelper {
         return result as? Data
     }
     
-    private func delete(forKey key: String) {
+    private func deleteKeychain(forKey key: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Keys.service,

@@ -317,7 +317,8 @@ struct PlexMetadataDTO: Decodable {
         case ratingKey, key, type, title, parentTitle, grandparentTitle
         case parentKey, grandparentKey, summary, index, parentIndex
         case year, thumb, art, duration, addedAt, updatedAt
-        case originallyAvailableAt, leafCount, childCount, media
+        case originallyAvailableAt, leafCount, childCount
+        case media = "Media"
         case genre = "Genre"
         case studio
     }

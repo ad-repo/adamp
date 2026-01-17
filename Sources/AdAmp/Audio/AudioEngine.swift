@@ -36,8 +36,13 @@ class AudioEngine {
     /// 10-band equalizer
     private let eqNode = AVAudioUnitEQ(numberOfBands: 10)
     
-    /// Current audio file
+    /// Current audio file (for local files)
     private var audioFile: AVAudioFile?
+    
+    /// AVPlayer for streaming URLs
+    private var streamPlayer: AVPlayer?
+    private var streamPlayerObserver: Any?
+    private var isStreamingPlayback: Bool = false
     
     /// Current playback state
     private(set) var state: PlaybackState = .stopped {
@@ -63,6 +68,7 @@ class AudioEngine {
     var volume: Float = 0.5 {
         didSet {
             playerNode.volume = volume
+            streamPlayer?.volume = volume
         }
     }
     
@@ -273,16 +279,27 @@ class AudioEngine {
             loadTrack(at: currentIndex)
         }
         
-        do {
-            if !engine.isRunning {
-                try engine.start()
-            }
-            playerNode.play()
-            playbackStartDate = Date()  // Start tracking time
+        if isStreamingPlayback {
+            // Streaming playback via AVPlayer
+            NSLog("play(): Starting streaming playback")
+            streamPlayer?.play()
+            playbackStartDate = Date()
             state = .playing
             startTimeUpdates()
-        } catch {
-            print("Failed to start audio engine: \(error)")
+            NSLog("play(): streamPlayer.timeControlStatus = %d", streamPlayer?.timeControlStatus.rawValue ?? -1)
+        } else {
+            // Local file playback via AVAudioEngine
+            do {
+                if !engine.isRunning {
+                    try engine.start()
+                }
+                playerNode.play()
+                playbackStartDate = Date()  // Start tracking time
+                state = .playing
+                startTimeUpdates()
+            } catch {
+                print("Failed to start audio engine: \(error)")
+            }
         }
     }
     
@@ -293,7 +310,11 @@ class AudioEngine {
         }
         playbackStartDate = nil
         
-        playerNode.pause()
+        if isStreamingPlayback {
+            streamPlayer?.pause()
+        } else {
+            playerNode.pause()
+        }
         state = .paused
         stopTimeUpdates()
     }
@@ -303,15 +324,21 @@ class AudioEngine {
         playbackGeneration += 1
         let currentGeneration = playbackGeneration
         
-        playerNode.stop()
+        if isStreamingPlayback {
+            streamPlayer?.pause()
+            streamPlayer?.seek(to: .zero)
+        } else {
+            playerNode.stop()
+        }
+        
         playbackStartDate = nil
         _currentTime = 0  // Reset to beginning
         lastReportedTime = 0
         state = .stopped
         stopTimeUpdates()
         
-        // Reset to beginning
-        if let file = audioFile {
+        // Reset to beginning (local files only)
+        if !isStreamingPlayback, let file = audioFile {
             playerNode.scheduleFile(file, at: nil) { [weak self] in
                 DispatchQueue.main.async {
                     self?.handlePlaybackComplete(generation: currentGeneration)
@@ -431,18 +458,35 @@ class AudioEngine {
     // MARK: - Time Updates
     
     var currentTime: TimeInterval {
-        // Use manual time tracking based on when playback started
-        guard state == .playing, let startDate = playbackStartDate else {
-            return _currentTime
+        if isStreamingPlayback {
+            // Get time from stream player
+            guard let player = streamPlayer else { return 0 }
+            return CMTimeGetSeconds(player.currentTime())
+        } else {
+            // Use manual time tracking based on when playback started
+            guard state == .playing, let startDate = playbackStartDate else {
+                return _currentTime
+            }
+            
+            let elapsed = Date().timeIntervalSince(startDate)
+            return _currentTime + elapsed
         }
-        
-        let elapsed = Date().timeIntervalSince(startDate)
-        return _currentTime + elapsed
     }
     
     var duration: TimeInterval {
-        guard let file = audioFile else { return 0 }
-        return Double(file.length) / file.processingFormat.sampleRate
+        if isStreamingPlayback {
+            // Get duration from stream player
+            guard let player = streamPlayer,
+                  let item = player.currentItem else {
+                // Use track duration if available
+                return currentTrack?.duration ?? 0
+            }
+            let dur = CMTimeGetSeconds(item.duration)
+            return dur.isFinite ? dur : (currentTrack?.duration ?? 0)
+        } else {
+            guard let file = audioFile else { return 0 }
+            return Double(file.length) / file.processingFormat.sampleRate
+        }
     }
     
     private func startTimeUpdates() {
@@ -466,6 +510,11 @@ class AudioEngine {
     
     func loadFiles(_ urls: [URL]) {
         let tracks = urls.compactMap { Track(url: $0) }
+        loadTracks(tracks)
+    }
+    
+    /// Load tracks with metadata (for Plex and other sources with pre-populated info)
+    func loadTracks(_ tracks: [Track]) {
         playlist.append(contentsOf: tracks)
         
         if currentTrack == nil && !tracks.isEmpty {
@@ -505,6 +554,19 @@ class AudioEngine {
         
         let track = playlist[index]
         
+        // Check if this is a remote URL (streaming)
+        if track.url.scheme == "http" || track.url.scheme == "https" {
+            loadStreamingTrack(track)
+        } else {
+            loadLocalTrack(track)
+        }
+    }
+    
+    private func loadLocalTrack(_ track: Track) {
+        // Stop any streaming playback
+        stopStreamPlayer()
+        isStreamingPlayback = false
+        
         do {
             audioFile = try AVAudioFile(forReading: track.url)
             currentTrack = track
@@ -524,6 +586,52 @@ class AudioEngine {
         } catch {
             print("Failed to load audio file: \(error)")
         }
+    }
+    
+    private func loadStreamingTrack(_ track: Track) {
+        NSLog("loadStreamingTrack: %@ - %@", track.artist ?? "Unknown", track.title)
+        NSLog("  URL: %@", track.url.absoluteString)
+        
+        // Stop local playback
+        playerNode.stop()
+        audioFile = nil
+        isStreamingPlayback = true
+        
+        // Stop existing stream player
+        stopStreamPlayer()
+        
+        // Create new player item and player
+        let playerItem = AVPlayerItem(url: track.url)
+        streamPlayer = AVPlayer(playerItem: playerItem)
+        streamPlayer?.volume = volume
+        
+        currentTrack = track
+        _currentTime = 0
+        lastReportedTime = 0
+        
+        // Increment generation
+        playbackGeneration += 1
+        let currentGeneration = playbackGeneration
+        
+        // Observe when track finishes
+        streamPlayerObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handlePlaybackComplete(generation: currentGeneration)
+        }
+        
+        NSLog("  Created AVPlayer, ready to play")
+    }
+    
+    private func stopStreamPlayer() {
+        if let observer = streamPlayerObserver {
+            NotificationCenter.default.removeObserver(observer)
+            streamPlayerObserver = nil
+        }
+        streamPlayer?.pause()
+        streamPlayer = nil
     }
     
     /// Handle playback completion with generation check

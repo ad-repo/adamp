@@ -236,6 +236,15 @@ class ContextMenuBuilder {
             plexMenu.addItem(NSMenuItem.separator())
         }
         
+        // Refresh Servers (if linked but no servers showing)
+        if isLinked {
+            let refreshItem = NSMenuItem(title: "Refresh Servers", action: #selector(MenuActions.refreshPlexServers), keyEquivalent: "")
+            refreshItem.target = MenuActions.shared
+            plexMenu.addItem(refreshItem)
+            
+            plexMenu.addItem(NSMenuItem.separator())
+        }
+        
         // Show Plex Browser
         let browserItem = NSMenuItem(title: "Show Plex Browser", action: #selector(MenuActions.togglePlexBrowser), keyEquivalent: "")
         browserItem.target = MenuActions.shared
@@ -549,6 +558,26 @@ class MenuActions: NSObject {
         }
         
         PlexManager.shared.selectLibrary(library)
+    }
+    
+    @objc func refreshPlexServers() {
+        Task {
+            do {
+                try await PlexManager.shared.refreshServers()
+                print("Plex servers refreshed: \(PlexManager.shared.servers.map { $0.name })")
+            } catch {
+                print("Failed to refresh Plex servers: \(error)")
+                
+                // Show error to user
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Refresh Servers"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
+        }
     }
     
     // MARK: - Output Device
