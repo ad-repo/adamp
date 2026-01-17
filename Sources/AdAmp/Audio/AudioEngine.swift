@@ -618,6 +618,9 @@ class AudioEngine {
         }
     }
     
+    /// KVO observer for player item status
+    private var playerItemStatusObserver: NSKeyValueObservation?
+    
     private func loadStreamingTrack(_ track: Track) {
         NSLog("loadStreamingTrack: %@ - %@", track.artist ?? "Unknown", track.title)
         NSLog("  URL: %@", track.url.absoluteString)
@@ -643,6 +646,12 @@ class AudioEngine {
         playbackGeneration += 1
         let currentGeneration = playbackGeneration
         
+        // Observe player item status to extract audio format info
+        playerItemStatusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard let self = self, item.status == .readyToPlay else { return }
+            self.extractStreamAudioFormat(from: item)
+        }
+        
         // Observe when track finishes
         streamPlayerObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
@@ -655,11 +664,57 @@ class AudioEngine {
         NSLog("  Created AVPlayer, ready to play")
     }
     
+    /// Extract audio format (sample rate, channels) from a streaming player item
+    private func extractStreamAudioFormat(from playerItem: AVPlayerItem) {
+        guard let track = currentTrack else { return }
+        
+        // Only update if we don't already have this info
+        guard track.sampleRate == nil || track.channels == nil else { return }
+        
+        let asset = playerItem.asset
+        let audioTracks = asset.tracks(withMediaType: .audio)
+        
+        guard let audioTrack = audioTracks.first else { return }
+        
+        let formatDescriptions = audioTrack.formatDescriptions as? [CMFormatDescription]
+        guard let formatDesc = formatDescriptions?.first else { return }
+        
+        if let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee {
+            let newSampleRate = track.sampleRate ?? Int(asbd.mSampleRate)
+            let newChannels = track.channels ?? Int(asbd.mChannelsPerFrame)
+            
+            // Create updated track with extracted format info
+            let updatedTrack = Track(
+                id: track.id,
+                url: track.url,
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                duration: track.duration,
+                bitrate: track.bitrate,
+                sampleRate: newSampleRate,
+                channels: newChannels
+            )
+            
+            // Update current track and notify delegate
+            currentTrack = updatedTrack
+            
+            // Update playlist entry too
+            if currentIndex >= 0 && currentIndex < playlist.count {
+                playlist[currentIndex] = updatedTrack
+            }
+            
+            NSLog("Extracted stream audio format: %d Hz, %d channels", newSampleRate, newChannels)
+        }
+    }
+    
     private func stopStreamPlayer() {
         if let observer = streamPlayerObserver {
             NotificationCenter.default.removeObserver(observer)
             streamPlayerObserver = nil
         }
+        playerItemStatusObserver?.invalidate()
+        playerItemStatusObserver = nil
         streamPlayer?.pause()
         streamPlayer = nil
     }

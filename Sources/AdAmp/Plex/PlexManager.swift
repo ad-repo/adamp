@@ -484,12 +484,20 @@ class PlexManager {
     func convertToTrack(_ plexTrack: PlexTrack) -> Track? {
         guard let streamURL = streamURL(for: plexTrack) else { return nil }
         
+        // Extract audio info from media
+        let media = plexTrack.media.first
+        let bitrate = media?.bitrate
+        let channels = media?.audioChannels
+        
         return Track(
             url: streamURL,
             title: plexTrack.title,
             artist: plexTrack.grandparentTitle,
             album: plexTrack.parentTitle,
-            duration: plexTrack.durationInSeconds
+            duration: plexTrack.durationInSeconds,
+            bitrate: bitrate,
+            sampleRate: nil,  // Plex doesn't provide sample rate in API
+            channels: channels
         )
     }
     

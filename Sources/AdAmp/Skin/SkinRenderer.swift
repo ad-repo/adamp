@@ -294,6 +294,122 @@ class SkinRenderer {
                   to: NSRect(origin: monoPos, size: monoRect.size), in: context)
     }
     
+    /// Draw bitrate display (e.g., "128" kbps)
+    /// - Parameters:
+    ///   - bitrate: Bitrate value in kbps (or bps if > 10000)
+    ///   - scrollOffset: Scroll offset for values > 3 digits
+    ///   - context: Graphics context
+    func drawBitrate(_ bitrate: Int?, scrollOffset: CGFloat = 0, in context: CGContext) {
+        let displayText: String
+        if let bitrate = bitrate {
+            // Show bitrate in kbps (divide by 1000 if it's in bps)
+            let kbps = bitrate > 10000 ? bitrate / 1000 : bitrate
+            displayText = "\(kbps)"
+        } else {
+            displayText = ""
+        }
+        
+        let rect = SkinElements.InfoDisplay.Positions.bitrate
+        let maxChars = 3  // Display fits 3 characters
+        
+        if displayText.count > maxChars {
+            // Scroll if more than 3 digits
+            drawScrollingSmallText(displayText, at: rect, scrollOffset: scrollOffset, in: context)
+        } else {
+            drawSmallText(displayText, at: rect, in: context)
+        }
+    }
+    
+    /// Draw sample rate display (e.g., "44" kHz)
+    func drawSampleRate(_ sampleRate: Int?, in context: CGContext) {
+        let displayText: String
+        if let sampleRate = sampleRate {
+            // Show sample rate in kHz (divide by 1000)
+            let khz = sampleRate / 1000
+            displayText = "\(khz)"
+        } else {
+            displayText = ""
+        }
+        
+        drawSmallText(displayText, at: SkinElements.InfoDisplay.Positions.sampleRate, in: context)
+    }
+    
+    /// Draw small text using the skin font (for bitrate/sample rate displays)
+    private func drawSmallText(_ text: String, at rect: NSRect, in context: CGContext) {
+        guard !text.isEmpty else { return }
+        
+        if let textImage = skin.text {
+            // Draw each character from skin font
+            var xPos = rect.minX
+            let yPos = rect.minY + (rect.height - SkinElements.TextFont.charHeight) / 2
+            
+            for char in text.uppercased() {
+                let charRect = SkinElements.TextFont.character(char)
+                let destRect = NSRect(x: xPos, y: yPos,
+                                     width: SkinElements.TextFont.charWidth,
+                                     height: SkinElements.TextFont.charHeight)
+                
+                drawSprite(from: textImage, sourceRect: charRect, to: destRect, in: context)
+                xPos += SkinElements.TextFont.charWidth
+            }
+        } else {
+            // Fallback text rendering
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.green,
+                .font: NSFont.monospacedSystemFont(ofSize: 7, weight: .regular)
+            ]
+            text.draw(at: NSPoint(x: rect.minX, y: rect.minY), withAttributes: attrs)
+        }
+    }
+    
+    /// Draw scrolling small text with circular wrap (for long bitrate values)
+    private func drawScrollingSmallText(_ text: String, at rect: NSRect, scrollOffset: CGFloat, in context: CGContext) {
+        guard !text.isEmpty else { return }
+        
+        // Clip to display area
+        context.saveGState()
+        context.clip(to: rect)
+        
+        let charWidth = SkinElements.TextFont.charWidth
+        let textWidth = CGFloat(text.count) * charWidth
+        let spacing: CGFloat = charWidth * 2  // Gap between repeated text
+        let totalWidth = textWidth + spacing  // Total width of one cycle
+        
+        if let textImage = skin.text {
+            let yPos = rect.minY + (rect.height - SkinElements.TextFont.charHeight) / 2
+            
+            // Draw text twice for seamless circular scroll
+            for pass in 0..<2 {
+                var xPos = rect.minX - scrollOffset + (CGFloat(pass) * totalWidth)
+                
+                for char in text.uppercased() {
+                    let charRect = SkinElements.TextFont.character(char)
+                    let destRect = NSRect(x: xPos, y: yPos,
+                                         width: charWidth,
+                                         height: SkinElements.TextFont.charHeight)
+                    
+                    // Only draw if visible
+                    if xPos + charWidth > rect.minX && xPos < rect.maxX {
+                        drawSprite(from: textImage, sourceRect: charRect, to: destRect, in: context)
+                    }
+                    xPos += charWidth
+                }
+            }
+        } else {
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.green,
+                .font: NSFont.monospacedSystemFont(ofSize: 7, weight: .regular)
+            ]
+            // Draw text twice for circular scroll
+            for pass in 0..<2 {
+                let xPos = rect.minX - scrollOffset + (CGFloat(pass) * totalWidth)
+                text.draw(at: NSPoint(x: xPos, y: rect.minY), withAttributes: attrs)
+            }
+        }
+        
+        context.restoreGState()
+    }
+    
     // MARK: - Sliders
     
     /// Draw position/seek slider
