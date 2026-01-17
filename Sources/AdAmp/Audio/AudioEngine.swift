@@ -3,6 +3,7 @@ import AppKit
 import Accelerate
 import CoreAudio
 import AudioToolbox
+import MediaToolbox
 
 /// Audio playback state
 enum PlaybackState {
@@ -43,6 +44,33 @@ class AudioEngine {
     private var streamPlayer: AVPlayer?
     private var streamPlayerObserver: Any?
     private var isStreamingPlayback: Bool = false
+    
+    /// Audio tap for streaming spectrum analysis
+    private var audioTap: MTAudioProcessingTap?
+    
+    /// Context for audio tap callbacks (must be a class to use with UnsafeMutableRawPointer)
+    /// Internal so tap callbacks can access it
+    class AudioTapContext {
+        weak var engine: AudioEngine?
+        var fftSetup: vDSP_DFT_Setup?
+        let fftSize: Int = 2048
+        var isInvalidated: Bool = false
+        
+        init(engine: AudioEngine) {
+            self.engine = engine
+            self.fftSetup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD)
+        }
+        
+        func invalidate() {
+            isInvalidated = true
+            engine = nil
+        }
+        
+        deinit {
+            fftSetup = nil
+        }
+    }
+    private var tapContext: AudioTapContext?
     
     /// Current playback state
     private(set) var state: PlaybackState = .stopped {
@@ -255,15 +283,23 @@ class AudioEngine {
                 let range = max(1, bin / 10)
                 
                 for j in max(0, bin - range)..<min(fftSize / 2, bin + range + 1) {
-                    sum += logMagnitudes[j]
+                    sum += magnitudes[j]  // Use linear magnitudes, not log
                     count += 1
                 }
                 
-                // Normalize to 0-1 range (assuming -80dB to 0dB range)
-                let db = sum / count
-                let normalized = max(0, min(1, (db + 80) / 80))
-                newSpectrum[band] = normalized
+                newSpectrum[band] = sum / count
             }
+        }
+        
+        // Find peak magnitude for normalization
+        let peakMag = newSpectrum.max() ?? 1.0
+        guard peakMag > 0 else { return }
+        
+        // Normalize relative to peak and apply curve for visual dynamics
+        for i in 0..<bandCount {
+            let normalized = newSpectrum[i] / peakMag
+            // Apply power curve to spread out values (0.5 = square root for more dynamics)
+            newSpectrum[i] = pow(normalized, 0.4)
         }
         
         // Smooth with previous values (decay)
@@ -279,6 +315,156 @@ class AudioEngine {
             }
             self.delegate?.audioEngineDidUpdateSpectrum(self.spectrumData)
         }
+    }
+    
+    // MARK: - Streaming Audio Tap
+    
+    /// Process raw audio samples from streaming tap (called from tap callback)
+    func processStreamingAudioSamples(_ samples: UnsafePointer<Float>, count: Int, sampleRate: Float) {
+        guard let context = tapContext, let fftSetup = context.fftSetup else { return }
+        let fftSize = context.fftSize
+        guard count >= fftSize else { return }
+        
+        // Copy samples for processing
+        var audioSamples = [Float](repeating: 0, count: fftSize)
+        memcpy(&audioSamples, samples, fftSize * MemoryLayout<Float>.size)
+        
+        // Apply Hann window
+        var window = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+        vDSP_vmul(audioSamples, 1, window, 1, &audioSamples, 1, vDSP_Length(fftSize))
+        
+        // Perform FFT
+        var realIn = audioSamples
+        var imagIn = [Float](repeating: 0, count: fftSize)
+        var realOut = [Float](repeating: 0, count: fftSize)
+        var imagOut = [Float](repeating: 0, count: fftSize)
+        
+        vDSP_DFT_Execute(fftSetup, &realIn, &imagIn, &realOut, &imagOut)
+        
+        // Calculate magnitudes
+        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
+        for i in 0..<fftSize / 2 {
+            magnitudes[i] = sqrt(realOut[i] * realOut[i] + imagOut[i] * imagOut[i])
+        }
+        
+        // Convert to dB and normalize
+        var logMagnitudes = [Float](repeating: 0, count: fftSize / 2)
+        var one: Float = 1.0
+        vDSP_vdbcon(magnitudes, 1, &one, &logMagnitudes, 1, vDSP_Length(fftSize / 2), 0)
+        
+        // Map to 75 bands (Winamp-style)
+        let bandCount = 75
+        var newSpectrum = [Float](repeating: 0, count: bandCount)
+        
+        // Logarithmic frequency mapping
+        let minFreq: Float = 20
+        let maxFreq: Float = 20000
+        let binWidth = sampleRate / Float(fftSize)
+        
+        for band in 0..<bandCount {
+            let freqRatio = Float(band) / Float(bandCount - 1)
+            let freq = minFreq * pow(maxFreq / minFreq, freqRatio)
+            let bin = Int(freq / binWidth)
+            
+            if bin < fftSize / 2 && bin >= 0 {
+                var sum: Float = 0
+                var binCount: Float = 0
+                let range = max(1, bin / 10)
+                
+                for j in max(0, bin - range)..<min(fftSize / 2, bin + range + 1) {
+                    sum += magnitudes[j]  // Use linear magnitudes
+                    binCount += 1
+                }
+                
+                newSpectrum[band] = sum / binCount
+            }
+        }
+        
+        // Find peak magnitude for normalization
+        let peakMag = newSpectrum.max() ?? 1.0
+        guard peakMag > 0 else { return }
+        
+        // Normalize relative to peak and apply curve
+        for i in 0..<bandCount {
+            let normalized = newSpectrum[i] / peakMag
+            newSpectrum[i] = pow(normalized, 0.4)
+        }
+        
+        // Update spectrum data on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            for i in 0..<bandCount {
+                if newSpectrum[i] > self.spectrumData[i] {
+                    self.spectrumData[i] = newSpectrum[i]
+                } else {
+                    self.spectrumData[i] = self.spectrumData[i] * 0.85 + newSpectrum[i] * 0.15
+                }
+            }
+            self.delegate?.audioEngineDidUpdateSpectrum(self.spectrumData)
+        }
+    }
+    
+    /// Create audio tap for streaming player item
+    private func createAudioTapForPlayerItem(_ playerItem: AVPlayerItem) {
+        // Get the audio track from the asset
+        let asset = playerItem.asset
+        
+        // Load tracks asynchronously
+        Task {
+            do {
+                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+                guard let audioTrack = audioTracks.first else {
+                    NSLog("AudioEngine: No audio track found for tap")
+                    return
+                }
+                
+                await MainActor.run {
+                    self.setupAudioTap(for: playerItem, audioTrack: audioTrack)
+                }
+            } catch {
+                NSLog("AudioEngine: Failed to load audio tracks: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    /// Set up the audio tap on the player item
+    private func setupAudioTap(for playerItem: AVPlayerItem, audioTrack: AVAssetTrack) {
+        // Create tap context - use passRetained so it lives as long as the tap
+        let context = AudioTapContext(engine: self)
+        tapContext = context
+        
+        // Create callbacks struct - passRetained keeps context alive until tapFinalize releases it
+        var callbacks = MTAudioProcessingTapCallbacks(
+            version: kMTAudioProcessingTapCallbacksVersion_0,
+            clientInfo: UnsafeMutableRawPointer(Unmanaged.passRetained(context).toOpaque()),
+            init: tapInit,
+            finalize: tapFinalize,
+            prepare: tapPrepare,
+            unprepare: tapUnprepare,
+            process: tapProcess
+        )
+        
+        // Create the tap
+        var tap: MTAudioProcessingTap?
+        let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
+        
+        guard status == noErr, let unwrappedTap = tap else {
+            NSLog("AudioEngine: Failed to create audio tap: %d", status)
+            return
+        }
+        
+        audioTap = unwrappedTap
+        
+        // Create audio mix with the tap
+        let inputParams = AVMutableAudioMixInputParameters(track: audioTrack)
+        inputParams.audioTapProcessor = audioTap
+        
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = [inputParams]
+        
+        playerItem.audioMix = audioMix
+        NSLog("AudioEngine: Audio tap installed for streaming")
     }
     
     // MARK: - Playback Control
@@ -382,6 +568,9 @@ class AudioEngine {
         lastReportedTime = 0
         state = .stopped
         stopTimeUpdates()
+        
+        // Clear spectrum analyzer
+        clearSpectrum()
         
         // Notify delegate of reset time
         delegate?.audioEngineDidUpdateTime(current: 0, duration: duration)
@@ -646,14 +835,63 @@ class AudioEngine {
         state = .playing
     }
     
-    /// Stop cast playback time tracking (called when casting stops)
-    func stopCastPlayback() {
+    /// Stop cast playback and resume local playback at current position
+    /// - Parameter resumeLocally: If true, resume local playback from current cast position
+    func stopCastPlayback(resumeLocally: Bool = false) {
+        // Save current position before clearing cast state
+        let currentPosition = castStartPosition
+        if let startDate = castPlaybackStartDate {
+            // Add elapsed time since last position update
+            let elapsed = Date().timeIntervalSince(startDate)
+            let position = currentPosition + elapsed
+            
+            if resumeLocally, let track = currentTrack {
+                // Resume local playback from current position
+                castPlaybackStartDate = nil
+                castStartPosition = 0
+                
+                // Load and seek to position
+                if let index = playlist.firstIndex(where: { $0.id == track.id }) {
+                    currentIndex = index
+                    loadTrack(at: index)
+                    seek(to: position)
+                    play()
+                    return
+                }
+            }
+        }
+        
+        // Default behavior - just stop
         castPlaybackStartDate = nil
         castStartPosition = 0
-        
-        // Update state
         state = .stopped
         stopTimeUpdates()
+    }
+    
+    /// Decay spectrum to empty when not playing locally
+    private func decaySpectrum() {
+        var hasData = false
+        for i in 0..<spectrumData.count {
+            spectrumData[i] *= 0.85  // Gradual decay
+            if spectrumData[i] > 0.01 {
+                hasData = true
+            } else {
+                spectrumData[i] = 0
+            }
+        }
+        
+        // Only update delegate if there's still data decaying
+        if hasData {
+            delegate?.audioEngineDidUpdateSpectrum(spectrumData)
+        }
+    }
+    
+    /// Clear spectrum immediately
+    private func clearSpectrum() {
+        for i in 0..<spectrumData.count {
+            spectrumData[i] = 0
+        }
+        delegate?.audioEngineDidUpdateSpectrum(spectrumData)
     }
     
     private func startTimeUpdates() {
@@ -663,6 +901,11 @@ class AudioEngine {
             let trackDuration = self.duration
             self.lastReportedTime = current
             self.delegate?.audioEngineDidUpdateTime(current: current, duration: trackDuration)
+            
+            // Decay spectrum when not playing locally (casting or stopped)
+            if self.isCastingActive || self.state != .playing {
+                self.decaySpectrum()
+            }
             
             // When casting, check if track has finished and auto-advance
             if self.isCastingActive, 
@@ -873,6 +1116,10 @@ class AudioEngine {
         
         // Create new player item and player
         let playerItem = AVPlayerItem(url: track.url)
+        
+        // Set up audio tap for spectrum analysis
+        createAudioTapForPlayerItem(playerItem)
+        
         streamPlayer = AVPlayer(playerItem: playerItem)
         streamPlayer?.volume = volume
         
@@ -953,6 +1200,17 @@ class AudioEngine {
         }
         playerItemStatusObserver?.invalidate()
         playerItemStatusObserver = nil
+        
+        // Invalidate context first so tap callbacks stop processing
+        tapContext?.invalidate()
+        
+        // Clear audio mix to stop the tap before releasing references
+        streamPlayer?.currentItem?.audioMix = nil
+        
+        // Clear our references (the context will be released by tapFinalize)
+        audioTap = nil
+        tapContext = nil
+        
         streamPlayer?.pause()
         streamPlayer = nil
     }
@@ -1207,4 +1465,62 @@ class AudioEngine {
             play()
         }
     }
+}
+
+// MARK: - MTAudioProcessingTap Callbacks
+
+/// Tap initialization callback
+private func tapInit(tap: MTAudioProcessingTap, clientInfo: UnsafeMutableRawPointer?, tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>) {
+    // Store the client info (AudioTapContext) in tap storage
+    tapStorageOut.pointee = clientInfo
+}
+
+/// Tap finalize callback - releases the retained context
+private func tapFinalize(tap: MTAudioProcessingTap) {
+    // Release the retained context
+    let storage = MTAudioProcessingTapGetStorage(tap)
+    // takeRetainedValue releases the reference that was retained in setupAudioTap
+    _ = Unmanaged<AudioEngine.AudioTapContext>.fromOpaque(storage).takeRetainedValue()
+}
+
+/// Tap prepare callback - called when audio format is known
+private func tapPrepare(tap: MTAudioProcessingTap, maxFrames: CMItemCount, processingFormat: UnsafePointer<AudioStreamBasicDescription>) {
+    // Format is now known, could store it if needed
+}
+
+/// Tap unprepare callback
+private func tapUnprepare(tap: MTAudioProcessingTap) {
+    // Nothing to unprepare
+}
+
+/// Tap process callback - called for each audio buffer
+private func tapProcess(tap: MTAudioProcessingTap, numberFrames: CMItemCount, flags: MTAudioProcessingTapFlags, bufferListInOut: UnsafeMutablePointer<AudioBufferList>, numberFramesOut: UnsafeMutablePointer<CMItemCount>, flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>) {
+    // Get the source audio first
+    let status = MTAudioProcessingTapGetSourceAudio(tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
+    guard status == noErr else { return }
+    
+    // Get the tap context from storage
+    let storage = MTAudioProcessingTapGetStorage(tap)
+    
+    let context = Unmanaged<AudioEngine.AudioTapContext>.fromOpaque(storage).takeUnretainedValue()
+    
+    // Check if context has been invalidated (stop requested)
+    guard !context.isInvalidated, let engine = context.engine else { return }
+    
+    // Process the audio buffer
+    let bufferList = UnsafeMutableAudioBufferListPointer(bufferListInOut)
+    guard let firstBuffer = bufferList.first,
+          let data = firstBuffer.mData else { return }
+    
+    let frameCount = Int(numberFramesOut.pointee)
+    guard frameCount > 0 else { return }
+    
+    // Convert to float samples
+    let floatData = data.assumingMemoryBound(to: Float.self)
+    
+    // Use a reasonable sample rate (will be overwritten if we can get the actual rate)
+    let sampleRate: Float = 44100
+    
+    // Process the samples
+    engine.processStreamingAudioSamples(floatData, count: frameCount, sampleRate: sampleRate)
 }

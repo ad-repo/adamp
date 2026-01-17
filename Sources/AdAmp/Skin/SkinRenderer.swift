@@ -291,9 +291,84 @@ class SkinRenderer {
     // MARK: - Visualization
     
     /// Draw spectrum analyzer visualization
+    /// - Parameters:
+    ///   - levels: Array of frequency levels (0-1), typically 75 bands from FFT
+    ///   - context: Graphics context to draw into
     func drawSpectrumAnalyzer(levels: [Float], in context: CGContext) {
-        // Spectrum analyzer disabled - the skin background already has this area styled
-        // TODO: Implement proper skin-based visualization when needed
+        let displayArea = SkinElements.Visualization.displayArea
+        let barCount = SkinElements.Visualization.barCount
+        let barWidth = SkinElements.Visualization.barWidth
+        let barSpacing = SkinElements.Visualization.barSpacing
+        let maxHeight = displayArea.height
+        
+        // Get visualization colors from skin (24 colors, 0=darkest, 23=brightest)
+        let colors = skin.visColors
+        guard !colors.isEmpty else { return }
+        
+        // Calculate the bottom Y position (in Winamp coords where Y increases downward)
+        // The bars grow upward from the bottom of the display area
+        let bottomY = displayArea.minY + displayArea.height
+        
+        // Map input levels (75 bands) to display bars (19 bars)
+        let mappedLevels: [Float]
+        if levels.isEmpty {
+            // No audio - show flat/empty bars
+            mappedLevels = Array(repeating: 0, count: barCount)
+        } else if levels.count >= barCount {
+            // Average multiple FFT bands into each display bar
+            let bandsPerBar = levels.count / barCount
+            mappedLevels = (0..<barCount).map { barIndex in
+                let start = barIndex * bandsPerBar
+                let end = min(start + bandsPerBar, levels.count)
+                let slice = levels[start..<end]
+                return slice.reduce(0, +) / Float(slice.count)
+            }
+        } else {
+            // Fewer levels than bars - interpolate
+            mappedLevels = (0..<barCount).map { barIndex in
+                let sourceIndex = Float(barIndex) * Float(levels.count - 1) / Float(barCount - 1)
+                let lowerIndex = Int(sourceIndex)
+                let upperIndex = min(lowerIndex + 1, levels.count - 1)
+                let fraction = sourceIndex - Float(lowerIndex)
+                return levels[lowerIndex] * (1 - fraction) + levels[upperIndex] * fraction
+            }
+        }
+        
+        // Draw each bar
+        for (barIndex, level) in mappedLevels.enumerated() {
+            let barX = displayArea.minX + CGFloat(barIndex) * (barWidth + barSpacing)
+            
+            // Calculate bar height (0-16 pixels based on level)
+            // Apply a slight boost for visual appeal
+            let boostedLevel = min(1.0, level * 1.2)
+            let barHeight = Int(boostedLevel * Float(maxHeight))
+            
+            guard barHeight > 0 else { continue }
+            
+            // Draw bar pixel by pixel from bottom to top
+            // Each row gets progressively brighter color
+            for row in 0..<barHeight {
+                // Map row position to color index
+                // row 0 is bottom (darkest), row barHeight-1 is top (brightest)
+                // Use the bar height to determine which colors to use from the palette
+                let colorIndex: Int
+                if barHeight <= 1 {
+                    colorIndex = 0
+                } else {
+                    // Scale row position to color palette (24 colors for 16 pixel max height)
+                    let rowFraction = Float(row) / Float(maxHeight - 1)
+                    colorIndex = min(colors.count - 1, Int(rowFraction * Float(colors.count - 1)))
+                }
+                
+                let color = colors[colorIndex]
+                color.setFill()
+                
+                // Draw pixel row - Y position counts from bottom up
+                let pixelY = bottomY - CGFloat(row + 1)
+                let pixelRect = NSRect(x: barX, y: pixelY, width: barWidth, height: 1)
+                context.fill(pixelRect)
+            }
+        }
     }
     
     // MARK: - Status Indicators

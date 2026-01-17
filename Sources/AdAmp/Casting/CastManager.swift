@@ -295,9 +295,9 @@ class CastManager {
             upnpManager.disconnect()
         }
         
-        // Reset cast time tracking
+        // Resume local playback from current position
         await MainActor.run {
-            WindowManager.shared.audioEngine.stopCastPlayback()
+            WindowManager.shared.audioEngine.stopCastPlayback(resumeLocally: true)
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
         }
