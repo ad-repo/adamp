@@ -419,15 +419,22 @@ class PlexServerClient {
     
     // MARK: - Server Status
     
-    /// Check if the server is reachable
+    /// Check if the server is reachable (with short timeout)
     func checkConnection() async -> Bool {
         guard let request = buildRequest(path: "/") else { return false }
         
+        // Use a shorter timeout for connection checks
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 5  // 5 seconds
+        config.timeoutIntervalForResource = 10
+        let quickSession = URLSession(configuration: config)
+        
         do {
-            let (_, response) = try await session.data(for: request)
+            let (_, response) = try await quickSession.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else { return false }
             return httpResponse.statusCode == 200
         } catch {
+            NSLog("PlexServerClient: Connection check failed: %@", error.localizedDescription)
             return false
         }
     }
@@ -478,6 +485,11 @@ enum PlexServerError: LocalizedError {
     case unauthorized
     case serverOffline
     case networkError(Error)
+    case allConnectionsFailed(serverName: String, tried: String)
+    case noMusicLibrary
+    case noVideoLibrary
+    case noMovieLibrary
+    case noShowLibrary
     
     var errorDescription: String? {
         switch self {
@@ -493,6 +505,16 @@ enum PlexServerError: LocalizedError {
             return "Server is offline or unreachable"
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
+        case .allConnectionsFailed(let serverName, let tried):
+            return "Could not connect to '\(serverName)'. Tried:\n\(tried)"
+        case .noMusicLibrary:
+            return "No music library on this server"
+        case .noVideoLibrary:
+            return "No video library on this server"
+        case .noMovieLibrary:
+            return "No movie library on this server"
+        case .noShowLibrary:
+            return "No TV show library on this server"
         }
     }
 }

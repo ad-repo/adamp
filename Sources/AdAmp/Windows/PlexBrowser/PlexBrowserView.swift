@@ -87,6 +87,10 @@ class PlexBrowserView: NSView {
     
     private var searchResults: PlexSearchResults?
     
+    /// Loading animation
+    private var loadingAnimationTimer: Timer?
+    private var loadingAnimationFrame: Int = 0
+    
     // MARK: - Layout Constants
     
     private struct Layout {
@@ -161,6 +165,12 @@ class PlexBrowserView: NSView {
             name: PlexManager.connectionStateDidChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(plexServerDidChange),
+            name: PlexManager.serversDidChangeNotification,
+            object: nil
+        )
         
         // Initial data load
         reloadData()
@@ -168,6 +178,7 @@ class PlexBrowserView: NSView {
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+        stopLoadingAnimation()
     }
     
     // MARK: - Drawing
@@ -405,14 +416,55 @@ class PlexBrowserView: NSView {
         Colors.listBackground.setFill()
         context.fill(listRect)
         
-        let message = "Loading..."
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: Colors.textNormal,
-            .font: NSFont.systemFont(ofSize: 12)
-        ]
-        let size = message.size(withAttributes: attrs)
-        message.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: listY + listHeight / 2 - size.height / 2),
-                    withAttributes: attrs)
+        let centerY = listY + listHeight / 2
+        
+        // Draw animated spinner (centered)
+        let centerX = bounds.width / 2
+        let innerRadius: CGFloat = 5
+        let outerRadius: CGFloat = 12
+        
+        // Draw spinner segments
+        let numSegments = 8
+        let segmentAngle = CGFloat.pi * 2 / CGFloat(numSegments)
+        
+        for i in 0..<numSegments {
+            let angle = CGFloat(i) * segmentAngle - CGFloat.pi / 2 + CGFloat(loadingAnimationFrame) * segmentAngle
+            let alpha = CGFloat(i + 1) / CGFloat(numSegments)
+            
+            Colors.textNormal.withAlphaComponent(alpha).setStroke()
+            context.setLineWidth(2.5)
+            
+            let startX = centerX + cos(angle) * innerRadius
+            let startY = centerY + sin(angle) * innerRadius
+            let endX = centerX + cos(angle) * outerRadius
+            let endY = centerY + sin(angle) * outerRadius
+            
+            context.move(to: CGPoint(x: startX, y: startY))
+            context.addLine(to: CGPoint(x: endX, y: endY))
+            context.strokePath()
+        }
+        
+        // Start animation timer if not running
+        startLoadingAnimation()
+    }
+    
+    private func startLoadingAnimation() {
+        guard loadingAnimationTimer == nil else { return }
+        loadingAnimationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.loadingAnimationFrame += 1
+            if self.isLoading {
+                self.needsDisplay = true
+            } else {
+                self.stopLoadingAnimation()
+            }
+        }
+    }
+    
+    private func stopLoadingAnimation() {
+        loadingAnimationTimer?.invalidate()
+        loadingAnimationTimer = nil
+        loadingAnimationFrame = 0
     }
     
     private func drawErrorState(context: CGContext, message: String) {
@@ -628,7 +680,76 @@ class PlexBrowserView: NSView {
     func reloadData() {
         guard PlexManager.shared.isLinked else {
             displayItems = []
+            stopLoadingAnimation()
             needsDisplay = true
+            return
+        }
+        
+        // If we're still connecting to a server, show loading state
+        if case .connecting = PlexManager.shared.connectionState {
+            isLoading = true
+            errorMessage = nil
+            startLoadingAnimation()
+            needsDisplay = true
+            return
+        }
+        
+        // If no server client yet, show loading and try to connect
+        if PlexManager.shared.serverClient == nil {
+            isLoading = true
+            errorMessage = nil
+            startLoadingAnimation()
+            needsDisplay = true
+            
+            // Try to connect to current server if we have one
+            if let server = PlexManager.shared.currentServer {
+                Task { @MainActor in
+                    do {
+                        try await PlexManager.shared.connect(to: server)
+                        loadDataForCurrentMode()
+                    } catch {
+                        isLoading = false
+                        stopLoadingAnimation()
+                        errorMessage = error.localizedDescription
+                        needsDisplay = true
+                    }
+                }
+            } else if !PlexManager.shared.servers.isEmpty {
+                // No current server but we have servers - connect to first one
+                let server = PlexManager.shared.servers[0]
+                Task { @MainActor in
+                    do {
+                        try await PlexManager.shared.connect(to: server)
+                        loadDataForCurrentMode()
+                    } catch {
+                        isLoading = false
+                        stopLoadingAnimation()
+                        errorMessage = error.localizedDescription
+                        needsDisplay = true
+                    }
+                }
+            } else {
+                // No servers at all - try refreshing
+                Task { @MainActor in
+                    do {
+                        try await PlexManager.shared.refreshServers()
+                        if let server = PlexManager.shared.servers.first {
+                            try await PlexManager.shared.connect(to: server)
+                            loadDataForCurrentMode()
+                        } else {
+                            isLoading = false
+                            stopLoadingAnimation()
+                            errorMessage = "No Plex servers found"
+                            needsDisplay = true
+                        }
+                    } catch {
+                        isLoading = false
+                        stopLoadingAnimation()
+                        errorMessage = error.localizedDescription
+                        needsDisplay = true
+                    }
+                }
+            }
             return
         }
         
@@ -641,6 +762,21 @@ class PlexBrowserView: NSView {
     
     @objc private func plexStateDidChange() {
         DispatchQueue.main.async { [weak self] in
+            // Don't reload data if we're in the middle of connecting - just update the display
+            if case .connecting = PlexManager.shared.connectionState {
+                self?.isLoading = true
+                self?.errorMessage = nil
+                self?.needsDisplay = true
+                return
+            }
+            self?.reloadData()
+        }
+    }
+    
+    @objc private func plexServerDidChange() {
+        DispatchQueue.main.async { [weak self] in
+            NSLog("PlexBrowserView: Server changed, clearing cache and reloading")
+            self?.clearAllCachedData()
             self?.reloadData()
         }
     }
@@ -648,6 +784,7 @@ class PlexBrowserView: NSView {
     private func loadDataForCurrentMode() {
         isLoading = true
         errorMessage = nil
+        startLoadingAnimation()
         needsDisplay = true
         
         Task { @MainActor in
@@ -699,10 +836,12 @@ class PlexBrowserView: NSView {
                 }
                 
                 isLoading = false
+                stopLoadingAnimation()
                 errorMessage = nil
             } catch {
                 NSLog("PlexBrowserView: Error loading data for mode %d: %@", browseMode.rawValue, error.localizedDescription)
                 isLoading = false
+                stopLoadingAnimation()
                 errorMessage = error.localizedDescription
             }
             needsDisplay = true
@@ -1543,6 +1682,12 @@ class PlexBrowserView: NSView {
             return
         }
         
+        // Show loading state
+        isLoading = true
+        errorMessage = nil
+        startLoadingAnimation()
+        needsDisplay = true
+        
         Task { @MainActor in
             do {
                 try await PlexManager.shared.connect(to: server)
@@ -1551,6 +1696,10 @@ class PlexBrowserView: NSView {
                 reloadData()
             } catch {
                 NSLog("Failed to connect to server: %@", error.localizedDescription)
+                isLoading = false
+                stopLoadingAnimation()
+                errorMessage = "Failed to connect to \(server.name): \(error.localizedDescription)"
+                needsDisplay = true
             }
         }
     }

@@ -221,25 +221,36 @@ class PlexManager {
         
         do {
             let fetchedServers = try await authClient.fetchResources(token: token)
+            NSLog("PlexManager: Fetched %d servers", fetchedServers.count)
             
             await MainActor.run {
                 self.servers = fetchedServers
-                
-                // Restore previous selection or select first server
-                if let savedServerID = UserDefaults.standard.string(forKey: "PlexCurrentServerID"),
-                   let savedServer = fetchedServers.first(where: { $0.id == savedServerID }) {
-                    self.currentServer = savedServer
-                } else if let firstServer = fetchedServers.first {
-                    self.currentServer = firstServer
+            }
+            
+            // Determine which server to connect to
+            var serverToConnect: PlexServer? = nil
+            
+            if let savedServerID = UserDefaults.standard.string(forKey: "PlexCurrentServerID"),
+               let savedServer = fetchedServers.first(where: { $0.id == savedServerID }) {
+                serverToConnect = savedServer
+                NSLog("PlexManager: Will connect to saved server: %@", savedServer.name)
+            } else if let firstServer = fetchedServers.first {
+                serverToConnect = firstServer
+                NSLog("PlexManager: Will connect to first server: %@", firstServer.name)
+            }
+            
+            // Connect to the server using the full connection logic (tries all connections)
+            if let server = serverToConnect {
+                do {
+                    try await connect(to: server)
+                } catch {
+                    NSLog("PlexManager: Failed to connect to server %@: %@", server.name, error.localizedDescription)
+                    // Don't throw - we still have the server list, just no active connection
+                    connectionState = .disconnected
                 }
+            } else {
+                connectionState = .disconnected
             }
-            
-            // If we have a server selected, fetch its libraries
-            if currentServer != nil {
-                try await refreshLibraries()
-            }
-            
-            connectionState = .connected
         } catch {
             connectionState = .error(error)
             throw error
@@ -249,9 +260,11 @@ class PlexManager {
     /// Refresh servers without throwing (for background refresh)
     private func refreshServersInBackground() async {
         do {
+            NSLog("PlexManager: Background refresh of servers starting...")
             try await refreshServers()
+            NSLog("PlexManager: Background refresh completed, found %d servers", servers.count)
         } catch {
-            print("Failed to refresh Plex servers: \(error)")
+            NSLog("PlexManager: Background refresh failed: %@", error.localizedDescription)
         }
     }
     
@@ -261,19 +274,73 @@ class PlexManager {
             throw PlexAuthError.unauthorized
         }
         
-        connectionState = .connecting
-        
-        // Create client for the server
-        guard let client = PlexServerClient(server: server, authToken: token) else {
-            connectionState = .error(PlexServerError.invalidURL)
-            throw PlexServerError.invalidURL
+        NSLog("PlexManager: Connecting to server '%@' (id: %@)", server.name, server.id)
+        NSLog("PlexManager: Server has %d connections", server.connections.count)
+        for (index, conn) in server.connections.enumerated() {
+            NSLog("  Connection %d: %@ (local: %d, relay: %d)", index, conn.uri, conn.local ? 1 : 0, conn.relay ? 1 : 0)
         }
         
-        // Check connection
-        let isOnline = await client.checkConnection()
-        guard isOnline else {
-            connectionState = .error(PlexServerError.serverOffline)
-            throw PlexServerError.serverOffline
+        connectionState = .connecting
+        
+        // Try each connection in order until one works
+        // Order: local non-relay, remote non-relay, relay
+        let sortedConnections = server.connections.sorted { c1, c2 in
+            // Prefer local, then non-relay
+            if c1.local != c2.local { return c1.local }
+            if c1.relay != c2.relay { return !c1.relay }
+            return false
+        }
+        
+        var lastError: Error = PlexServerError.serverOffline
+        var workingClient: PlexServerClient? = nil
+        var triedConnections: [String] = []
+        
+        for connection in sortedConnections {
+            guard connection.url != nil else {
+                NSLog("PlexManager: Skipping connection with invalid URL: %@", connection.uri)
+                continue
+            }
+            
+            let connType = connection.local ? "local" : (connection.relay ? "relay" : "remote")
+            NSLog("PlexManager: Trying connection: %@ (%@)", connection.uri, connType)
+            triedConnections.append("\(connType): \(connection.uri)")
+            
+            // Create a temporary server with just this connection to test it
+            let testServer = PlexServer(
+                id: server.id,
+                name: server.name,
+                product: server.product,
+                productVersion: server.productVersion,
+                platform: server.platform,
+                platformVersion: server.platformVersion,
+                device: server.device,
+                owned: server.owned,
+                connections: [connection],
+                accessToken: server.accessToken
+            )
+            
+            guard let client = PlexServerClient(server: testServer, authToken: token) else {
+                NSLog("PlexManager: Failed to create client for connection: %@", connection.uri)
+                continue
+            }
+            
+            // Check connection with short timeout
+            let isOnline = await client.checkConnection()
+            if isOnline {
+                NSLog("PlexManager: Connection successful: %@", connection.uri)
+                workingClient = client
+                break
+            } else {
+                NSLog("PlexManager: Connection failed: %@", connection.uri)
+                lastError = PlexServerError.serverOffline
+            }
+        }
+        
+        guard let client = workingClient else {
+            NSLog("PlexManager: All connections failed for server '%@'", server.name)
+            let triedList = triedConnections.joined(separator: "\n")
+            connectionState = .error(lastError)
+            throw PlexServerError.allConnectionsFailed(serverName: server.name, tried: triedList)
         }
         
         await MainActor.run {
@@ -282,9 +349,11 @@ class PlexManager {
         }
         
         // Fetch libraries
+        NSLog("PlexManager: Fetching libraries...")
         try await refreshLibraries()
         
         connectionState = .connected
+        NSLog("PlexManager: Connected to server '%@'", server.name)
     }
     
     // MARK: - Library Management
@@ -346,24 +415,33 @@ class PlexManager {
     
     /// Fetch artists from the current library
     func fetchArtists() async throws -> [PlexArtist] {
-        guard let client = serverClient, let library = currentLibrary else {
+        guard let client = serverClient else {
             throw PlexServerError.invalidURL
+        }
+        guard let library = currentLibrary else {
+            throw PlexServerError.noMusicLibrary
         }
         return try await client.fetchAllArtists(libraryID: library.id)
     }
     
     /// Fetch albums from the current library
     func fetchAlbums(offset: Int = 0, limit: Int = 100) async throws -> [PlexAlbum] {
-        guard let client = serverClient, let library = currentLibrary else {
+        guard let client = serverClient else {
             throw PlexServerError.invalidURL
+        }
+        guard let library = currentLibrary else {
+            throw PlexServerError.noMusicLibrary
         }
         return try await client.fetchAlbums(libraryID: library.id, offset: offset, limit: limit)
     }
     
     /// Fetch tracks from the current library
     func fetchTracks(offset: Int = 0, limit: Int = 100) async throws -> [PlexTrack] {
-        guard let client = serverClient, let library = currentLibrary else {
+        guard let client = serverClient else {
             throw PlexServerError.invalidURL
+        }
+        guard let library = currentLibrary else {
+            throw PlexServerError.noMusicLibrary
         }
         return try await client.fetchTracks(libraryID: library.id, offset: offset, limit: limit)
     }
@@ -401,19 +479,13 @@ class PlexManager {
             throw PlexServerError.invalidURL
         }
         
-        NSLog("PlexManager.fetchMovies: availableVideoLibraries count = %d", availableVideoLibraries.count)
-        for lib in availableVideoLibraries {
-            NSLog("  Video library: %@ (type: %@, isMovie: %d, isShow: %d)", 
-                  lib.title, lib.type, lib.isMovieLibrary ? 1 : 0, lib.isShowLibrary ? 1 : 0)
-        }
-        
         // Use current video library if it's a movie library, otherwise find first movie library
         let movieLibrary = currentVideoLibrary?.isMovieLibrary == true 
             ? currentVideoLibrary 
             : availableVideoLibraries.first(where: { $0.isMovieLibrary })
         guard let library = movieLibrary else {
             NSLog("PlexManager.fetchMovies: No movie library found")
-            throw PlexServerError.invalidURL
+            throw PlexServerError.noMovieLibrary
         }
         NSLog("PlexManager.fetchMovies: Using library %@ (id: %@)", library.title, library.id)
         return try await client.fetchMovies(libraryID: library.id, offset: offset, limit: limit)
@@ -426,15 +498,13 @@ class PlexManager {
             throw PlexServerError.invalidURL
         }
         
-        NSLog("PlexManager.fetchShows: availableVideoLibraries count = %d", availableVideoLibraries.count)
-        
         // Use current video library if it's a show library, otherwise find first show library
         let showLibrary = currentVideoLibrary?.isShowLibrary == true 
             ? currentVideoLibrary 
             : availableVideoLibraries.first(where: { $0.isShowLibrary })
         guard let library = showLibrary else {
             NSLog("PlexManager.fetchShows: No show library found")
-            throw PlexServerError.invalidURL
+            throw PlexServerError.noShowLibrary
         }
         NSLog("PlexManager.fetchShows: Using library %@ (id: %@)", library.title, library.id)
         return try await client.fetchShows(libraryID: library.id, offset: offset, limit: limit)
