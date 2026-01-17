@@ -1465,6 +1465,91 @@ class AudioEngine {
             play()
         }
     }
+    
+    // MARK: - Playlist Sorting
+    
+    /// Sort criteria for playlist
+    enum SortCriteria {
+        case title
+        case filename
+        case path
+        case duration
+        case artist
+        case album
+    }
+    
+    /// Sort the playlist by the specified criteria
+    func sortPlaylist(by criteria: SortCriteria, ascending: Bool = true) {
+        // Remember current track
+        let currentTrackURL = currentIndex >= 0 && currentIndex < playlist.count ? playlist[currentIndex].url : nil
+        
+        // Sort the playlist
+        playlist.sort { track1, track2 in
+            let comparison: ComparisonResult
+            
+            switch criteria {
+            case .title:
+                comparison = track1.displayTitle.localizedCaseInsensitiveCompare(track2.displayTitle)
+            case .filename:
+                comparison = track1.url.lastPathComponent.localizedCaseInsensitiveCompare(track2.url.lastPathComponent)
+            case .path:
+                comparison = track1.url.path.localizedCaseInsensitiveCompare(track2.url.path)
+            case .duration:
+                let d1 = track1.duration ?? 0
+                let d2 = track2.duration ?? 0
+                comparison = d1 < d2 ? .orderedAscending : (d1 > d2 ? .orderedDescending : .orderedSame)
+            case .artist:
+                let a1 = track1.artist ?? ""
+                let a2 = track2.artist ?? ""
+                comparison = a1.localizedCaseInsensitiveCompare(a2)
+            case .album:
+                let a1 = track1.album ?? ""
+                let a2 = track2.album ?? ""
+                comparison = a1.localizedCaseInsensitiveCompare(a2)
+            }
+            
+            return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
+        }
+        
+        // Restore current index
+        if let url = currentTrackURL {
+            currentIndex = playlist.firstIndex(where: { $0.url == url }) ?? -1
+        }
+        
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
+    /// Shuffle the playlist (randomize order)
+    func shufflePlaylist() {
+        // Remember current track
+        let currentTrackURL = currentIndex >= 0 && currentIndex < playlist.count ? playlist[currentIndex].url : nil
+        
+        // Shuffle
+        playlist.shuffle()
+        
+        // Restore current index
+        if let url = currentTrackURL {
+            currentIndex = playlist.firstIndex(where: { $0.url == url }) ?? -1
+        }
+        
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
+    /// Reverse the playlist order
+    func reversePlaylist() {
+        // Remember current track
+        let currentTrackURL = currentIndex >= 0 && currentIndex < playlist.count ? playlist[currentIndex].url : nil
+        
+        // Reverse
+        playlist.reverse()
+        
+        // Restore current index
+        if let url = currentTrackURL {
+            currentIndex = playlist.firstIndex(where: { $0.url == url }) ?? -1
+        }
+        
+        delegate?.audioEngineDidChangePlaylist()
+    }
 }
 
 // MARK: - MTAudioProcessingTap Callbacks

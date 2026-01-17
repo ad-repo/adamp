@@ -144,9 +144,11 @@ class WindowManager {
         // Position playlist window snapped below main window (or below EQ if visible)
         if let playlistWindow = playlistWindowController?.window {
             positionSubWindow(playlistWindow, preferBelowEQ: false)
+            NSLog("showPlaylist: window frame = \(playlistWindow.frame)")
         }
         
         playlistWindowController?.showWindow(nil)
+        playlistWindowController?.window?.makeKeyAndOrderFront(nil)
         notifyMainWindowVisibilityChanged()
     }
 

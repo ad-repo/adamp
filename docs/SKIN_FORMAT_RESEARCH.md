@@ -300,6 +300,12 @@ curl -s "https://raw.githubusercontent.com/captbaritone/webamp/master/packages/w
   - EQ graph curve now uses same color scale for line segments
   - Removed sprite-based approach in favor of programmatic drawing for flexibility
 
+- **2026-01-17**: Playlist window skin implementation completed
+  - Fully skinned playlist window using PLEDIT.BMP sprites
+  - Implemented proper scaling architecture matching Main/EQ windows
+  - Added comprehensive implementation notes: `docs/PLAYLIST_IMPLEMENTATION_NOTES.md`
+  - Key learnings documented: coordinate systems, scaling, hit testing patterns
+
 - **2026-01-16**: Initial research document created
   - Documented EQMAIN.BMP sprite coordinates from webamp
   - Fixed EQ slider knob (was 14x63, corrected to 11x11 at y=164)
@@ -307,3 +313,9 @@ curl -s "https://raw.githubusercontent.com/captbaritone/webamp/master/packages/w
   - Implemented window dragging fix for EQ (sliders vs window drag)
   - Implemented basic window snapping/docking
   - Disabled colored bars pending proper sprite-based implementation
+
+---
+
+## Related Documentation
+
+- **[PLAYLIST_IMPLEMENTATION_NOTES.md](./PLAYLIST_IMPLEMENTATION_NOTES.md)** - Detailed implementation guide covering coordinate systems, scaling architecture, hit testing patterns, and common pitfalls for the playlist window (applicable to all skinned windows)

@@ -623,7 +623,9 @@ struct SkinElements {
         }
     }
     
-    // MARK: - Playlist Elements (pledit.bmp)
+    // MARK: - Playlist Elements (pledit.bmp - 280x186)
+    // Coordinates verified from webamp source:
+    // https://github.com/captbaritone/webamp/blob/master/packages/webamp/js/skinSprites.ts
     
     struct Playlist {
         /// Minimum playlist size
@@ -632,38 +634,126 @@ struct SkinElements {
         /// Title bar height
         static let titleHeight: CGFloat = 20
         
-        /// Corner sections for resizable window
-        static let topLeftCorner = NSRect(x: 0, y: 0, width: 25, height: 20)
-        static let topTile = NSRect(x: 26, y: 0, width: 100, height: 20)
-        static let topRightCorner = NSRect(x: 153, y: 0, width: 25, height: 20)
+        /// Bottom bar height
+        static let bottomHeight: CGFloat = 38
         
-        static let bottomLeftCorner = NSRect(x: 0, y: 42, width: 125, height: 38)
+        // === TITLE BAR (active: y=0, inactive: y=21) ===
+        // Total width: 25 + 100 + 25 + 25 = 175px (tiled to fill)
+        
+        /// Title bar - active state components
+        struct TitleBarActive {
+            static let leftCorner = NSRect(x: 0, y: 0, width: 25, height: 20)
+            static let title = NSRect(x: 26, y: 0, width: 100, height: 20)
+            static let tile = NSRect(x: 127, y: 0, width: 25, height: 20)
+            static let rightCorner = NSRect(x: 153, y: 0, width: 25, height: 20)
+        }
+        
+        /// Title bar - inactive state components
+        struct TitleBarInactive {
+            static let leftCorner = NSRect(x: 0, y: 21, width: 25, height: 20)
+            static let title = NSRect(x: 26, y: 21, width: 100, height: 20)
+            static let tile = NSRect(x: 127, y: 21, width: 25, height: 20)
+            static let rightCorner = NSRect(x: 153, y: 21, width: 25, height: 20)
+        }
+        
+        // === SIDE TILES (for vertical stretching) ===
+        
+        /// Left side tile (12px wide)
+        static let leftSideTile = NSRect(x: 0, y: 42, width: 12, height: 29)
+        
+        /// Right side tile (20px wide) - includes scrollbar track
+        static let rightSideTile = NSRect(x: 31, y: 42, width: 20, height: 29)
+        
+        // === BOTTOM BAR (height: 38px) ===
+        
+        /// Bottom bar left corner (contains ADD/REM/SEL buttons)
+        static let bottomLeftCorner = NSRect(x: 0, y: 72, width: 125, height: 38)
+        
+        /// Bottom bar tile (fills middle)
         static let bottomTile = NSRect(x: 179, y: 0, width: 25, height: 38)
-        static let bottomRightCorner = NSRect(x: 126, y: 42, width: 150, height: 38)
         
-        /// Side tiles
-        static let leftTile = NSRect(x: 0, y: 21, width: 12, height: 20)
-        static let rightTile = NSRect(x: 31, y: 21, width: 19, height: 20)
+        /// Bottom bar right corner (contains MISC/LIST buttons + resize grip)
+        static let bottomRightCorner = NSRect(x: 126, y: 72, width: 150, height: 38)
         
-        /// Scrollbar
-        static let scrollbarTop = NSRect(x: 52, y: 53, width: 8, height: 18)
-        static let scrollbarMiddle = NSRect(x: 61, y: 53, width: 8, height: 18)
-        static let scrollbarBottom = NSRect(x: 69, y: 72, width: 8, height: 17)
-        static let scrollbarThumb = NSRect(x: 52, y: 72, width: 8, height: 18)
+        // === SCROLLBAR ===
         
-        /// Control buttons at bottom
+        /// Scrollbar handle - normal state
+        static let scrollbarThumbNormal = NSRect(x: 52, y: 53, width: 8, height: 18)
+        
+        /// Scrollbar handle - pressed state
+        static let scrollbarThumbPressed = NSRect(x: 61, y: 53, width: 8, height: 18)
+        
+        /// Scrollbar background/track (tiled vertically)
+        static let scrollbarTrack = NSRect(x: 36, y: 42, width: 8, height: 29)
+        
+        // === BUTTON GROUPS (each button is 22x18, pressed state at x+23) ===
+        // Button groups are positioned in the bottom bar
+        
         struct Buttons {
-            static let addURL = NSRect(x: 0, y: 111, width: 22, height: 18)
-            static let addDir = NSRect(x: 23, y: 111, width: 22, height: 18)
-            static let addFile = NSRect(x: 46, y: 111, width: 22, height: 18)
+            /// Button size
+            static let buttonWidth: CGFloat = 22
+            static let buttonHeight: CGFloat = 18
             
-            static let removeAll = NSRect(x: 54, y: 111, width: 22, height: 18)
-            static let removeCrop = NSRect(x: 77, y: 111, width: 22, height: 18)
-            static let removeSelected = NSRect(x: 100, y: 111, width: 22, height: 18)
+            // ADD button group (3 options in popup)
+            static let addURLNormal = NSRect(x: 0, y: 111, width: 22, height: 18)
+            static let addURLPressed = NSRect(x: 23, y: 111, width: 22, height: 18)
+            static let addDirNormal = NSRect(x: 0, y: 130, width: 22, height: 18)
+            static let addDirPressed = NSRect(x: 23, y: 130, width: 22, height: 18)
+            static let addFileNormal = NSRect(x: 0, y: 149, width: 22, height: 18)
+            static let addFilePressed = NSRect(x: 23, y: 149, width: 22, height: 18)
             
-            static let selectInvert = NSRect(x: 104, y: 111, width: 22, height: 18)
-            static let selectZero = NSRect(x: 127, y: 111, width: 22, height: 18)
-            static let selectAll = NSRect(x: 150, y: 111, width: 22, height: 18)
+            // REM button group (4 options in popup)
+            static let remAllNormal = NSRect(x: 54, y: 111, width: 22, height: 18)
+            static let remAllPressed = NSRect(x: 77, y: 111, width: 22, height: 18)
+            static let remCropNormal = NSRect(x: 54, y: 130, width: 22, height: 18)
+            static let remCropPressed = NSRect(x: 77, y: 130, width: 22, height: 18)
+            static let remSelectedNormal = NSRect(x: 54, y: 149, width: 22, height: 18)
+            static let remSelectedPressed = NSRect(x: 77, y: 149, width: 22, height: 18)
+            static let remMiscNormal = NSRect(x: 54, y: 168, width: 22, height: 18)
+            static let remMiscPressed = NSRect(x: 77, y: 168, width: 22, height: 18)
+            
+            // SEL button group (3 options in popup)
+            static let selInvertNormal = NSRect(x: 104, y: 111, width: 22, height: 18)
+            static let selInvertPressed = NSRect(x: 127, y: 111, width: 22, height: 18)
+            static let selZeroNormal = NSRect(x: 104, y: 130, width: 22, height: 18)
+            static let selZeroPressed = NSRect(x: 127, y: 130, width: 22, height: 18)
+            static let selAllNormal = NSRect(x: 104, y: 149, width: 22, height: 18)
+            static let selAllPressed = NSRect(x: 127, y: 149, width: 22, height: 18)
+            
+            // MISC button group (3 options in popup)
+            static let miscSortNormal = NSRect(x: 154, y: 111, width: 22, height: 18)
+            static let miscSortPressed = NSRect(x: 177, y: 111, width: 22, height: 18)
+            static let miscInfoNormal = NSRect(x: 154, y: 130, width: 22, height: 18)
+            static let miscInfoPressed = NSRect(x: 177, y: 130, width: 22, height: 18)
+            static let miscOptsNormal = NSRect(x: 154, y: 149, width: 22, height: 18)
+            static let miscOptsPressed = NSRect(x: 177, y: 149, width: 22, height: 18)
+            
+            // LIST button group (3 options in popup)
+            static let listNewNormal = NSRect(x: 204, y: 111, width: 22, height: 18)
+            static let listNewPressed = NSRect(x: 227, y: 111, width: 22, height: 18)
+            static let listSaveNormal = NSRect(x: 204, y: 130, width: 22, height: 18)
+            static let listSavePressed = NSRect(x: 227, y: 130, width: 22, height: 18)
+            static let listLoadNormal = NSRect(x: 204, y: 149, width: 22, height: 18)
+            static let listLoadPressed = NSRect(x: 227, y: 149, width: 22, height: 18)
+        }
+        
+        /// Button positions in the bottom bar (in Winamp coordinates)
+        struct ButtonPositions {
+            // Button positions relative to bottom-left of window
+            // These are at y=0 of the bottom bar (which is 38px tall)
+            static let addButton = NSRect(x: 11, y: 0, width: 25, height: 18)
+            static let remButton = NSRect(x: 40, y: 0, width: 25, height: 18)
+            static let selButton = NSRect(x: 70, y: 0, width: 25, height: 18)
+            static let miscButton = NSRect(x: 99, y: 0, width: 25, height: 18)
+            // LIST button is positioned relative to right edge
+            static let listButtonOffset: CGFloat = 46  // From right edge
+        }
+        
+        /// Window control button positions in title bar
+        struct TitleBarButtons {
+            // Relative to right edge of window
+            static let closeOffset: CGFloat = 11   // Right edge - 11px
+            static let shadeOffset: CGFloat = 20   // Right edge - 20px
         }
     }
 }

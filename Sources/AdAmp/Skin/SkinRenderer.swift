@@ -1036,78 +1036,356 @@ class SkinRenderer {
     
     // MARK: - Playlist Window
     
-    /// Draw playlist window background (handles resizable windows)
-    func drawPlaylistBackground(in context: CGContext, bounds: NSRect) {
-        if let pleditImage = skin.pledit {
-            // Title bar height is 20 pixels
-            let titleHeight: CGFloat = 20
-            // Bottom bar height is 38 pixels
-            let bottomHeight: CGFloat = 38
+    /// Playlist button types
+    enum PlaylistButtonType {
+        case add, rem, sel, misc, list
+        case close, shade
+    }
+    
+    /// Draw the complete playlist window using skin sprites
+    func drawPlaylistWindow(in context: CGContext, bounds: NSRect, isActive: Bool,
+                            pressedButton: PlaylistButtonType?, scrollPosition: CGFloat) {
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        
+        // Fill background with playlist colors first
+        skin.playlistColors.normalBackground.setFill()
+        context.fill(bounds)
+        
+        // Draw title bar
+        drawPlaylistTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
+        
+        // Draw side borders
+        drawPlaylistSideBorders(in: context, bounds: bounds)
+        
+        // Draw bottom bar
+        drawPlaylistBottomBar(in: context, bounds: bounds, pressedButton: pressedButton)
+        
+        // Draw scrollbar
+        let contentHeight = bounds.height - titleHeight - bottomHeight
+        drawPlaylistScrollbar(in: context, bounds: bounds, scrollPosition: scrollPosition, contentHeight: contentHeight)
+    }
+    
+    /// Draw playlist title bar with skin sprites
+    /// The title text sprite (100px) should be CENTERED in the available space between corners
+    func drawPlaylistTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlaylistButtonType?) {
+        guard let pleditImage = skin.pledit else {
+            drawFallbackPlaylistTitleBar(in: context, bounds: bounds, isActive: isActive)
+            return
+        }
+        
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let leftCornerWidth: CGFloat = 25
+        let rightCornerWidth: CGFloat = 25
+        let titleSpriteWidth: CGFloat = 100
+        let tileWidth: CGFloat = 25
+        
+        // Get the correct sprite set for active/inactive state
+        let leftCorner = isActive ? SkinElements.Playlist.TitleBarActive.leftCorner : SkinElements.Playlist.TitleBarInactive.leftCorner
+        let titleSprite = isActive ? SkinElements.Playlist.TitleBarActive.title : SkinElements.Playlist.TitleBarInactive.title
+        let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
+        let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
+        
+        // Draw left corner
+        drawSprite(from: pleditImage, sourceRect: leftCorner,
+                  to: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
+        
+        // Draw right corner (contains window buttons)
+        drawSprite(from: pleditImage, sourceRect: rightCorner,
+                  to: NSRect(x: bounds.width - rightCornerWidth, y: 0, width: rightCornerWidth, height: titleHeight), in: context)
+        
+        // Calculate available space for middle section
+        let middleStart = leftCornerWidth
+        let middleEnd = bounds.width - rightCornerWidth
+        let middleWidth = middleEnd - middleStart
+        
+        // Fill the entire middle section with tiles FIRST
+        var x: CGFloat = middleStart
+        while x < middleEnd {
+            let w = min(tileWidth, middleEnd - x)
+            drawSprite(from: pleditImage, sourceRect: tileSprite,
+                      to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
+            x += tileWidth
+        }
+        
+        // Draw title text sprite CENTERED over the tiles
+        let titleX = middleStart + (middleWidth - titleSpriteWidth) / 2
+        drawSprite(from: pleditImage, sourceRect: titleSprite,
+                  to: NSRect(x: titleX, y: 0, width: titleSpriteWidth, height: titleHeight), in: context)
+        
+        // Draw window control button pressed states if needed
+        if pressedButton == .close {
+            // Close button highlight - drawn over the right corner
+            let closeRect = NSRect(x: bounds.width - SkinElements.Playlist.TitleBarButtons.closeOffset, 
+                                   y: 3, width: 9, height: 9)
+            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
+            context.fill(closeRect)
+        }
+        
+        if pressedButton == .shade {
+            // Shade button highlight
+            let shadeRect = NSRect(x: bounds.width - SkinElements.Playlist.TitleBarButtons.shadeOffset, 
+                                   y: 3, width: 9, height: 9)
+            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
+            context.fill(shadeRect)
+        }
+    }
+    
+    /// Draw playlist side borders
+    private func drawPlaylistSideBorders(in context: CGContext, bounds: NSRect) {
+        guard let pleditImage = skin.pledit else { return }
+        
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        
+        // Left side border
+        var y: CGFloat = titleHeight
+        while y < bounds.height - bottomHeight {
+            let h = min(29, bounds.height - bottomHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.leftSideTile,
+                      to: NSRect(x: 0, y: y, width: 12, height: h), in: context)
+            y += 29
+        }
+        
+        // Right side border (before scrollbar)
+        y = titleHeight
+        while y < bounds.height - bottomHeight {
+            let h = min(29, bounds.height - bottomHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.rightSideTile,
+                      to: NSRect(x: bounds.width - 20, y: y, width: 20, height: h), in: context)
+            y += 29
+        }
+    }
+    
+    /// Draw playlist bottom bar with button areas
+    func drawPlaylistBottomBar(in context: CGContext, bounds: NSRect, pressedButton: PlaylistButtonType?) {
+        guard let pleditImage = skin.pledit else {
+            drawFallbackPlaylistBottomBar(in: context, bounds: bounds, pressedButton: pressedButton)
+            return
+        }
+        
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let bottomY = bounds.height - bottomHeight
+        
+        // Draw left corner (125px wide) - contains ADD, REM, SEL button areas
+        drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.bottomLeftCorner,
+                  to: NSRect(x: 0, y: bottomY, width: 125, height: bottomHeight), in: context)
+        
+        // Draw right corner (150px wide) - contains MISC, LIST button areas + resize grip
+        drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.bottomRightCorner,
+                  to: NSRect(x: bounds.width - 150, y: bottomY, width: 150, height: bottomHeight), in: context)
+        
+        // Tile the middle section
+        var x: CGFloat = 125
+        while x < bounds.width - 150 {
+            let w = min(25, bounds.width - 150 - x)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.bottomTile,
+                      to: NSRect(x: x, y: bottomY, width: w, height: bottomHeight), in: context)
+            x += 25
+        }
+        
+        // Draw button pressed highlights
+        if let pressed = pressedButton {
+            let buttonY = bottomY + 10  // Buttons are positioned 10px from bottom of bar
+            var buttonRect: NSRect?
             
-            // For standard width (275), draw without tiling
-            // For wider windows, tile the middle sections
-            let standardWidth: CGFloat = 275
-            
-            // === TITLE BAR (TOP) ===
-            if bounds.width <= standardWidth {
-                // Draw the full title bar as one piece (no stretching)
-                let fullTitleRect = NSRect(x: 0, y: 0, width: 275, height: 20)
-                drawSprite(from: pleditImage, sourceRect: fullTitleRect,
-                          to: NSRect(x: 0, y: 0, width: min(bounds.width, 275), height: titleHeight), in: context)
-            } else {
-                // Left corner (25 pixels)
-                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topLeftCorner,
-                          to: NSRect(x: 0, y: 0, width: 25, height: titleHeight), in: context)
-                
-                // Right corner (25 pixels) - positioned at right edge
-                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topRightCorner,
-                          to: NSRect(x: bounds.width - 25, y: 0, width: 25, height: titleHeight), in: context)
-                
-                // Middle section - tile the title bar pattern (not stretch)
-                var x: CGFloat = 25
-                let tileWidth: CGFloat = 25  // Use small tiles to avoid text repetition
-                while x < bounds.width - 25 {
-                    let w = min(tileWidth, bounds.width - 25 - x)
-                    // Use a small section from the title bar that's just pattern
-                    let tileSource = NSRect(x: 127, y: 0, width: 25, height: 20)
-                    drawSprite(from: pleditImage, sourceRect: tileSource,
-                              to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
-                    x += tileWidth
-                }
+            switch pressed {
+            case .add:
+                buttonRect = NSRect(x: 11, y: buttonY, width: 25, height: 18)
+            case .rem:
+                buttonRect = NSRect(x: 40, y: buttonY, width: 25, height: 18)
+            case .sel:
+                buttonRect = NSRect(x: 70, y: buttonY, width: 25, height: 18)
+            case .misc:
+                buttonRect = NSRect(x: bounds.width - 150 + 10, y: buttonY, width: 25, height: 18)
+            case .list:
+                buttonRect = NSRect(x: bounds.width - 46, y: buttonY, width: 25, height: 18)
+            default:
+                break
             }
             
-            // === BOTTOM BAR ===
-            // The bottom bar is complex - for now, draw a solid background matching the skin theme
-            // This avoids rendering incorrect graphics from wrong skin coordinates
-            let bottomBarRect = NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: bottomHeight)
-            
-            // Use a dark color that matches Winamp's playlist style
-            NSColor(calibratedRed: 0.14, green: 0.14, blue: 0.18, alpha: 1.0).setFill()
-            context.fill(bottomBarRect)
-            
-            // Draw a subtle top border
-            NSColor(calibratedWhite: 0.3, alpha: 1.0).setStroke()
-            context.setLineWidth(1)
-            context.move(to: CGPoint(x: 0, y: bounds.height - bottomHeight))
-            context.addLine(to: CGPoint(x: bounds.width, y: bounds.height - bottomHeight))
-            context.strokePath()
-            
-            // === CENTER CONTENT AREA ===
-            // Fill the entire content area with the playlist background color
-            // (Skip side borders as their coordinates may not match this skin)
-            let centerRect = NSRect(
-                x: 0,
-                y: titleHeight,
-                width: bounds.width,
-                height: bounds.height - titleHeight - bottomHeight
-            )
-            skin.playlistColors.normalBackground.setFill()
-            context.fill(centerRect)
-        } else {
-            // Fallback playlist background
-            skin.playlistColors.normalBackground.setFill()
-            context.fill(bounds)
+            if let rect = buttonRect {
+                NSColor(calibratedWhite: 0.2, alpha: 0.4).setFill()
+                context.fill(rect)
+            }
         }
+    }
+    
+    /// Draw playlist scrollbar
+    func drawPlaylistScrollbar(in context: CGContext, bounds: NSRect, scrollPosition: CGFloat, contentHeight: CGFloat) {
+        guard let pleditImage = skin.pledit else {
+            drawFallbackPlaylistScrollbar(in: context, bounds: bounds, scrollPosition: scrollPosition)
+            return
+        }
+        
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let trackHeight = bounds.height - titleHeight - bottomHeight
+        let scrollbarX = bounds.width - 15
+        
+        // Draw scrollbar track background
+        var y: CGFloat = titleHeight
+        while y < bounds.height - bottomHeight {
+            let h = min(29, bounds.height - bottomHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.scrollbarTrack,
+                      to: NSRect(x: scrollbarX, y: y, width: 8, height: h), in: context)
+            y += 29
+        }
+        
+        // Draw scrollbar thumb
+        let thumbHeight: CGFloat = 18
+        let availableTrack = trackHeight - thumbHeight
+        let thumbY = titleHeight + (availableTrack * scrollPosition)
+        
+        drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.scrollbarThumbNormal,
+                  to: NSRect(x: scrollbarX, y: thumbY, width: 8, height: thumbHeight), in: context)
+    }
+    
+    /// Draw playlist background (handles resizable windows) - legacy method
+    func drawPlaylistBackground(in context: CGContext, bounds: NSRect) {
+        // Use the new complete drawing method with defaults
+        drawPlaylistWindow(in: context, bounds: bounds, isActive: true, pressedButton: nil, scrollPosition: 0)
+    }
+    
+    // MARK: - Playlist Fallback Rendering
+    
+    private func drawFallbackPlaylistTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool) {
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let titleRect = NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight)
+        
+        // Draw gradient background matching main window style
+        if isActive {
+            let gradient = NSGradient(colors: [
+                NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.5, alpha: 1.0),
+                NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.25, alpha: 1.0)
+            ])
+            gradient?.draw(in: titleRect, angle: 90)
+        } else {
+            let gradient = NSGradient(colors: [
+                NSColor(calibratedWhite: 0.35, alpha: 1.0),
+                NSColor(calibratedWhite: 0.25, alpha: 1.0)
+            ])
+            gradient?.draw(in: titleRect, angle: 90)
+        }
+        
+        // Draw decorative left bar (similar to skin sprites)
+        NSColor(calibratedRed: 0.5, green: 0.5, blue: 0.3, alpha: 1.0).setFill()
+        context.fill(NSRect(x: 4, y: 6, width: 8, height: 8))
+        
+        // Title text - flip back for text rendering and CENTER it
+        context.saveGState()
+        context.translateBy(x: 0, y: titleHeight)
+        context.scaleBy(x: 1, y: -1)
+        
+        let title = "WINAMP PLAYLIST"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.boldSystemFont(ofSize: 8)
+        ]
+        let titleSize = title.size(withAttributes: attrs)
+        let titleX = (bounds.width - titleSize.width) / 2
+        title.draw(at: NSPoint(x: titleX, y: (titleHeight - titleSize.height) / 2), withAttributes: attrs)
+        
+        context.restoreGState()
+        
+        // Draw decorative pattern (dots/lines like Winamp)
+        NSColor(calibratedRed: 0.3, green: 0.3, blue: 0.4, alpha: 1.0).setFill()
+        var patternX: CGFloat = 16
+        let titleLeft = titleX - 8
+        let titleRight = titleX + titleSize.width + 8
+        
+        // Pattern before title
+        while patternX < titleLeft {
+            context.fill(NSRect(x: patternX, y: 8, width: 2, height: 4))
+            patternX += 4
+        }
+        
+        // Pattern after title
+        patternX = titleRight
+        while patternX < bounds.width - 30 {
+            context.fill(NSRect(x: patternX, y: 8, width: 2, height: 4))
+            patternX += 4
+        }
+        
+        // Window control buttons (shade, close) - simple rectangles
+        NSColor(calibratedWhite: 0.4, alpha: 1.0).setFill()
+        context.fill(NSRect(x: bounds.width - 22, y: 6, width: 9, height: 9))
+        context.fill(NSRect(x: bounds.width - 11, y: 6, width: 9, height: 9))
+    }
+    
+    private func drawFallbackPlaylistBottomBar(in context: CGContext, bounds: NSRect, pressedButton: PlaylistButtonType?) {
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let barRect = NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: bottomHeight)
+        
+        // Background
+        NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0).setFill()
+        context.fill(barRect)
+        
+        // Top border line
+        NSColor(calibratedRed: 0.25, green: 0.25, blue: 0.35, alpha: 1.0).setFill()
+        context.fill(NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: 1))
+        
+        // Draw button labels
+        let buttonY = bounds.height - bottomHeight + 10
+        let buttonColor = NSColor(calibratedRed: 0.25, green: 0.25, blue: 0.3, alpha: 1.0)
+        let buttonHighlight = NSColor(calibratedRed: 0.35, green: 0.35, blue: 0.4, alpha: 1.0)
+        
+        let buttons: [(String, CGFloat, PlaylistButtonType)] = [
+            ("ADD", 11, .add),
+            ("REM", 40, .rem),
+            ("SEL", 70, .sel),
+            ("MISC", bounds.width - 140, .misc),
+            ("LIST", bounds.width - 46, .list)
+        ]
+        
+        for (title, x, buttonType) in buttons {
+            let buttonRect = NSRect(x: x, y: buttonY, width: 30, height: 18)
+            
+            // Button face
+            let isPressed = pressedButton == buttonType
+            (isPressed ? buttonHighlight : buttonColor).setFill()
+            context.fill(buttonRect)
+            
+            // Draw text (in flipped context)
+            context.saveGState()
+            context.translateBy(x: 0, y: buttonY + 18)
+            context.scaleBy(x: 1, y: -1)
+            
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 8)
+            ]
+            let textSize = title.size(withAttributes: attrs)
+            title.draw(at: NSPoint(x: buttonRect.midX - textSize.width / 2, y: 4), withAttributes: attrs)
+            
+            context.restoreGState()
+        }
+    }
+    
+    private func drawFallbackPlaylistScrollbar(in context: CGContext, bounds: NSRect, scrollPosition: CGFloat) {
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let scrollbarWidth: CGFloat = 15
+        
+        let scrollRect = NSRect(
+            x: bounds.width - scrollbarWidth,
+            y: titleHeight,
+            width: scrollbarWidth,
+            height: bounds.height - titleHeight - bottomHeight
+        )
+        
+        // Track background
+        NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0).setFill()
+        context.fill(scrollRect)
+        
+        // Thumb
+        let thumbHeight: CGFloat = max(20, scrollRect.height * 0.2)
+        let availableTrack = scrollRect.height - thumbHeight
+        let thumbY = scrollRect.minY + (availableTrack * scrollPosition)
+        
+        NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.35, alpha: 1.0).setFill()
+        let thumbRect = NSRect(x: scrollRect.minX + 2, y: thumbY, width: scrollRect.width - 4, height: thumbHeight)
+        context.fill(thumbRect)
     }
     
     // MARK: - Core Drawing Methods
