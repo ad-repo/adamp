@@ -333,17 +333,35 @@ class MainWindowView: NSView {
         marqueeTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             
-            let title = self.currentTrack?.displayTitle ?? "AdAmp"
+            // Use video title if video is playing, otherwise track title
+            let title: String
+            if WindowManager.shared.isVideoPlaying, let videoTitle = WindowManager.shared.currentVideoTitle {
+                title = videoTitle
+            } else {
+                title = self.currentTrack?.displayTitle ?? "AdAmp"
+            }
+            
             let charWidth = SkinElements.TextFont.charWidth
             let textWidth = CGFloat(title.count) * charWidth
             let marqueeWidth = SkinElements.TextFont.Positions.marqueeArea.width
             
             if textWidth > marqueeWidth {
+                // Circular scroll: separator is "  -  " (5 chars)
+                let separatorWidth = charWidth * 5
+                let totalCycleWidth = textWidth + separatorWidth
+                
                 self.marqueeOffset += 1
-                if self.marqueeOffset > textWidth + 50 {
+                // Reset when one full cycle completes (seamless wrap)
+                if self.marqueeOffset >= totalCycleWidth {
                     self.marqueeOffset = 0
                 }
                 self.setNeedsDisplay(SkinElements.TextFont.Positions.marqueeArea)
+            } else {
+                // Text fits - no scrolling needed, reset offset
+                if self.marqueeOffset != 0 {
+                    self.marqueeOffset = 0
+                    self.setNeedsDisplay(SkinElements.TextFont.Positions.marqueeArea)
+                }
             }
             
             // Scroll bitrate if > 3 digits (circular scroll)

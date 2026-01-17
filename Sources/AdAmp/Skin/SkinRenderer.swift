@@ -205,41 +205,84 @@ class SkinRenderer {
     
     // MARK: - Marquee Text
     
-    /// Draw scrolling marquee text
+    /// Draw scrolling marquee text with circular/seamless wrapping
     func drawMarquee(text: String, offset: CGFloat, in context: CGContext) {
         let marqueeRect = SkinElements.TextFont.Positions.marqueeArea
+        let charWidth = SkinElements.TextFont.charWidth
+        let textWidth = CGFloat(text.count) * charWidth
         
         // Clip to marquee area
         context.saveGState()
         context.clip(to: marqueeRect)
         
+        // If text fits in marquee, just draw it centered (no scrolling needed)
+        if textWidth <= marqueeRect.width {
+            if let textImage = skin.text {
+                var xPos = marqueeRect.minX
+                let yPos = marqueeRect.minY + (marqueeRect.height - SkinElements.TextFont.charHeight) / 2
+                
+                for char in text.uppercased() {
+                    let charRect = SkinElements.TextFont.character(char)
+                    let destRect = NSRect(x: xPos, y: yPos,
+                                         width: charWidth,
+                                         height: SkinElements.TextFont.charHeight)
+                    drawSprite(from: textImage, sourceRect: charRect, to: destRect, in: context)
+                    xPos += charWidth
+                }
+            } else {
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: NSColor.green,
+                    .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
+                ]
+                text.draw(at: NSPoint(x: marqueeRect.minX, y: marqueeRect.minY + 2), withAttributes: attrs)
+            }
+            context.restoreGState()
+            return
+        }
+        
+        // Circular scrolling: draw text twice with separator for seamless wrap
+        let separator = "  -  "  // Separator using characters available in skin font
+        let separatorWidth = CGFloat(separator.count) * charWidth
+        let totalWidth = textWidth + separatorWidth  // Full cycle width
+        
         if let textImage = skin.text {
-            // Draw each character from skin font
-            var xPos = marqueeRect.minX - offset
             let yPos = marqueeRect.minY + (marqueeRect.height - SkinElements.TextFont.charHeight) / 2
             
-            for char in text.uppercased() {
-                let charRect = SkinElements.TextFont.character(char)
-                let destRect = NSRect(x: xPos, y: yPos,
-                                     width: SkinElements.TextFont.charWidth,
-                                     height: SkinElements.TextFont.charHeight)
+            // Draw two copies of "text + separator" for seamless looping
+            for pass in 0..<2 {
+                var xPos = marqueeRect.minX - offset + (CGFloat(pass) * totalWidth)
                 
-                // Only draw if visible
-                if xPos + SkinElements.TextFont.charWidth > marqueeRect.minX &&
-                   xPos < marqueeRect.maxX {
-                    drawSprite(from: textImage, sourceRect: charRect, to: destRect, in: context)
+                // Draw main text
+                for char in text.uppercased() {
+                    if xPos + charWidth > marqueeRect.minX && xPos < marqueeRect.maxX {
+                        let charRect = SkinElements.TextFont.character(char)
+                        let destRect = NSRect(x: xPos, y: yPos, width: charWidth, height: SkinElements.TextFont.charHeight)
+                        drawSprite(from: textImage, sourceRect: charRect, to: destRect, in: context)
+                    }
+                    xPos += charWidth
                 }
                 
-                xPos += SkinElements.TextFont.charWidth
+                // Draw separator
+                for char in separator.uppercased() {
+                    if xPos + charWidth > marqueeRect.minX && xPos < marqueeRect.maxX {
+                        let charRect = SkinElements.TextFont.character(char)
+                        let destRect = NSRect(x: xPos, y: yPos, width: charWidth, height: SkinElements.TextFont.charHeight)
+                        drawSprite(from: textImage, sourceRect: charRect, to: destRect, in: context)
+                    }
+                    xPos += charWidth
+                }
             }
         } else {
-            // Fallback text rendering
+            // Fallback text rendering with circular scroll
             let attrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.green,
                 .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
             ]
-            let drawPoint = NSPoint(x: marqueeRect.minX - offset, y: marqueeRect.minY + 2)
-            text.draw(at: drawPoint, withAttributes: attrs)
+            let fullText = text + separator
+            for pass in 0..<2 {
+                let xPos = marqueeRect.minX - offset + (CGFloat(pass) * totalWidth)
+                fullText.draw(at: NSPoint(x: xPos, y: marqueeRect.minY + 2), withAttributes: attrs)
+            }
         }
         
         context.restoreGState()

@@ -715,11 +715,11 @@ class PlexBrowserView: NSView {
                     }
                 }
             } else if !PlexManager.shared.servers.isEmpty {
-                // No current server but we have servers - connect to first one
-                let server = PlexManager.shared.servers[0]
+                // Servers exist but no current server - use refreshServers() to handle
+                // saved server selection properly instead of just picking first one
                 Task { @MainActor in
                     do {
-                        try await PlexManager.shared.connect(to: server)
+                        try await PlexManager.shared.refreshServers()
                         loadDataForCurrentMode()
                     } catch {
                         isLoading = false
@@ -733,8 +733,7 @@ class PlexBrowserView: NSView {
                 Task { @MainActor in
                     do {
                         try await PlexManager.shared.refreshServers()
-                        if let server = PlexManager.shared.servers.first {
-                            try await PlexManager.shared.connect(to: server)
+                        if PlexManager.shared.currentServer != nil {
                             loadDataForCurrentMode()
                         } else {
                             isLoading = false
@@ -775,6 +774,13 @@ class PlexBrowserView: NSView {
     
     @objc private func plexServerDidChange() {
         DispatchQueue.main.async { [weak self] in
+            // Only reload if we're already connected - let PlexManager handle initial connection
+            // This prevents overriding the saved server selection during startup
+            if case .connecting = PlexManager.shared.connectionState {
+                NSLog("PlexBrowserView: Server list changed, but still connecting - just updating display")
+                self?.needsDisplay = true
+                return
+            }
             NSLog("PlexBrowserView: Server changed, clearing cache and reloading")
             self?.clearAllCachedData()
             self?.reloadData()
