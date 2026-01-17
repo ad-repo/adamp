@@ -524,17 +524,29 @@ class AudioEngine {
     // MARK: - File Loading
     
     func loadFiles(_ urls: [URL]) {
+        NSLog("loadFiles: %d URLs", urls.count)
         let tracks = urls.compactMap { Track(url: $0) }
+        NSLog("loadFiles: %d tracks created", tracks.count)
         loadTracks(tracks)
     }
     
     /// Load tracks with metadata (for Plex and other sources with pre-populated info)
     func loadTracks(_ tracks: [Track]) {
+        NSLog("loadTracks: %d tracks, currentTrack=%@", tracks.count, currentTrack?.title ?? "nil")
+        
+        // Stop current playback and clear playlist when loading new tracks
+        stop()
+        stopStreamPlayer()
+        isStreamingPlayback = false
+        playlist.removeAll()
+        
         playlist.append(contentsOf: tracks)
         
-        if currentTrack == nil && !tracks.isEmpty {
-            currentIndex = playlist.count - tracks.count
+        if !tracks.isEmpty {
+            currentIndex = 0
+            NSLog("loadTracks: loading track at index %d", currentIndex)
             loadTrack(at: currentIndex)
+            play()  // Auto-start playback
         }
         
         delegate?.audioEngineDidChangePlaylist()
@@ -578,12 +590,14 @@ class AudioEngine {
     }
     
     private func loadLocalTrack(_ track: Track) {
+        NSLog("loadLocalTrack: %@", track.url.lastPathComponent)
         // Stop any streaming playback
         stopStreamPlayer()
         isStreamingPlayback = false
         
         do {
             audioFile = try AVAudioFile(forReading: track.url)
+            NSLog("loadLocalTrack: file loaded successfully")
             currentTrack = track
             _currentTime = 0  // Reset time for new track
             lastReportedTime = 0
@@ -598,8 +612,9 @@ class AudioEngine {
                     self?.handlePlaybackComplete(generation: currentGeneration)
                 }
             }
+            NSLog("loadLocalTrack: file scheduled")
         } catch {
-            print("Failed to load audio file: \(error)")
+            NSLog("loadLocalTrack: FAILED - %@", error.localizedDescription)
         }
     }
     
@@ -813,11 +828,15 @@ class AudioEngine {
     // MARK: - Playlist Management
     
     func clearPlaylist() {
+        NSLog("clearPlaylist: isStreamingPlayback=%d", isStreamingPlayback)
         stop()
+        stopStreamPlayer()
+        isStreamingPlayback = false
         playlist.removeAll()
         currentIndex = -1
         currentTrack = nil
         audioFile = nil
+        NSLog("clearPlaylist: done, playlist count=%d", playlist.count)
         delegate?.audioEngineDidChangePlaylist()
     }
     

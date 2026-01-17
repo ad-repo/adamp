@@ -187,6 +187,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
     }
     
     @objc private func openFile() {
+        NSLog("openFile: called")
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
@@ -194,9 +195,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         
         if panel.runModal() == .OK {
             let urls = panel.urls
+            NSLog("openFile: selected %d files", urls.count)
             // Clear existing playlist and load new files (like classic Winamp)
             windowManager.audioEngine.clearPlaylist()
             windowManager.audioEngine.loadFiles(urls)
+            NSLog("openFile: done loading")
         }
     }
     
