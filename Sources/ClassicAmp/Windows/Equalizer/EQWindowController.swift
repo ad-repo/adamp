@@ -16,10 +16,9 @@ class EQWindowController: NSWindowController {
     // MARK: - Initialization
     
     convenience init() {
-        // Create borderless window with manual resize handling
         let window = ResizableWindow(
             contentRect: NSRect(origin: .zero, size: Skin.eqWindowSize),
-            styleMask: [.borderless, .resizable],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -35,8 +34,6 @@ class EQWindowController: NSWindowController {
     private func setupWindow() {
         guard let window = window else { return }
         
-        // Don't use isMovableByWindowBackground - we handle dragging manually in the view
-        // This allows us to prevent window drag when clicking on sliders
         window.isMovableByWindowBackground = false
         window.backgroundColor = .clear
         window.isOpaque = false
@@ -46,18 +43,10 @@ class EQWindowController: NSWindowController {
         // Set minimum size for EQ window
         window.minSize = Skin.eqWindowSize
         
-        // Match main window's width and position below it
+        // Position below main window
         if let mainWindow = WindowManager.shared.mainWindowController?.window {
             let mainFrame = mainWindow.frame
-            // Use same width as main window to match scaling
-            let eqHeight = Skin.eqWindowSize.height * (mainFrame.width / Skin.mainWindowSize.width)
-            let newFrame = NSRect(
-                x: mainFrame.minX,
-                y: mainFrame.minY - eqHeight,
-                width: mainFrame.width,
-                height: eqHeight
-            )
-            window.setFrame(newFrame, display: true)
+            window.setFrameOrigin(NSPoint(x: mainFrame.minX, y: mainFrame.minY - Skin.eqWindowSize.height))
         } else {
             window.center()
         }

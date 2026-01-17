@@ -107,7 +107,7 @@ window.standardWindowButton(.zoomButton)?.isHidden = true
 If the app supports fullscreen or style changes, re-hide the buttons in any window state change callbacks (AppKit can re-show them). Add to the NSWindowDelegate extension:
 
 ```swift
-func windowDidExitFullScreen(_ notification: Notification) {
+whefunc windowDidExitFullScreen(_ notification: Notification) {
     guard let window = window else { return }
     window.standardWindowButton(.closeButton)?.isHidden = true
     window.standardWindowButton(.miniaturizeButton)?.isHidden = true

@@ -1,5 +1,15 @@
 import AppKit
 
+// =============================================================================
+// SKIN RENDERER - Drawing code for all skin elements
+// =============================================================================
+// For comprehensive documentation on Winamp skin format, sprite coordinates,
+// and implementation notes, see: docs/SKIN_FORMAT_RESEARCH.md
+//
+// Primary external reference for coordinates:
+// https://raw.githubusercontent.com/captbaritone/webamp/master/packages/webamp/js/skinSprites.ts
+// =============================================================================
+
 /// Handles pixel-perfect rendering of Winamp skin sprites
 /// Renders to an offscreen 1x buffer and scales for Retina displays
 class SkinRenderer {
@@ -57,10 +67,12 @@ class SkinRenderer {
         switch button {
         case .previous, .play, .pause, .stop, .next, .eject:
             spriteSheet = skin.cbuttons
-        case .close, .minimize, .shade:
+        case .close, .minimize, .shade, .unshade:
             spriteSheet = skin.titlebar
         case .shuffle, .repeatTrack, .eqToggle, .playlistToggle:
             spriteSheet = skin.shufrep
+        case .eqOnOff, .eqAuto, .eqPresets:
+            spriteSheet = skin.eqmain
         default:
             spriteSheet = nil
         }
@@ -559,7 +571,7 @@ class SkinRenderer {
         }
     }
     
-    /// Draw EQ slider (vertical)
+    /// Draw EQ slider knob at current value position with colored level indicator
     func drawEQSlider(bandIndex: Int, value: CGFloat, isPreamp: Bool, in context: CGContext) {
         let xPos: CGFloat
         if isPreamp {
@@ -570,20 +582,60 @@ class SkinRenderer {
         
         let sliderHeight = SkinElements.Equalizer.Sliders.sliderHeight
         let sliderY = SkinElements.Equalizer.Sliders.sliderY
+        let thumbSize: CGFloat = 11  // 11x11 pixels per webamp spec
         
         // Value is -12 to +12 dB, convert to 0-1
         let normalizedValue = (value + 12) / 24
-        let thumbY = sliderY + sliderHeight * (1 - normalizedValue) - 7  // 7 = half thumb height
         
-        // Draw thumb
+        // Calculate thumb position - thumb slides from top (-12dB) to bottom (+12dB)
+        // In Winamp coordinates (y increases downward from top)
+        let thumbY = sliderY + (sliderHeight - thumbSize) * (1 - normalizedValue)
+        
+        // Draw colored level indicator bars on the sides of the slider
+        drawEQSliderColorBars(at: xPos, sliderY: sliderY, sliderHeight: sliderHeight, 
+                              normalizedValue: normalizedValue, in: context)
+        
+        // Draw slider knob from eqmain.bmp (coordinates from webamp: x=0, y=164, 11x11)
+        let thumbRect = NSRect(x: xPos, y: thumbY, width: thumbSize, height: thumbSize)
+        
         if let eqImage = skin.eqmain {
-            let thumbRect = NSRect(x: xPos, y: thumbY, width: 14, height: 11)
+            // Use eqmain.bmp for slider knob (NOT eq_ex.bmp)
             drawSprite(from: eqImage, sourceRect: SkinElements.Equalizer.sliderThumbNormal, to: thumbRect, in: context)
         } else {
-            // Fallback thumb
-            NSColor.green.setFill()
-            context.fill(NSRect(x: xPos, y: thumbY, width: 14, height: 11))
+            // Fallback: Draw knob as a small rectangle
+            drawFallbackEQSliderKnob(at: NSPoint(x: xPos, y: thumbY), value: normalizedValue, in: context)
         }
+    }
+    
+    /// Draw colored bar indicators on EQ slider - fills the track from knob down to bottom
+    /// Colors: GREEN at top of track, YELLOW middle, ORANGE, RED at bottom
+    private func drawEQSliderColorBars(at xPos: CGFloat, sliderY: CGFloat, sliderHeight: CGFloat,
+                                        normalizedValue: CGFloat, in context: CGContext) {
+        // Color bars disabled for now - the background already has track graphics
+        // TODO: Implement proper colored bar sprites from eqmain.bmp
+    }
+    
+    /// Draw fallback EQ slider knob when skin not available
+    private func drawFallbackEQSliderKnob(at position: NSPoint, value: CGFloat, in context: CGContext) {
+        let knobRect = NSRect(x: position.x, y: position.y, width: 14, height: 11)
+        
+        // Knob background
+        NSColor(calibratedRed: 0.3, green: 0.5, blue: 0.6, alpha: 1.0).setFill()
+        context.fill(knobRect)
+        
+        // Knob highlight lines (mimics the Winamp look)
+        NSColor(calibratedWhite: 0.7, alpha: 1.0).setStroke()
+        context.setLineWidth(1)
+        for i in 0..<3 {
+            let y = position.y + 3 + CGFloat(i) * 3
+            context.move(to: CGPoint(x: position.x + 2, y: y))
+            context.addLine(to: CGPoint(x: position.x + 12, y: y))
+        }
+        context.strokePath()
+        
+        // Border
+        NSColor(calibratedWhite: 0.2, alpha: 1.0).setStroke()
+        context.stroke(knobRect)
     }
     
     // MARK: - Playlist Window

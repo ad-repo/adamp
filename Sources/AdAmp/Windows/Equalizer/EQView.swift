@@ -1,5 +1,16 @@
 import AppKit
 
+// =============================================================================
+// EQ VIEW - Equalizer window implementation
+// =============================================================================
+// For skin format documentation and known issues, see: docs/SKIN_FORMAT_RESEARCH.md
+//
+// KNOWN ISSUES:
+// - Colored slider bars (green/yellow/orange/red gradient) are disabled
+//   pending proper sprite-based implementation from EQMAIN.BMP rows 200+
+// - See SKIN_FORMAT_RESEARCH.md for sprite coordinates and implementation notes
+// =============================================================================
+
 /// Equalizer view - 10-band graphic equalizer with skin support
 class EQView: NSView {
     
@@ -61,8 +72,9 @@ class EQView: NSView {
         // Frequency labels
         static let frequencies = ["60", "170", "310", "600", "1K", "3K", "6K", "12K", "14K", "16K"]
         
-        // Close button
+        // Window control buttons (in title bar, from right to left)
         static let closeRect = NSRect(x: 264, y: 3, width: 9, height: 9)
+        static let shadeRect = NSRect(x: 254, y: 3, width: 9, height: 9)  // Toggle shade mode
     }
     
     // MARK: - Initialization
@@ -224,8 +236,11 @@ class EQView: NSView {
             
             for i in 0..<10 {
                 let x = rect.minX + (rect.width / 9) * CGFloat(i)
-                let normalizedValue = (bands[i] + 12) / 24
-                let y = rect.minY + rect.height * CGFloat(normalizedValue)
+                // In Winamp coordinates (y increases downward), +12dB is at bottom, -12dB at top
+                // So we need to INVERT: high value = low y (toward top of graph area)
+                let normalizedValue = (bands[i] + 12) / 24  // 0 = -12dB, 1 = +12dB
+                // Invert so +12dB (normalizedValue=1) is at top (lower y in Winamp coords)
+                let y = rect.minY + rect.height * (1.0 - CGFloat(normalizedValue))
                 
                 if i == 0 {
                     path.move(to: NSPoint(x: x, y: y))
@@ -262,6 +277,15 @@ class EQView: NSView {
     
     // MARK: - Mouse Events
     
+    /// Track if we're dragging the window (not a slider)
+    private var isDraggingWindow = false
+    private var windowDragStartPoint: NSPoint = .zero
+    
+    /// Allow clicking even when window is not active (click-through)
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+    
     override func mouseDown(with event: NSEvent) {
         let viewPoint = convert(event.locationInWindow, from: nil)
         let point = convertToOriginalCoordinates(viewPoint)
@@ -284,7 +308,15 @@ class EQView: NSView {
         
         // Close button
         if Layout.closeRect.contains(winampPoint) {
-            window?.close()
+            pressedButton = .close
+            needsDisplay = true
+            return
+        }
+        
+        // Shade button (toggle compact mode)
+        if Layout.shadeRect.contains(winampPoint) {
+            pressedButton = .shade
+            needsDisplay = true
             return
         }
         
@@ -308,11 +340,16 @@ class EQView: NSView {
             return
         }
         
-        // Check sliders
+        // Check sliders - if we hit a slider, start dragging slider
         if let sliderIndex = hitTestSlider(at: winampPoint) {
             draggingSlider = sliderIndex
             updateSlider(at: winampPoint)
+            return
         }
+        
+        // Not on any control - start window drag
+        isDraggingWindow = true
+        windowDragStartPoint = event.locationInWindow
     }
     
     /// Handle mouse down in shade mode
@@ -337,13 +374,28 @@ class EQView: NSView {
     }
     
     override func mouseDragged(with event: NSEvent) {
-        // Window dragging is handled by macOS via isMovableByWindowBackground
-        // We only handle EQ slider dragging here
+        // Handle slider dragging
         if draggingSlider != nil {
             let viewPoint = convert(event.locationInWindow, from: nil)
             let point = convertToOriginalCoordinates(viewPoint)
             let winampPoint = NSPoint(x: point.x, y: originalWindowSize.height - point.y)
             updateSlider(at: winampPoint)
+            return
+        }
+        
+        // Handle window dragging
+        if isDraggingWindow, let window = window {
+            let currentPoint = event.locationInWindow
+            let deltaX = currentPoint.x - windowDragStartPoint.x
+            let deltaY = currentPoint.y - windowDragStartPoint.y
+            
+            var newOrigin = window.frame.origin
+            newOrigin.x += deltaX
+            newOrigin.y += deltaY
+            
+            // Use WindowManager for snapping behavior
+            newOrigin = WindowManager.shared.windowWillMove(window, to: newOrigin)
+            window.setFrameOrigin(newOrigin)
         }
     }
     
@@ -378,16 +430,30 @@ class EQView: NSView {
             return
         }
         
-        // Handle presets button release
-        if pressedButton == .eqPresets {
-            if Layout.presetsRect.contains(winampPoint) {
-                showPresetsMenu(at: point)
+        // Handle button releases in normal mode
+        if let pressed = pressedButton {
+            switch pressed {
+            case .close:
+                if Layout.closeRect.contains(winampPoint) {
+                    window?.close()
+                }
+            case .shade:
+                if Layout.shadeRect.contains(winampPoint) {
+                    toggleShadeMode()
+                }
+            case .eqPresets:
+                if Layout.presetsRect.contains(winampPoint) {
+                    showPresetsMenu(at: point)
+                }
+            default:
+                break
             }
             pressedButton = nil
             needsDisplay = true
         }
         
         draggingSlider = nil
+        isDraggingWindow = false
     }
     
     private func hitTestSlider(at point: NSPoint) -> Int? {

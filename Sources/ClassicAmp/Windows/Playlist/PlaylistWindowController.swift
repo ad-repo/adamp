@@ -1,11 +1,11 @@
 import AppKit
 
-/// Controller for the equalizer window
-class EQWindowController: NSWindowController {
+/// Controller for the playlist window
+class PlaylistWindowController: NSWindowController {
     
     // MARK: - Properties
     
-    private var eqView: EQView!
+    private var playlistView: PlaylistView!
     
     /// Whether the window is in shade mode
     private(set) var isShadeMode = false
@@ -16,10 +16,9 @@ class EQWindowController: NSWindowController {
     // MARK: - Initialization
     
     convenience init() {
-        // Create borderless window with manual resize handling
         let window = ResizableWindow(
-            contentRect: NSRect(origin: .zero, size: Skin.eqWindowSize),
-            styleMask: [.borderless, .resizable],
+            contentRect: NSRect(origin: .zero, size: Skin.playlistMinSize),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -35,29 +34,17 @@ class EQWindowController: NSWindowController {
     private func setupWindow() {
         guard let window = window else { return }
         
-        // Don't use isMovableByWindowBackground - we handle dragging manually in the view
-        // This allows us to prevent window drag when clicking on sliders
         window.isMovableByWindowBackground = false
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = true
-        window.title = "Equalizer"
+        window.minSize = Skin.playlistMinSize
+        window.title = "Playlist"
         
-        // Set minimum size for EQ window
-        window.minSize = Skin.eqWindowSize
-        
-        // Match main window's width and position below it
+        // Position below main window
         if let mainWindow = WindowManager.shared.mainWindowController?.window {
             let mainFrame = mainWindow.frame
-            // Use same width as main window to match scaling
-            let eqHeight = Skin.eqWindowSize.height * (mainFrame.width / Skin.mainWindowSize.width)
-            let newFrame = NSRect(
-                x: mainFrame.minX,
-                y: mainFrame.minY - eqHeight,
-                width: mainFrame.width,
-                height: eqHeight
-            )
-            window.setFrame(newFrame, display: true)
+            window.setFrameOrigin(NSPoint(x: mainFrame.minX, y: mainFrame.minY - window.frame.height))
         } else {
             window.center()
         }
@@ -66,15 +53,20 @@ class EQWindowController: NSWindowController {
     }
     
     private func setupView() {
-        eqView = EQView(frame: NSRect(origin: .zero, size: Skin.eqWindowSize))
-        eqView.controller = self
-        window?.contentView = eqView
+        playlistView = PlaylistView(frame: NSRect(origin: .zero, size: Skin.playlistMinSize))
+        playlistView.controller = self
+        playlistView.autoresizingMask = [.width, .height]
+        window?.contentView = playlistView
     }
     
     // MARK: - Public Methods
     
     func skinDidChange() {
-        eqView.skinDidChange()
+        playlistView.skinDidChange()
+    }
+    
+    func reloadPlaylist() {
+        playlistView.reloadData()
     }
     
     // MARK: - Shade Mode
@@ -85,63 +77,72 @@ class EQWindowController: NSWindowController {
         
         isShadeMode = enabled
         
+        // Enable/disable resizing via our custom window
+        if let resizableWindow = window as? ResizableWindow {
+            resizableWindow.resizingEnabled = !enabled
+        }
+        
         if enabled {
             // Store current frame for restoration
             normalModeFrame = window.frame
             
-            // Calculate new shade mode frame
-            let shadeSize = SkinElements.EQShade.windowSize
+            // Calculate new shade mode frame (keep width, reduce height)
+            let shadeHeight = SkinElements.PlaylistShade.height
             let newFrame = NSRect(
                 x: window.frame.origin.x,
-                y: window.frame.origin.y + window.frame.height - shadeSize.height,
-                width: shadeSize.width,
-                height: shadeSize.height
+                y: window.frame.origin.y + window.frame.height - shadeHeight,
+                width: window.frame.width,
+                height: shadeHeight
             )
             
             // Resize window
             window.setFrame(newFrame, display: true, animate: true)
-            eqView.frame = NSRect(origin: .zero, size: shadeSize)
+            playlistView.frame = NSRect(origin: .zero, size: newFrame.size)
         } else {
             // Restore normal mode frame
-            let normalSize = Skin.eqWindowSize
             let newFrame: NSRect
             
             if let storedFrame = normalModeFrame {
                 newFrame = storedFrame
             } else {
+                let normalSize = Skin.playlistMinSize
                 newFrame = NSRect(
                     x: window.frame.origin.x,
                     y: window.frame.origin.y + window.frame.height - normalSize.height,
-                    width: normalSize.width,
+                    width: window.frame.width,
                     height: normalSize.height
                 )
             }
             
             // Resize window
             window.setFrame(newFrame, display: true, animate: true)
-            eqView.frame = NSRect(origin: .zero, size: normalSize)
+            playlistView.frame = NSRect(origin: .zero, size: newFrame.size)
             normalModeFrame = nil
         }
         
-        eqView.setShadeMode(enabled)
+        playlistView.setShadeMode(enabled)
     }
     
     // MARK: - Private Properties
     
     private var mainWindowController: MainWindowController? {
-        return nil
+        return nil // Will be linked via WindowManager
     }
 }
 
 // MARK: - NSWindowDelegate
 
-extension EQWindowController: NSWindowDelegate {
+extension PlaylistWindowController: NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard let window = window else { return }
         let newOrigin = WindowManager.shared.windowWillMove(window, to: window.frame.origin)
         if newOrigin != window.frame.origin {
             window.setFrameOrigin(newOrigin)
         }
+    }
+    
+    func windowDidResize(_ notification: Notification) {
+        playlistView.needsDisplay = true
     }
 
     func windowWillClose(_ notification: Notification) {

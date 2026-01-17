@@ -171,10 +171,82 @@ class WindowManager {
         dockedWindowsToMove.removeAll()
     }
     
-    /// Called when a window is being dragged - just return the new position without constraints
+    /// Called when a window is being dragged - handle snapping and move docked windows
     func windowWillMove(_ window: NSWindow, to newOrigin: NSPoint) -> NSPoint {
-        // Let macOS handle window positioning naturally - no snapping or constraints
-        return newOrigin
+        // Calculate delta from current position
+        let currentOrigin = window.frame.origin
+        
+        // If this is a new drag, find docked windows
+        if draggingWindow != window {
+            windowWillStartDragging(window)
+        }
+        
+        // Apply snap to screen edges and other windows
+        let snappedOrigin = applySnapping(for: window, to: newOrigin)
+        
+        // Move all docked windows by the same delta
+        let actualDeltaX = snappedOrigin.x - currentOrigin.x
+        let actualDeltaY = snappedOrigin.y - currentOrigin.y
+        
+        for dockedWindow in dockedWindowsToMove {
+            var dockedOrigin = dockedWindow.frame.origin
+            dockedOrigin.x += actualDeltaX
+            dockedOrigin.y += actualDeltaY
+            dockedWindow.setFrameOrigin(dockedOrigin)
+        }
+        
+        return snappedOrigin
+    }
+    
+    /// Apply snapping to other windows and screen edges
+    private func applySnapping(for window: NSWindow, to newOrigin: NSPoint) -> NSPoint {
+        var snappedOrigin = newOrigin
+        let frame = NSRect(origin: newOrigin, size: window.frame.size)
+        
+        // Snap to other visible windows
+        for otherWindow in allWindows() {
+            guard otherWindow != window else { continue }
+            // Skip docked windows as they're moving with us
+            guard !dockedWindowsToMove.contains(otherWindow) else { continue }
+            
+            let otherFrame = otherWindow.frame
+            
+            // Horizontal snapping - snap right edge to left edge
+            if abs(frame.maxX - otherFrame.minX) < snapThreshold {
+                snappedOrigin.x = otherFrame.minX - frame.width
+            }
+            // Snap left edge to right edge
+            if abs(frame.minX - otherFrame.maxX) < snapThreshold {
+                snappedOrigin.x = otherFrame.maxX
+            }
+            // Snap left edges together
+            if abs(frame.minX - otherFrame.minX) < snapThreshold {
+                snappedOrigin.x = otherFrame.minX
+            }
+            // Snap right edges together
+            if abs(frame.maxX - otherFrame.maxX) < snapThreshold {
+                snappedOrigin.x = otherFrame.maxX - frame.width
+            }
+            
+            // Vertical snapping - snap top to bottom
+            if abs(frame.maxY - otherFrame.minY) < snapThreshold {
+                snappedOrigin.y = otherFrame.minY - frame.height
+            }
+            // Snap bottom to top
+            if abs(frame.minY - otherFrame.maxY) < snapThreshold {
+                snappedOrigin.y = otherFrame.maxY
+            }
+            // Snap tops together
+            if abs(frame.maxY - otherFrame.maxY) < snapThreshold {
+                snappedOrigin.y = otherFrame.maxY - frame.height
+            }
+            // Snap bottoms together
+            if abs(frame.minY - otherFrame.minY) < snapThreshold {
+                snappedOrigin.y = otherFrame.minY
+            }
+        }
+        
+        return snappedOrigin
     }
     
     /// Find all windows that are docked (touching) the given window

@@ -90,8 +90,23 @@ AdAmp/
 │   └── MediaLibrary/       # Media library browser
 ├── Data/                   # Models and persistence
 │   └── Models/             # Track, Playlist, MediaLibrary, EQPreset
-└── Utilities/              # BMP parsing, ZIP extraction
+├── Utilities/              # BMP parsing, ZIP extraction
+└── docs/                   # Development documentation
 ```
+
+## Development Documentation
+
+**⚠️ IMPORTANT FOR DEVELOPERS/AI AGENTS:**
+
+Before working on skin rendering or UI issues, read:
+
+- **[docs/SKIN_FORMAT_RESEARCH.md](docs/SKIN_FORMAT_RESEARCH.md)** - Comprehensive research on Winamp skin format including:
+  - All sprite coordinates from webamp source code
+  - EQMAIN.BMP layout and element positions
+  - Coordinate system differences (Winamp vs macOS)
+  - Known issues and pending work
+  - External resource URLs for reference
+  - Debugging tips and commands
 
 ## Skin Compatibility
 

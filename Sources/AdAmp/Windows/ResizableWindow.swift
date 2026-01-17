@@ -64,6 +64,17 @@ class ResizableWindow: NSWindow {
         let size = frame.size
         var edges: ResizeEdges = []
         
+        // Exclude title bar button area (top-right corner where close/shade buttons are)
+        // Title bar is ~14 pixels tall, buttons are in rightmost ~40 pixels
+        let titleBarHeight: CGFloat = 14
+        let buttonAreaWidth: CGFloat = 40
+        let isInTitleBarButtonArea = windowPoint.y > size.height - titleBarHeight && 
+                                      windowPoint.x > size.width - buttonAreaWidth
+        
+        if isInTitleBarButtonArea {
+            return .none  // Don't detect edges in button area
+        }
+        
         // Check horizontal edges
         if windowPoint.x < edgeThickness {
             edges.insert(.left)
