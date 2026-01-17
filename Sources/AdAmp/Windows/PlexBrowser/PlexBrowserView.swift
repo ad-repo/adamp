@@ -1445,11 +1445,9 @@ class PlexBrowserView: NSView {
         if let convertedTrack = PlexManager.shared.convertToTrack(track) {
             NSLog("  streamURL: %@", convertedTrack.url.absoluteString)
             NSLog("  title: %@, artist: %@", convertedTrack.title, convertedTrack.artist ?? "nil")
-            // Clear playlist and add just this track with metadata
-            WindowManager.shared.audioEngine.clearPlaylist()
+            // loadTracks handles clearing playlist and starting playback (local or cast)
             WindowManager.shared.audioEngine.loadTracks([convertedTrack])
-            WindowManager.shared.audioEngine.play()
-            NSLog("  Called play()")
+            NSLog("  Called loadTracks()")
         } else {
             NSLog("  ERROR: Failed to convert track - streamURL is nil")
         }
@@ -1461,9 +1459,8 @@ class PlexBrowserView: NSView {
                 let tracks = try await PlexManager.shared.fetchTracks(forAlbum: album)
                 let convertedTracks = PlexManager.shared.convertToTracks(tracks)
                 NSLog("Playing album %@ with %d tracks", album.title, convertedTracks.count)
-                WindowManager.shared.audioEngine.clearPlaylist()
+                // loadTracks handles clearing playlist and starting playback (local or cast)
                 WindowManager.shared.audioEngine.loadTracks(convertedTracks)
-                WindowManager.shared.audioEngine.play()
             } catch {
                 NSLog("Failed to play album: %@", error.localizedDescription)
             }
@@ -1482,9 +1479,8 @@ class PlexBrowserView: NSView {
                 }
                 let convertedTracks = PlexManager.shared.convertToTracks(allTracks)
                 NSLog("Playing artist %@ with %d tracks", artist.title, convertedTracks.count)
-                WindowManager.shared.audioEngine.clearPlaylist()
+                // loadTracks handles clearing playlist and starting playback (local or cast)
                 WindowManager.shared.audioEngine.loadTracks(convertedTracks)
-                WindowManager.shared.audioEngine.play()
             } catch {
                 NSLog("Failed to play artist: %@", error.localizedDescription)
             }

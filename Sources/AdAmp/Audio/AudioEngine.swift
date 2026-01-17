@@ -360,6 +360,12 @@ class AudioEngine {
             }
         }
         
+        stopLocalOnly()
+    }
+    
+    /// Stop local playback without affecting cast session
+    /// Used when loading new tracks while casting - we want to keep the cast session active
+    private func stopLocalOnly() {
         // Increment generation to invalidate completion handlers
         playbackGeneration += 1
         let currentGeneration = playbackGeneration
@@ -610,6 +616,14 @@ class AudioEngine {
         castPlaybackStartDate = Date()
         _currentTime = position
         lastReportedTime = position
+        
+        // Update playback state and start UI updates
+        state = .playing
+        startTimeUpdates()
+        
+        // Notify delegate of track change
+        delegate?.audioEngineDidChangeTrack(currentTrack)
+        delegate?.audioEngineDidUpdateTime(current: position, duration: duration)
     }
     
     /// Pause cast playback time tracking
@@ -619,17 +633,27 @@ class AudioEngine {
             castStartPosition += Date().timeIntervalSince(startDate)
         }
         castPlaybackStartDate = nil
+        
+        // Update state
+        state = .paused
     }
     
     /// Resume cast playback time tracking
     func resumeCastPlayback() {
         castPlaybackStartDate = Date()
+        
+        // Update state
+        state = .playing
     }
     
     /// Stop cast playback time tracking (called when casting stops)
     func stopCastPlayback() {
         castPlaybackStartDate = nil
         castStartPosition = 0
+        
+        // Update state
+        state = .stopped
+        stopTimeUpdates()
     }
     
     private func startTimeUpdates() {
@@ -713,19 +737,54 @@ class AudioEngine {
     func loadTracks(_ tracks: [Track]) {
         NSLog("loadTracks: %d tracks, currentTrack=%@", tracks.count, currentTrack?.title ?? "nil")
         
-        // Stop current playback and clear playlist when loading new tracks
-        stop()
-        stopStreamPlayer()
-        isStreamingPlayback = false
-        playlist.removeAll()
+        // Check if we're currently casting - we want to keep the cast session active
+        let wasCasting = isCastingActive
         
+        // Stop current local playback (but don't disconnect from cast device if casting)
+        if wasCasting {
+            // Just stop local playback, keep cast session
+            stopLocalOnly()
+            stopStreamPlayer()
+            isStreamingPlayback = false
+        } else {
+            stop()
+            stopStreamPlayer()
+            isStreamingPlayback = false
+        }
+        
+        playlist.removeAll()
         playlist.append(contentsOf: tracks)
         
         if !tracks.isEmpty {
             currentIndex = 0
-            NSLog("loadTracks: loading track at index %d", currentIndex)
-            loadTrack(at: currentIndex)
-            play()  // Auto-start playback
+            
+            if wasCasting {
+                // When casting, don't set up local playback - just set the track metadata
+                // and cast to the active device
+                let track = playlist[currentIndex]
+                currentTrack = track
+                _currentTime = 0
+                lastReportedTime = 0
+                
+                NSLog("loadTracks: casting is active, casting new track '%@'", track.title)
+                Task {
+                    do {
+                        try await CastManager.shared.castNewTrack(track)
+                    } catch {
+                        NSLog("loadTracks: failed to cast new track: %@", error.localizedDescription)
+                        // Fall back to local playback if casting fails
+                        await MainActor.run {
+                            self.loadTrack(at: self.currentIndex)
+                            self.play()
+                        }
+                    }
+                }
+            } else {
+                // Normal local playback
+                NSLog("loadTracks: loading track at index %d", currentIndex)
+                loadTrack(at: currentIndex)
+                play()
+            }
         }
         
         delegate?.audioEngineDidChangePlaylist()
@@ -1117,8 +1176,35 @@ class AudioEngine {
     
     func playTrack(at index: Int) {
         guard index >= 0 && index < playlist.count else { return }
+        
+        // Check if we're currently casting
+        let wasCasting = isCastingActive
+        
         currentIndex = index
-        loadTrack(at: index)
-        play()
+        
+        if wasCasting {
+            // When casting, don't set up local playback - just update track metadata and cast
+            let track = playlist[index]
+            currentTrack = track
+            _currentTime = 0
+            lastReportedTime = 0
+            
+            NSLog("playTrack: casting is active, casting track at index %d", index)
+            Task {
+                do {
+                    try await CastManager.shared.castNewTrack(track)
+                } catch {
+                    NSLog("playTrack: failed to cast track: %@", error.localizedDescription)
+                    // Fall back to local playback if casting fails
+                    await MainActor.run {
+                        self.loadTrack(at: index)
+                        self.play()
+                    }
+                }
+            }
+        } else {
+            loadTrack(at: index)
+            play()
+        }
     }
 }
