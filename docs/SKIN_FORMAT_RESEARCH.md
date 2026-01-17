@@ -1,5 +1,19 @@
 # Winamp Skin Format Research
 
+## Known Issues for Future Development
+
+### Position/Seek Slider (NEEDS FIX)
+The position slider has partial implementation but doesn't work reliably:
+- **Problem**: After seeking, playback may not resume or position snaps back
+- **Root cause**: AVAudioPlayerNode's `playerTime(forNodeTime:)` doesn't account for seek offset correctly
+- **Files involved**: 
+  - `Sources/AdAmp/Windows/MainWindow/MainWindowView.swift` - slider UI handling
+  - `Sources/AdAmp/Audio/AudioEngine.swift` - seek() function and currentTime property
+- **Attempted fixes**: Added `_currentTime` tracking, `lastSeekTime` to ignore stale updates
+- **Suggestion**: May need to use a different approach like recreating the player node after seek, or using AVAudioPlayer instead of AVAudioEngine for simpler seeking
+
+---
+
 This document captures research findings about the classic Winamp skin format (.wsz) for implementing AdAmp's skinning system. This is intended to help future development efforts.
 
 ## External Resources
