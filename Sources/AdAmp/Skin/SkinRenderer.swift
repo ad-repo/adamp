@@ -236,59 +236,8 @@ class SkinRenderer {
     
     /// Draw spectrum analyzer visualization
     func drawSpectrumAnalyzer(levels: [Float], in context: CGContext) {
-        let rect = SkinElements.Visualization.displayArea
-        let barCount = SkinElements.Visualization.barCount
-        let barWidth = SkinElements.Visualization.barWidth
-        let barSpacing = SkinElements.Visualization.barSpacing
-        
-        // Background
-        NSColor.black.setFill()
-        context.fill(rect)
-        
-        // Draw bars
-        for i in 0..<barCount {
-            // Map spectrum data to bars (logarithmic distribution)
-            let spectrumIndex = Int(Float(i) / Float(barCount - 1) * Float(levels.count - 1))
-            let level = levels.isEmpty ? 0 : levels[min(spectrumIndex, levels.count - 1)]
-            
-            let barX = rect.minX + CGFloat(i) * (barWidth + barSpacing)
-            let barHeight = rect.height * CGFloat(level)
-            let barY = rect.maxY - barHeight
-            
-            // Draw bar with gradient effect (green to yellow to red)
-            let barRect = NSRect(x: barX, y: barY, width: barWidth, height: barHeight)
-            
-            // Color based on level
-            let color: NSColor
-            if level > 0.8 {
-                color = NSColor(calibratedRed: 1.0, green: 0.3, blue: 0.0, alpha: 1.0)  // Red
-            } else if level > 0.5 {
-                color = NSColor(calibratedRed: 1.0, green: 0.8, blue: 0.0, alpha: 1.0)  // Yellow
-            } else {
-                color = NSColor(calibratedRed: 0.0, green: 0.9, blue: 0.0, alpha: 1.0)  // Green
-            }
-            
-            color.setFill()
-            context.fill(barRect)
-            
-            // Draw peak indicator
-            if barHeight > 2 {
-                NSColor.white.setFill()
-                context.fill(NSRect(x: barX, y: barY, width: barWidth, height: 1))
-            }
-        }
-        
-        // Draw grid lines
-        NSColor(calibratedWhite: 0.2, alpha: 1.0).setStroke()
-        context.setLineWidth(0.5)
-        
-        // Horizontal lines
-        for i in 1..<4 {
-            let y = rect.minY + rect.height * CGFloat(i) / 4
-            context.move(to: CGPoint(x: rect.minX, y: y))
-            context.addLine(to: CGPoint(x: rect.maxX, y: y))
-        }
-        context.strokePath()
+        // Spectrum analyzer disabled - the skin background already has this area styled
+        // TODO: Implement proper skin-based visualization when needed
     }
     
     // MARK: - Status Indicators

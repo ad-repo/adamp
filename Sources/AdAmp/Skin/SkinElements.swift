@@ -298,13 +298,13 @@ struct SkinElements {
         static let minus = NSRect(x: 99, y: 0, width: 9, height: 13)
         
         // Time display positions on main window (minutes:seconds)
-        // Total width for 5 characters (MM:SS without colon visual)
+        // Standard Winamp positions - digits are 9px wide with tight spacing
         struct Positions {
             static let minuteTens = NSPoint(x: 48, y: 26)
-            static let minuteOnes = NSPoint(x: 57, y: 26)
-            // Colon is implicit at x: 66
+            static let minuteOnes = NSPoint(x: 60, y: 26)
+            // Colon is baked into background at ~x: 69-77
             static let secondTens = NSPoint(x: 78, y: 26)
-            static let secondOnes = NSPoint(x: 87, y: 26)
+            static let secondOnes = NSPoint(x: 90, y: 26)
         }
     }
     

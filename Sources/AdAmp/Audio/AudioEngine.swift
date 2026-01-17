@@ -318,20 +318,34 @@ class AudioEngine {
         }
     }
     
+    /// Track the current playback position (updated during seek)
+    private var _currentTime: TimeInterval = 0
+    
     func seek(to time: TimeInterval) {
         guard let file = audioFile else { return }
         
-        let sampleRate = file.processingFormat.sampleRate
-        let framePosition = AVAudioFramePosition(time * sampleRate)
+        let wasPlaying = state == .playing
         
+        // Clamp time to valid range
+        let seekTime = max(0, min(time, duration - 0.5))
+        _currentTime = seekTime
+        
+        // Stop current playback
         playerNode.stop()
         
-        let frameCount = AVAudioFrameCount(file.length - framePosition)
-        guard frameCount > 0 else { return }
+        // Calculate frame position
+        let sampleRate = file.processingFormat.sampleRate
+        let framePosition = AVAudioFramePosition(seekTime * sampleRate)
+        let remainingFrames = file.length - framePosition
         
-        playerNode.scheduleSegment(file, startingFrame: framePosition, frameCount: frameCount, at: nil)
+        guard remainingFrames > 0 else { return }
         
-        if state == .playing {
+        // Schedule from the new position
+        playerNode.scheduleSegment(file, startingFrame: framePosition, 
+                                   frameCount: AVAudioFrameCount(remainingFrames), at: nil)
+        
+        // Resume if was playing
+        if wasPlaying {
             playerNode.play()
         }
     }
@@ -339,11 +353,15 @@ class AudioEngine {
     // MARK: - Time Updates
     
     var currentTime: TimeInterval {
-        guard let nodeTime = playerNode.lastRenderTime,
+        guard state == .playing || state == .paused,
+              let nodeTime = playerNode.lastRenderTime,
+              nodeTime.isSampleTimeValid,
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
-            return 0
+            return _currentTime
         }
-        return Double(playerTime.sampleTime) / playerTime.sampleRate
+        
+        let nodeSeconds = Double(playerTime.sampleTime) / playerTime.sampleRate
+        return _currentTime + nodeSeconds
     }
     
     var duration: TimeInterval {
@@ -399,6 +417,7 @@ class AudioEngine {
         do {
             audioFile = try AVAudioFile(forReading: track.url)
             currentTrack = track
+            _currentTime = 0  // Reset time for new track
             
             playerNode.stop()
             playerNode.scheduleFile(audioFile!, at: nil) { [weak self] in

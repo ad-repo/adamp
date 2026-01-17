@@ -33,8 +33,14 @@ class MainWindowView: NSView {
     
     /// Dragging state
     
-    /// Slider drag tracker
-    private let sliderTracker = SliderDragTracker()
+    /// Which slider is being dragged (nil = none)
+    private var draggingSlider: SliderType?
+    
+    /// Position slider drag value (for visual feedback during drag)
+    private var dragPositionValue: CGFloat?
+    
+    /// Timestamp of last seek to ignore stale updates
+    private var lastSeekTime: Date?
     
     /// Region manager for hit testing
     private let regionManager = RegionManager.shared
@@ -202,18 +208,23 @@ class MainWindowView: NSView {
         renderer.drawSpectrumAnalyzer(levels: spectrumLevels, in: context)
         
         // Draw position slider (seek bar)
-        let positionValue = duration > 0 ? CGFloat(currentTime / duration) : 0
-        let positionPressed = sliderTracker.isDragging && sliderTracker.sliderType == .position
+        let positionValue: CGFloat
+        if let dragValue = dragPositionValue {
+            positionValue = dragValue
+        } else {
+            positionValue = duration > 0 ? CGFloat(currentTime / duration) : 0
+        }
+        let positionPressed = draggingSlider == .position
         renderer.drawPositionSlider(value: positionValue, isPressed: positionPressed, in: context)
         
         // Draw volume slider
         let volumeValue = CGFloat(WindowManager.shared.audioEngine.volume)
-        let volumePressed = sliderTracker.isDragging && sliderTracker.sliderType == .volume
+        let volumePressed = draggingSlider == .volume
         renderer.drawVolumeSlider(value: volumeValue, isPressed: volumePressed, in: context)
         
         // Draw balance slider
         let balanceValue = CGFloat(WindowManager.shared.audioEngine.balance)
-        let balancePressed = sliderTracker.isDragging && sliderTracker.sliderType == .balance
+        let balancePressed = draggingSlider == .balance
         renderer.drawBalanceSlider(value: balanceValue, isPressed: balancePressed, in: context)
         
         // Draw transport buttons
@@ -236,8 +247,16 @@ class MainWindowView: NSView {
     // MARK: - Public Methods
     
     func updateTime(current: TimeInterval, duration: TimeInterval) {
-        self.currentTime = current
         self.duration = duration
+        // Don't update currentTime or redraw if user is dragging the position slider
+        if draggingSlider == .position {
+            return
+        }
+        // Ignore stale updates briefly after seeking to let audio engine catch up
+        if let lastSeek = lastSeekTime, Date().timeIntervalSince(lastSeek) < 0.3 {
+            return
+        }
+        self.currentTime = current
         needsDisplay = true
     }
     
@@ -402,14 +421,15 @@ class MainWindowView: NSView {
             
         // Slider interactions
         case .seekPosition(let value):
-            sliderTracker.beginDrag(slider: .position, at: point, currentValue: value)
+            draggingSlider = .position
+            dragPositionValue = value
             
         case .setVolume(let value):
-            sliderTracker.beginDrag(slider: .volume, at: point, currentValue: value)
+            draggingSlider = .volume
             WindowManager.shared.audioEngine.volume = Float(value)
             
         case .setBalance(let value):
-            sliderTracker.beginDrag(slider: .balance, at: point, currentValue: value)
+            draggingSlider = .balance
             WindowManager.shared.audioEngine.balance = Float(value)
             
         default:
@@ -440,38 +460,32 @@ class MainWindowView: NSView {
         }
         
         // Handle slider dragging
-        if sliderTracker.isDragging {
-            // Slider dragging
-            let rect: NSRect
-            switch sliderTracker.sliderType {
-            case .position:
-                rect = SkinElements.PositionBar.Positions.track
-            case .volume:
-                rect = SkinElements.Volume.Positions.slider
-            case .balance:
-                rect = SkinElements.Balance.Positions.slider
-            default:
-                return
-            }
-            
-            // Convert point to Winamp coordinates for calculation
+        if let slider = draggingSlider {
+            // Convert point to Winamp coordinates
             let originalHeight = Skin.mainWindowSize.height
             let winampPoint = NSPoint(x: point.x, y: originalHeight - point.y)
-            let newValue = sliderTracker.updateDrag(to: winampPoint, in: rect)
             
-            switch sliderTracker.sliderType {
+            switch slider {
             case .position:
-                // Don't seek during drag, just update display
-                break
+                // Calculate absolute position on the track
+                let rect = SkinElements.PositionBar.Positions.track
+                let newValue = min(1.0, max(0.0, (winampPoint.x - rect.minX) / rect.width))
+                dragPositionValue = newValue
             case .volume:
+                let rect = SkinElements.Volume.Positions.slider
+                let newValue = min(1.0, max(0.0, (winampPoint.x - rect.minX) / rect.width))
                 WindowManager.shared.audioEngine.volume = Float(newValue)
             case .balance:
+                let rect = SkinElements.Balance.Positions.slider
+                let normalized = min(1.0, max(0.0, (winampPoint.x - rect.minX) / rect.width))
+                let newValue = (normalized * 2.0) - 1.0  // Convert to -1...1
                 WindowManager.shared.audioEngine.balance = Float(newValue)
             default:
                 break
             }
             
-            needsDisplay = true
+            // Force immediate redraw during drag (needsDisplay doesn't work reliably during drag)
+            display()
         }
     }
     
@@ -487,19 +501,21 @@ class MainWindowView: NSView {
             }
         }
         
-        if sliderTracker.isDragging {
+        if let slider = draggingSlider {
             // Complete slider interaction
-            if sliderTracker.sliderType == .position {
-                let rect = SkinElements.PositionBar.Positions.track
-                let originalHeight = Skin.mainWindowSize.height
-                let winampPoint = NSPoint(x: point.x, y: originalHeight - point.y)
-                let finalValue = sliderTracker.updateDrag(to: winampPoint, in: rect)
-                
+            if slider == .position, let finalValue = dragPositionValue {
                 // Seek to the final position
                 let seekTime = duration * Double(finalValue)
                 WindowManager.shared.audioEngine.seek(to: seekTime)
+                
+                // Update currentTime immediately to prevent visual snap-back
+                currentTime = seekTime
+                lastSeekTime = Date()
+                
+                // Clear drag position
+                dragPositionValue = nil
             }
-            sliderTracker.endDrag()
+            draggingSlider = nil
             needsDisplay = true
             return
         }
