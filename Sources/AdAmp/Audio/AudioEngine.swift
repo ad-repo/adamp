@@ -337,6 +337,9 @@ class AudioEngine {
         state = .stopped
         stopTimeUpdates()
         
+        // Notify delegate of reset time
+        delegate?.audioEngineDidUpdateTime(current: 0, duration: duration)
+        
         // Reset to beginning (local files only)
         if !isStreamingPlayback, let file = audioFile {
             playerNode.scheduleFile(file, at: nil) { [weak self] in
@@ -521,17 +524,29 @@ class AudioEngine {
     // MARK: - File Loading
     
     func loadFiles(_ urls: [URL]) {
+        NSLog("loadFiles: %d URLs", urls.count)
         let tracks = urls.compactMap { Track(url: $0) }
+        NSLog("loadFiles: %d tracks created", tracks.count)
         loadTracks(tracks)
     }
     
     /// Load tracks with metadata (for Plex and other sources with pre-populated info)
     func loadTracks(_ tracks: [Track]) {
+        NSLog("loadTracks: %d tracks, currentTrack=%@", tracks.count, currentTrack?.title ?? "nil")
+        
+        // Stop current playback and clear playlist when loading new tracks
+        stop()
+        stopStreamPlayer()
+        isStreamingPlayback = false
+        playlist.removeAll()
+        
         playlist.append(contentsOf: tracks)
         
-        if currentTrack == nil && !tracks.isEmpty {
-            currentIndex = playlist.count - tracks.count
+        if !tracks.isEmpty {
+            currentIndex = 0
+            NSLog("loadTracks: loading track at index %d", currentIndex)
             loadTrack(at: currentIndex)
+            play()  // Auto-start playback
         }
         
         delegate?.audioEngineDidChangePlaylist()
@@ -575,12 +590,14 @@ class AudioEngine {
     }
     
     private func loadLocalTrack(_ track: Track) {
+        NSLog("loadLocalTrack: %@", track.url.lastPathComponent)
         // Stop any streaming playback
         stopStreamPlayer()
         isStreamingPlayback = false
         
         do {
             audioFile = try AVAudioFile(forReading: track.url)
+            NSLog("loadLocalTrack: file loaded successfully")
             currentTrack = track
             _currentTime = 0  // Reset time for new track
             lastReportedTime = 0
@@ -595,10 +612,14 @@ class AudioEngine {
                     self?.handlePlaybackComplete(generation: currentGeneration)
                 }
             }
+            NSLog("loadLocalTrack: file scheduled")
         } catch {
-            print("Failed to load audio file: \(error)")
+            NSLog("loadLocalTrack: FAILED - %@", error.localizedDescription)
         }
     }
+    
+    /// KVO observer for player item status
+    private var playerItemStatusObserver: NSKeyValueObservation?
     
     private func loadStreamingTrack(_ track: Track) {
         NSLog("loadStreamingTrack: %@ - %@", track.artist ?? "Unknown", track.title)
@@ -625,6 +646,12 @@ class AudioEngine {
         playbackGeneration += 1
         let currentGeneration = playbackGeneration
         
+        // Observe player item status to extract audio format info
+        playerItemStatusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard let self = self, item.status == .readyToPlay else { return }
+            self.extractStreamAudioFormat(from: item)
+        }
+        
         // Observe when track finishes
         streamPlayerObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
@@ -637,11 +664,57 @@ class AudioEngine {
         NSLog("  Created AVPlayer, ready to play")
     }
     
+    /// Extract audio format (sample rate, channels) from a streaming player item
+    private func extractStreamAudioFormat(from playerItem: AVPlayerItem) {
+        guard let track = currentTrack else { return }
+        
+        // Only update if we don't already have this info
+        guard track.sampleRate == nil || track.channels == nil else { return }
+        
+        let asset = playerItem.asset
+        let audioTracks = asset.tracks(withMediaType: .audio)
+        
+        guard let audioTrack = audioTracks.first else { return }
+        
+        let formatDescriptions = audioTrack.formatDescriptions as? [CMFormatDescription]
+        guard let formatDesc = formatDescriptions?.first else { return }
+        
+        if let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee {
+            let newSampleRate = track.sampleRate ?? Int(asbd.mSampleRate)
+            let newChannels = track.channels ?? Int(asbd.mChannelsPerFrame)
+            
+            // Create updated track with extracted format info
+            let updatedTrack = Track(
+                id: track.id,
+                url: track.url,
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                duration: track.duration,
+                bitrate: track.bitrate,
+                sampleRate: newSampleRate,
+                channels: newChannels
+            )
+            
+            // Update current track and notify delegate
+            currentTrack = updatedTrack
+            
+            // Update playlist entry too
+            if currentIndex >= 0 && currentIndex < playlist.count {
+                playlist[currentIndex] = updatedTrack
+            }
+            
+            NSLog("Extracted stream audio format: %d Hz, %d channels", newSampleRate, newChannels)
+        }
+    }
+    
     private func stopStreamPlayer() {
         if let observer = streamPlayerObserver {
             NotificationCenter.default.removeObserver(observer)
             streamPlayerObserver = nil
         }
+        playerItemStatusObserver?.invalidate()
+        playerItemStatusObserver = nil
         streamPlayer?.pause()
         streamPlayer = nil
     }
@@ -810,11 +883,15 @@ class AudioEngine {
     // MARK: - Playlist Management
     
     func clearPlaylist() {
+        NSLog("clearPlaylist: isStreamingPlayback=%d", isStreamingPlayback)
         stop()
+        stopStreamPlayer()
+        isStreamingPlayback = false
         playlist.removeAll()
         currentIndex = -1
         currentTrack = nil
         audioFile = nil
+        NSLog("clearPlaylist: done, playlist count=%d", playlist.count)
         delegate?.audioEngineDidChangePlaylist()
     }
     

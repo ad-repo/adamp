@@ -1,10 +1,12 @@
 import AppKit
+import AVFoundation
 
 /// Main application delegate for AdAmp
 /// Manages application lifecycle and window coordination
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
     
     private var windowManager: WindowManager!
+    private var introPlayer: AVAudioPlayer?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set the application dock icon
@@ -34,6 +36,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Set up the application menu
         setupMainMenu()
+        
+        // Play intro sound
+        playIntro()
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -63,6 +68,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
            let iconImage = NSImage(contentsOf: iconURL) {
             NSApplication.shared.applicationIconImage = iconImage
         }
+    }
+    
+    // MARK: - Intro Sound
+    
+    private func playIntro() {
+        guard let introURL = Bundle.module.url(forResource: "DJ Mike Llama - Llama Whippin Intro", withExtension: "mp3", subdirectory: "Resources") else {
+            return
+        }
+        
+        // Load into playlist and play (updates UI state)
+        windowManager.audioEngine.loadFiles([introURL])
+        windowManager.audioEngine.play()
+        
+        // Also play via AVAudioPlayer for reliable audio output
+        do {
+            introPlayer = try AVAudioPlayer(contentsOf: introURL)
+            introPlayer?.delegate = self
+            introPlayer?.play()
+        } catch {
+            print("Failed to play intro: \(error)")
+        }
+    }
+    
+    // MARK: - AVAudioPlayerDelegate
+    
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        NSLog("Intro finished playing, clearing playlist")
+        // Clear the playlist and stop when intro finishes - resets UI to clean state
+        windowManager.audioEngine.clearPlaylist()
+        introPlayer = nil
     }
     
     // MARK: - Menu Setup
@@ -152,6 +187,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func openFile() {
+        NSLog("openFile: called")
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
@@ -159,7 +195,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         if panel.runModal() == .OK {
             let urls = panel.urls
+            NSLog("openFile: selected %d files", urls.count)
+            // Clear existing playlist and load new files (like classic Winamp)
+            windowManager.audioEngine.clearPlaylist()
             windowManager.audioEngine.loadFiles(urls)
+            NSLog("openFile: done loading")
         }
     }
     
@@ -170,6 +210,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.canChooseFiles = false
         
         if panel.runModal() == .OK, let url = panel.url {
+            // Clear existing playlist and load folder contents
+            windowManager.audioEngine.clearPlaylist()
             windowManager.audioEngine.loadFolder(url)
         }
     }

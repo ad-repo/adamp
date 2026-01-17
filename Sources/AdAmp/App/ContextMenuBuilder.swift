@@ -550,7 +550,27 @@ class MenuActions: NSObject {
         }
         
         Task {
-            try? await PlexManager.shared.connect(to: server)
+            do {
+                NSLog("MenuActions: Attempting to connect to server '%@'", server.name)
+                try await PlexManager.shared.connect(to: server)
+                NSLog("MenuActions: Successfully connected to server '%@'", server.name)
+                
+                // Notify the Plex browser to reload
+                await MainActor.run {
+                    NotificationCenter.default.post(name: PlexManager.serversDidChangeNotification, object: nil)
+                }
+            } catch {
+                NSLog("MenuActions: Failed to connect to server '%@': %@", server.name, error.localizedDescription)
+                
+                // Show error to user
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Connect"
+                    alert.informativeText = "Could not connect to \(server.name): \(error.localizedDescription)"
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
         }
     }
     

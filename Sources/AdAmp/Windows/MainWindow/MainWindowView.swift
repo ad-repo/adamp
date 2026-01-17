@@ -25,6 +25,9 @@ class MainWindowView: NSView {
     /// Marquee scroll offset
     private var marqueeOffset: CGFloat = 0
     
+    /// Bitrate scroll offset (for 4+ digit bitrates)
+    private var bitrateScrollOffset: CGFloat = 0
+    
     /// Marquee timer
     private var marqueeTimer: Timer?
     
@@ -235,6 +238,12 @@ class MainWindowView: NSView {
         let isStereo = (currentTrack?.channels ?? 2) >= 2
         renderer.drawMonoStereo(isStereo: isStereo, in: context)
         
+        // Draw bitrate display (e.g., "128" kbps) - scrolls if > 3 digits
+        renderer.drawBitrate(currentTrack?.bitrate, scrollOffset: bitrateScrollOffset, in: context)
+        
+        // Draw sample rate display (e.g., "44" kHz)
+        renderer.drawSampleRate(currentTrack?.sampleRate, in: context)
+        
         // Draw spectrum analyzer
         renderer.drawSpectrumAnalyzer(levels: spectrumLevels, in: context)
         
@@ -295,6 +304,7 @@ class MainWindowView: NSView {
         self.currentTrack = track
         self.currentVideoTitle = nil  // Clear video title when audio track changes
         marqueeOffset = 0  // Reset scroll position
+        bitrateScrollOffset = 0  // Reset bitrate scroll
         needsDisplay = true
     }
     
@@ -323,17 +333,54 @@ class MainWindowView: NSView {
         marqueeTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             
-            let title = self.currentTrack?.displayTitle ?? "AdAmp"
+            // Use video title if video is playing, otherwise track title
+            let title: String
+            if WindowManager.shared.isVideoPlaying, let videoTitle = WindowManager.shared.currentVideoTitle {
+                title = videoTitle
+            } else {
+                title = self.currentTrack?.displayTitle ?? "AdAmp"
+            }
+            
             let charWidth = SkinElements.TextFont.charWidth
             let textWidth = CGFloat(title.count) * charWidth
             let marqueeWidth = SkinElements.TextFont.Positions.marqueeArea.width
             
             if textWidth > marqueeWidth {
+                // Circular scroll: separator is "  -  " (5 chars)
+                let separatorWidth = charWidth * 5
+                let totalCycleWidth = textWidth + separatorWidth
+                
                 self.marqueeOffset += 1
-                if self.marqueeOffset > textWidth + 50 {
+                // Reset when one full cycle completes (seamless wrap)
+                if self.marqueeOffset >= totalCycleWidth {
                     self.marqueeOffset = 0
                 }
                 self.setNeedsDisplay(SkinElements.TextFont.Positions.marqueeArea)
+            } else {
+                // Text fits - no scrolling needed, reset offset
+                if self.marqueeOffset != 0 {
+                    self.marqueeOffset = 0
+                    self.setNeedsDisplay(SkinElements.TextFont.Positions.marqueeArea)
+                }
+            }
+            
+            // Scroll bitrate if > 3 digits (circular scroll)
+            if let bitrate = self.currentTrack?.bitrate {
+                let kbps = bitrate > 10000 ? bitrate / 1000 : bitrate
+                let bitrateText = "\(kbps)"
+                if bitrateText.count > 3 {
+                    let bitrateTextWidth = CGFloat(bitrateText.count) * charWidth
+                    let spacing = charWidth * 2  // Gap between repeated text
+                    let totalWidth = bitrateTextWidth + spacing
+                    
+                    self.bitrateScrollOffset += 0.1  // Very slow smooth scroll
+                    if self.bitrateScrollOffset >= totalWidth {
+                        self.bitrateScrollOffset = 0  // Wrap around seamlessly
+                    }
+                    self.setNeedsDisplay(SkinElements.InfoDisplay.Positions.bitrate)
+                }
+            } else {
+                self.bitrateScrollOffset = 0
             }
         }
     }
