@@ -337,6 +337,9 @@ class AudioEngine {
         state = .stopped
         stopTimeUpdates()
         
+        // Notify delegate of reset time
+        delegate?.audioEngineDidUpdateTime(current: 0, duration: duration)
+        
         // Reset to beginning (local files only)
         if !isStreamingPlayback, let file = audioFile {
             playerNode.scheduleFile(file, at: nil) { [weak self] in
