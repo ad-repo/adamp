@@ -531,10 +531,6 @@ class MenuActions: NSObject {
         }
     }
     
-    @objc func togglePlexBrowser() {
-        WindowManager.shared.togglePlexBrowser()
-    }
-    
     @objc func selectPlexServer(_ sender: NSMenuItem) {
         guard let serverID = sender.representedObject as? String,
               let server = PlexManager.shared.servers.first(where: { $0.id == serverID }) else {
