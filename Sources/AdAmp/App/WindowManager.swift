@@ -269,12 +269,55 @@ class WindowManager {
         videoPlayerWindowController?.window?.isVisible == true
     }
     
+    /// Whether video is currently playing
+    var isVideoPlaying: Bool {
+        videoPlayerWindowController?.isPlaying ?? false
+    }
+    
+    /// Current video title (if playing)
+    var currentVideoTitle: String? {
+        videoPlayerWindowController?.currentTitle
+    }
+    
     func toggleVideoPlayer() {
         if let controller = videoPlayerWindowController, controller.window?.isVisible == true {
             controller.window?.orderOut(nil)
         } else if videoPlayerWindowController != nil {
             videoPlayerWindowController?.showWindow(nil)
         }
+    }
+    
+    /// Toggle video play/pause
+    func toggleVideoPlayPause() {
+        videoPlayerWindowController?.togglePlayPause()
+    }
+    
+    /// Stop video playback
+    func stopVideo() {
+        videoPlayerWindowController?.stop()
+    }
+    
+    /// Skip video forward
+    func skipVideoForward(_ seconds: TimeInterval = 10) {
+        videoPlayerWindowController?.skipForward(seconds)
+    }
+    
+    /// Skip video backward
+    func skipVideoBackward(_ seconds: TimeInterval = 10) {
+        videoPlayerWindowController?.skipBackward(seconds)
+    }
+    
+    /// Called when video playback starts - pause audio
+    func videoPlaybackDidStart() {
+        if audioEngine.state == .playing {
+            audioEngine.pause()
+        }
+        mainWindowController?.updatePlaybackState()
+    }
+    
+    /// Called when video playback stops
+    func videoPlaybackDidStop() {
+        mainWindowController?.updatePlaybackState()
     }
 
     func notifyMainWindowVisibilityChanged() {

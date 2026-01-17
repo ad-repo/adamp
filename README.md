@@ -9,6 +9,7 @@ A faithful recreation of the classic Winamp 2.x music player for macOS.
 - **All classic windows**: Main player, Playlist editor, 10-band Equalizer
 - **Window snapping**: Classic Winamp window docking behavior
 - **Audio format support**: MP3, FLAC, AAC, WAV, AIFF, ALAC, and more
+- **Video format support**: MKV, MP4, MOV, AVI, WebM, HEVC via FFmpeg (KSPlayer)
 - **Media library**: Organize and browse your music collection
 - **Plex integration**: Stream music and video from your Plex Media Server
 - **Spectrum analyzer**: Real-time audio visualization
@@ -125,9 +126,9 @@ AdAmp can stream music and video directly from your Plex Media Server:
 **Video Features:**
 - Browse Movies and TV Shows
 - Hierarchical navigation (Show → Seasons → Episodes)
-- Dedicated video player window with native AVKit controls
-- Fullscreen support, picture-in-picture
-- Keyboard controls (Space for play/pause, arrow keys to seek)
+- Dedicated video player window with skinned Winamp-style title bar
+- KSPlayer with FFmpeg backend for MKV, WebM, HEVC, and extended codec support
+- Fullscreen support, keyboard controls (Space for play/pause, arrow keys to seek)
 
 **General Features:**
 - PIN-based authentication (no password entry required)
@@ -156,7 +157,7 @@ AdAmp/
 │   ├── Equalizer/          # 10-band EQ
 │   ├── MediaLibrary/       # Local media library browser
 │   ├── PlexBrowser/        # Plex content browser (music + video)
-│   └── VideoPlayer/        # Video player window (AVKit-based)
+│   └── VideoPlayer/        # Video player window (KSPlayer/FFmpeg-based)
 ├── Data/                   # Models and persistence
 │   └── Models/             # Track, Playlist, MediaLibrary, EQPreset, PlexModels
 ├── Utilities/              # BMP parsing, ZIP extraction, Keychain
@@ -228,7 +229,7 @@ AdAmp supports classic Winamp 2.x skins (.wsz files). Key supported features:
   - [x] Video library browsing (Movies/TV Shows/Episodes)
   - [x] Search functionality
   - [x] Streaming audio playback
-  - [x] Video player with AVKit controls
+  - [x] Video player with KSPlayer (MKV/extended codecs) and skinned UI
   - [x] Secure credential storage (Keychain)
 
 ### Phase 5: Polish (In Progress)
@@ -250,7 +251,11 @@ AdAmp supports classic Winamp 2.x skins (.wsz files). Key supported features:
 
 ## License
 
-This project is for personal/educational use. It is not affiliated with Winamp LLC or Radionomy Group.
+This project is open source and uses the following licensed components:
+
+- **KSPlayer** (GPL-3.0) - Video playback with FFmpeg backend for extended codec support
+
+This project is not affiliated with Winamp LLC or Radionomy Group.
 
 ## Acknowledgments
 

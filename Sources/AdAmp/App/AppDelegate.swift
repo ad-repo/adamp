@@ -10,6 +10,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Set the application dock icon
         setupDockIcon()
         
+        // Configure KSPlayer for FFmpeg-only playback
+        VideoPlayerWindowController.configureKSPlayer()
+        
         // Initialize the window manager
         windowManager = WindowManager.shared
         

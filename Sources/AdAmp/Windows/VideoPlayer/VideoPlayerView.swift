@@ -1,19 +1,42 @@
 import AppKit
-import AVKit
-import AVFoundation
+import KSPlayer
 
-/// Video player view using AVKit's AVPlayerView
+/// Video player view using KSPlayer with FFmpeg backend, skinned title bar, and controls
 class VideoPlayerView: NSView {
     
     // MARK: - Properties
     
-    private var playerView: AVPlayerView!
-    private var player: AVPlayer?
+    private var playerLayer: KSPlayerLayer?
+    private var playerHostView: NSView!
     private var loadingIndicator: NSProgressIndicator?
     private var currentTitle: String = ""
+    private var currentURL: URL?
     
-    /// Time observer for playback position
-    private var timeObserver: Any?
+    /// Whether this is a Plex stream (for header attachment)
+    private var isPlexStream: Bool = false
+    
+    /// Skinned title bar view
+    private var titleBarView: VideoTitleBarView!
+    
+    /// Control bar at bottom
+    private var controlBarView: VideoControlBarView!
+    
+    /// Auto-hide timer for controls
+    private var controlsHideTimer: Timer?
+    private var controlsVisible: Bool = true
+    
+    /// Current playback time and duration
+    private var currentTime: TimeInterval = 0
+    private var totalDuration: TimeInterval = 0
+    
+    /// Callback when close button is clicked
+    var onClose: (() -> Void)?
+    
+    /// Callback when minimize button is clicked
+    var onMinimize: (() -> Void)?
+    
+    /// Callback when playback state changes
+    var onPlaybackStateChanged: ((Bool) -> Void)?
     
     // MARK: - Initialization
     
@@ -28,9 +51,9 @@ class VideoPlayerView: NSView {
     }
     
     deinit {
-        removeTimeObserver()
-        player?.pause()
-        player = nil
+        controlsHideTimer?.invalidate()
+        playerLayer?.pause()
+        playerLayer?.stop()
     }
     
     // MARK: - Setup
@@ -39,18 +62,46 @@ class VideoPlayerView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         
-        // Create AVPlayerView
-        playerView = AVPlayerView(frame: bounds)
-        playerView.autoresizingMask = [.width, .height]
-        playerView.controlsStyle = .floating
-        playerView.showsFullScreenToggleButton = true
-        playerView.showsFrameSteppingButtons = true
-        playerView.showsSharingServiceButton = false
-        playerView.allowsPictureInPicturePlayback = true
-        addSubview(playerView)
+        let titleBarHeight: CGFloat = SkinElements.titleBarHeight
+        let controlBarHeight: CGFloat = 40
+        
+        // Create a host view for the player layer - fills entire view
+        playerHostView = NSView(frame: bounds)
+        playerHostView.wantsLayer = true
+        playerHostView.layer?.backgroundColor = NSColor.black.cgColor
+        playerHostView.autoresizingMask = [.width, .height]
+        addSubview(playerHostView)
+        
+        // Create skinned title bar (overlays on top)
+        titleBarView = VideoTitleBarView(frame: NSRect(x: 0, y: 0, width: bounds.width, height: titleBarHeight))
+        titleBarView.autoresizingMask = [.width]
+        titleBarView.onClose = { [weak self] in
+            self?.onClose?()
+        }
+        titleBarView.onMinimize = { [weak self] in
+            self?.onMinimize?()
+        }
+        addSubview(titleBarView)
+        
+        // Create control bar at bottom (overlays on bottom)
+        controlBarView = VideoControlBarView(frame: NSRect(x: 0, y: bounds.height - controlBarHeight, 
+                                                            width: bounds.width, height: controlBarHeight))
+        controlBarView.autoresizingMask = [.width, .minYMargin]
+        controlBarView.onPlayPause = { [weak self] in self?.togglePlayPause() }
+        controlBarView.onSeek = { [weak self] position in self?.seekToPosition(position) }
+        controlBarView.onSkipBackward = { [weak self] in self?.skipBackward(10) }
+        controlBarView.onSkipForward = { [weak self] in self?.skipForward(10) }
+        controlBarView.onFullscreen = { [weak self] in self?.window?.toggleFullScreen(nil) }
+        addSubview(controlBarView)
         
         // Create loading indicator
         setupLoadingIndicator()
+        
+        // Setup context menu
+        setupContextMenu()
+        
+        // Setup mouse tracking for auto-hide controls
+        setupMouseTracking()
     }
     
     private func setupLoadingIndicator() {
@@ -70,33 +121,152 @@ class VideoPlayerView: NSView {
         loadingIndicator = indicator
     }
     
+    private func setupContextMenu() {
+        let menu = NSMenu(title: "Video")
+        
+        menu.addItem(withTitle: "Play/Pause", action: #selector(contextPlayPause), keyEquivalent: " ")
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Skip Backward 10s", action: #selector(contextSkipBackward), keyEquivalent: "")
+        menu.addItem(withTitle: "Skip Forward 10s", action: #selector(contextSkipForward), keyEquivalent: "")
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Toggle Fullscreen", action: #selector(contextFullscreen), keyEquivalent: "f")
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Close", action: #selector(contextClose), keyEquivalent: "w")
+        
+        self.menu = menu
+    }
+    
+    private func setupMouseTracking() {
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+    }
+    
+    // MARK: - Context Menu Actions
+    
+    @objc private func contextPlayPause() {
+        togglePlayPause()
+    }
+    
+    @objc private func contextSkipBackward() {
+        skipBackward(10)
+    }
+    
+    @objc private func contextSkipForward() {
+        skipForward(10)
+    }
+    
+    @objc private func contextFullscreen() {
+        window?.toggleFullScreen(nil)
+    }
+    
+    @objc private func contextClose() {
+        stop()
+        window?.close()
+    }
+    
+    // MARK: - Controls Visibility
+    
+    private func showControls() {
+        controlsVisible = true
+        titleBarView.alphaValue = 1.0
+        controlBarView.alphaValue = 1.0
+        resetControlsHideTimer()
+    }
+    
+    private func hideControls() {
+        guard playerLayer?.state.isPlaying == true else { return }
+        
+        controlsVisible = false
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            titleBarView.animator().alphaValue = 0.0
+            controlBarView.animator().alphaValue = 0.0
+        }
+    }
+    
+    private func resetControlsHideTimer() {
+        controlsHideTimer?.invalidate()
+        controlsHideTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+            self?.hideControls()
+        }
+    }
+    
+    override func mouseMoved(with event: NSEvent) {
+        showControls()
+    }
+    
+    override func mouseEntered(with event: NSEvent) {
+        showControls()
+    }
+    
+    override func mouseExited(with event: NSEvent) {
+        resetControlsHideTimer()
+    }
+    
+    // MARK: - Layout
+    
+    override func layout() {
+        super.layout()
+        
+        let titleBarHeight: CGFloat = SkinElements.titleBarHeight
+        let controlBarHeight: CGFloat = 40
+        
+        // Video fills entire view
+        playerHostView.frame = bounds
+        
+        // Controls overlay on top/bottom
+        titleBarView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: titleBarHeight)
+        controlBarView.frame = NSRect(x: 0, y: bounds.height - controlBarHeight, 
+                                       width: bounds.width, height: controlBarHeight)
+    }
+    
+    override var isFlipped: Bool { true }
+    
     // MARK: - Playback
     
     /// Play video from URL with title
-    func play(url: URL, title: String) {
+    func play(url: URL, title: String, isPlexURL: Bool = false, plexToken: String? = nil) {
         currentTitle = title
+        currentURL = url
+        isPlexStream = isPlexURL
+        
+        // Update title bar
+        titleBarView.title = title
         
         // Show loading indicator
         showLoading(true)
         
-        // Clean up existing player
-        removeTimeObserver()
-        player?.pause()
+        // Reset time display
+        currentTime = 0
+        totalDuration = 0
+        controlBarView.updateTime(current: 0, total: 0)
+        controlBarView.updatePlayState(isPlaying: false)
         
-        // Create new player
-        let playerItem = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: playerItem)
-        playerView.player = player
+        // Configure options
+        let options = KSOptions()
+        if isPlexURL, let token = plexToken {
+            options.appendHeader(["X-Plex-Token": token])
+        }
         
-        // Observe buffering state
-        playerItem.addObserver(self, forKeyPath: "status", options: [.new, .initial], context: nil)
-        playerItem.addObserver(self, forKeyPath: "playbackBufferEmpty", options: .new, context: nil)
-        playerItem.addObserver(self, forKeyPath: "playbackLikelyToKeepUp", options: .new, context: nil)
+        // Stop existing player if any
+        playerLayer?.stop()
+        playerLayer = nil
         
-        // Start playback when ready
-        if playerItem.status == .readyToPlay {
-            showLoading(false)
-            player?.play()
+        // Create new player layer with the URL
+        let layer = KSPlayerLayer(url: url, options: options, delegate: self)
+        playerLayer = layer
+        
+        // Add player view to host
+        if let playerView = layer.player.view {
+            playerView.frame = playerHostView.bounds
+            playerView.autoresizingMask = [.width, .height]
+            playerHostView.subviews.forEach { $0.removeFromSuperview() }
+            playerHostView.addSubview(playerView)
         }
         
         NSLog("VideoPlayerView: Playing %@ from %@", title, url.absoluteString)
@@ -104,54 +274,52 @@ class VideoPlayerView: NSView {
     
     /// Stop playback
     func stop() {
-        removeTimeObserver()
-        
-        // Remove observers from current item
-        if let item = player?.currentItem {
-            item.removeObserver(self, forKeyPath: "status")
-            item.removeObserver(self, forKeyPath: "playbackBufferEmpty")
-            item.removeObserver(self, forKeyPath: "playbackLikelyToKeepUp")
-        }
-        
-        player?.pause()
-        player = nil
-        playerView.player = nil
+        controlsHideTimer?.invalidate()
+        playerLayer?.pause()
+        playerLayer?.stop()
         showLoading(false)
+        controlBarView.updatePlayState(isPlaying: false)
     }
     
     /// Toggle play/pause
     func togglePlayPause() {
-        guard let player = player else { return }
+        guard let layer = playerLayer else { return }
         
-        if player.rate == 0 {
-            player.play()
+        if layer.state.isPlaying {
+            layer.pause()
+            controlBarView.updatePlayState(isPlaying: false)
+            showControls()
         } else {
-            player.pause()
+            layer.play()
+            controlBarView.updatePlayState(isPlaying: true)
+            resetControlsHideTimer()
         }
+    }
+    
+    /// Seek to normalized position (0-1)
+    func seekToPosition(_ position: Double) {
+        guard totalDuration > 0 else { return }
+        let time = position * totalDuration
+        playerLayer?.seek(time: time, autoPlay: true) { _ in }
     }
     
     /// Seek to time
     func seek(to time: TimeInterval) {
-        let cmTime = CMTime(seconds: time, preferredTimescale: 600)
-        player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        playerLayer?.seek(time: time, autoPlay: true) { _ in }
     }
     
     /// Skip forward by seconds
     func skipForward(_ seconds: TimeInterval = 10) {
-        guard let player = player,
-              let currentTime = player.currentItem?.currentTime() else { return }
-        
-        let newTime = CMTimeAdd(currentTime, CMTime(seconds: seconds, preferredTimescale: 600))
-        player.seek(to: newTime)
+        guard let layer = playerLayer else { return }
+        let newTime = min(layer.player.currentPlaybackTime + seconds, totalDuration)
+        layer.seek(time: newTime, autoPlay: true) { _ in }
     }
     
     /// Skip backward by seconds
     func skipBackward(_ seconds: TimeInterval = 10) {
-        guard let player = player,
-              let currentTime = player.currentItem?.currentTime() else { return }
-        
-        let newTime = CMTimeSubtract(currentTime, CMTime(seconds: seconds, preferredTimescale: 600))
-        player.seek(to: newTime)
+        guard let layer = playerLayer else { return }
+        let newTime = max(0, layer.player.currentPlaybackTime - seconds)
+        layer.seek(time: newTime, autoPlay: true) { _ in }
     }
     
     // MARK: - Loading Indicator
@@ -168,61 +336,6 @@ class VideoPlayerView: NSView {
         }
     }
     
-    // MARK: - KVO
-    
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
-        guard let item = object as? AVPlayerItem else { return }
-        
-        switch keyPath {
-        case "status":
-            switch item.status {
-            case .readyToPlay:
-                NSLog("VideoPlayerView: Ready to play")
-                showLoading(false)
-                player?.play()
-            case .failed:
-                NSLog("VideoPlayerView: Failed to load - %@", item.error?.localizedDescription ?? "Unknown error")
-                showLoading(false)
-            case .unknown:
-                NSLog("VideoPlayerView: Status unknown")
-            @unknown default:
-                break
-            }
-            
-        case "playbackBufferEmpty":
-            if item.isPlaybackBufferEmpty {
-                NSLog("VideoPlayerView: Buffer empty, showing loading")
-                showLoading(true)
-            }
-            
-        case "playbackLikelyToKeepUp":
-            if item.isPlaybackLikelyToKeepUp {
-                NSLog("VideoPlayerView: Buffer filled, hiding loading")
-                showLoading(false)
-            }
-            
-        default:
-            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
-        }
-    }
-    
-    // MARK: - Time Observer
-    
-    private func setupTimeObserver() {
-        let interval = CMTime(seconds: 1, preferredTimescale: 600)
-        timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            // Could use this to update progress UI if needed
-            _ = self
-        }
-    }
-    
-    private func removeTimeObserver() {
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
-            timeObserver = nil
-        }
-    }
-    
     // MARK: - Keyboard Events
     
     override var acceptsFirstResponder: Bool { true }
@@ -235,15 +348,454 @@ class VideoPlayerView: NSView {
             skipBackward(10)
         case 124: // Right arrow - skip forward
             skipForward(10)
-        case 53: // Escape - exit fullscreen or stop
+        case 53: // Escape - exit fullscreen or close
             if let window = window, (window.styleMask.contains(.fullScreen)) {
                 window.toggleFullScreen(nil)
             } else {
                 stop()
                 window?.close()
             }
+        case 3: // F key - toggle fullscreen
+            window?.toggleFullScreen(nil)
         default:
             super.keyDown(with: event)
+        }
+    }
+    
+    // MARK: - Window Active State
+    
+    func updateActiveState(_ isActive: Bool) {
+        titleBarView.isWindowActive = isActive
+    }
+}
+
+// MARK: - KSPlayerLayerDelegate
+
+extension VideoPlayerView: KSPlayerLayerDelegate {
+    func player(layer: KSPlayerLayer, state: KSPlayerState) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            switch state {
+            case .initialized:
+                NSLog("VideoPlayerView: Initialized")
+            case .preparing:
+                NSLog("VideoPlayerView: Preparing to play")
+                self.showLoading(true)
+            case .readyToPlay:
+                NSLog("VideoPlayerView: Ready to play")
+                self.showLoading(false)
+                self.controlBarView.updatePlayState(isPlaying: true)
+                self.resetControlsHideTimer()
+                self.onPlaybackStateChanged?(true)
+            case .buffering:
+                NSLog("VideoPlayerView: Buffering")
+                self.showLoading(true)
+            case .bufferFinished:
+                NSLog("VideoPlayerView: Buffer finished")
+                self.showLoading(false)
+                self.onPlaybackStateChanged?(true)
+            case .paused:
+                NSLog("VideoPlayerView: Paused")
+                self.controlBarView.updatePlayState(isPlaying: false)
+                self.showControls()
+                self.onPlaybackStateChanged?(false)
+            case .playedToTheEnd:
+                NSLog("VideoPlayerView: Played to end")
+                self.controlBarView.updatePlayState(isPlaying: false)
+                self.showControls()
+                self.onPlaybackStateChanged?(false)
+            case .error:
+                NSLog("VideoPlayerView: Playback error")
+                self.showLoading(false)
+                self.controlBarView.updatePlayState(isPlaying: false)
+                self.onPlaybackStateChanged?(false)
+            }
+        }
+    }
+    
+    func player(layer: KSPlayerLayer, currentTime: TimeInterval, totalTime: TimeInterval) {
+        DispatchQueue.main.async { [weak self] in
+            self?.currentTime = currentTime
+            self?.totalDuration = totalTime
+            self?.controlBarView.updateTime(current: currentTime, total: totalTime)
+        }
+    }
+    
+    func player(layer: KSPlayerLayer, finish error: Error?) {
+        if let error = error {
+            NSLog("VideoPlayerView: Finished with error - %@", error.localizedDescription)
+        } else {
+            NSLog("VideoPlayerView: Finished playback")
+        }
+        showLoading(false)
+    }
+    
+    func player(layer: KSPlayerLayer, bufferedCount: Int, consumeTime: TimeInterval) {
+        // Buffering progress
+    }
+}
+
+// MARK: - VideoControlBarView
+
+/// Control bar with play/pause, seek bar, time display, and fullscreen toggle
+class VideoControlBarView: NSView {
+    
+    // MARK: - Properties
+    
+    var onPlayPause: (() -> Void)?
+    var onSeek: ((Double) -> Void)?
+    var onSkipBackward: (() -> Void)?
+    var onSkipForward: (() -> Void)?
+    var onFullscreen: (() -> Void)?
+    
+    private var playButton: NSButton!
+    private var skipBackButton: NSButton!
+    private var skipForwardButton: NSButton!
+    private var fullscreenButton: NSButton!
+    private var seekSlider: NSSlider!
+    private var currentTimeLabel: NSTextField!
+    private var durationLabel: NSTextField!
+    
+    private var isPlaying: Bool = false
+    private var isSeeking: Bool = false
+    
+    // MARK: - Initialization
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupView()
+    }
+    
+    private func setupView() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(white: 0, alpha: 0.7).cgColor
+        
+        // Skip backward button
+        skipBackButton = createButton(symbol: "gobackward.10", action: #selector(skipBackwardClicked))
+        
+        // Play/Pause button
+        playButton = createButton(symbol: "play.fill", action: #selector(playPauseClicked))
+        
+        // Skip forward button
+        skipForwardButton = createButton(symbol: "goforward.10", action: #selector(skipForwardClicked))
+        
+        // Time labels
+        currentTimeLabel = createTimeLabel()
+        durationLabel = createTimeLabel()
+        
+        // Seek slider
+        seekSlider = NSSlider(value: 0, minValue: 0, maxValue: 1, target: self, action: #selector(seekChanged))
+        seekSlider.translatesAutoresizingMaskIntoConstraints = false
+        seekSlider.isContinuous = true
+        
+        // Fullscreen button
+        fullscreenButton = createButton(symbol: "arrow.up.left.and.arrow.down.right", action: #selector(fullscreenClicked))
+        
+        addSubview(skipBackButton)
+        addSubview(playButton)
+        addSubview(skipForwardButton)
+        addSubview(currentTimeLabel)
+        addSubview(seekSlider)
+        addSubview(durationLabel)
+        addSubview(fullscreenButton)
+        
+        setupConstraints()
+    }
+    
+    private func createButton(symbol: String, action: Selector) -> NSButton {
+        let button = NSButton(frame: .zero)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.target = self
+        button.action = action
+        
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+            button.image = image
+            button.contentTintColor = .white
+        }
+        
+        return button
+    }
+    
+    private func createTimeLabel() -> NSTextField {
+        let label = NSTextField(labelWithString: "0:00")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.textColor = .white
+        label.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        label.alignment = .center
+        return label
+    }
+    
+    private func setupConstraints() {
+        NSLayoutConstraint.activate([
+            // Skip back button
+            skipBackButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            skipBackButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            skipBackButton.widthAnchor.constraint(equalToConstant: 30),
+            skipBackButton.heightAnchor.constraint(equalToConstant: 30),
+            
+            // Play button
+            playButton.leadingAnchor.constraint(equalTo: skipBackButton.trailingAnchor, constant: 5),
+            playButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            playButton.widthAnchor.constraint(equalToConstant: 30),
+            playButton.heightAnchor.constraint(equalToConstant: 30),
+            
+            // Skip forward button
+            skipForwardButton.leadingAnchor.constraint(equalTo: playButton.trailingAnchor, constant: 5),
+            skipForwardButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            skipForwardButton.widthAnchor.constraint(equalToConstant: 30),
+            skipForwardButton.heightAnchor.constraint(equalToConstant: 30),
+            
+            // Current time label
+            currentTimeLabel.leadingAnchor.constraint(equalTo: skipForwardButton.trailingAnchor, constant: 10),
+            currentTimeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            currentTimeLabel.widthAnchor.constraint(equalToConstant: 50),
+            
+            // Fullscreen button
+            fullscreenButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            fullscreenButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            fullscreenButton.widthAnchor.constraint(equalToConstant: 30),
+            fullscreenButton.heightAnchor.constraint(equalToConstant: 30),
+            
+            // Duration label
+            durationLabel.trailingAnchor.constraint(equalTo: fullscreenButton.leadingAnchor, constant: -10),
+            durationLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            durationLabel.widthAnchor.constraint(equalToConstant: 50),
+            
+            // Seek slider
+            seekSlider.leadingAnchor.constraint(equalTo: currentTimeLabel.trailingAnchor, constant: 10),
+            seekSlider.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -10),
+            seekSlider.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+    
+    // MARK: - Actions
+    
+    @objc private func playPauseClicked() {
+        onPlayPause?()
+    }
+    
+    @objc private func skipBackwardClicked() {
+        onSkipBackward?()
+    }
+    
+    @objc private func skipForwardClicked() {
+        onSkipForward?()
+    }
+    
+    @objc private func fullscreenClicked() {
+        onFullscreen?()
+    }
+    
+    @objc private func seekChanged() {
+        onSeek?(seekSlider.doubleValue)
+    }
+    
+    // MARK: - Updates
+    
+    func updatePlayState(isPlaying: Bool) {
+        self.isPlaying = isPlaying
+        let symbol = isPlaying ? "pause.fill" : "play.fill"
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+            playButton.image = image
+        }
+    }
+    
+    func updateTime(current: TimeInterval, total: TimeInterval) {
+        currentTimeLabel.stringValue = formatTime(current)
+        durationLabel.stringValue = formatTime(total)
+        
+        // Update slider position (only if not seeking)
+        if total > 0 {
+            seekSlider.doubleValue = current / total
+        }
+    }
+    
+    private func formatTime(_ time: TimeInterval) -> String {
+        let totalSeconds = Int(time)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            return String(format: "%d:%02d", minutes, seconds)
+        }
+    }
+}
+
+// MARK: - VideoTitleBarView
+
+/// Skinned title bar view using Winamp TITLEBAR.BMP sprites
+class VideoTitleBarView: NSView {
+    
+    // MARK: - Properties
+    
+    var title: String = "" {
+        didSet { needsDisplay = true }
+    }
+    
+    var isWindowActive: Bool = true {
+        didSet { needsDisplay = true }
+    }
+    
+    var onClose: (() -> Void)?
+    var onMinimize: (() -> Void)?
+    
+    private var pressedButton: ButtonType?
+    private var mouseInsideButton: Bool = false
+    private var initialMouseLocationInScreen: NSPoint?
+    private var initialWindowOrigin: NSPoint?
+    
+    // MARK: - Button Hit Rects
+    
+    private var closeButtonRect: NSRect {
+        NSRect(x: bounds.width - 12, y: 3, width: 9, height: 9)
+    }
+    
+    private var minimizeButtonRect: NSRect {
+        NSRect(x: bounds.width - 23, y: 3, width: 9, height: 9)
+    }
+    
+    // MARK: - Initialization
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+    }
+    
+    // MARK: - Drawing
+    
+    override var isFlipped: Bool { true }
+    
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        
+        let skin = WindowManager.shared.currentSkin ?? SkinLoader.shared.loadDefault()
+        let renderer = SkinRenderer(skin: skin)
+        
+        drawTitleBarBackground(renderer: renderer, context: context)
+        drawWindowButtons(renderer: renderer, context: context)
+    }
+    
+    private func drawTitleBarBackground(renderer: SkinRenderer, context: CGContext) {
+        guard let titlebarImage = renderer.skin.titlebar else {
+            let gradient = NSGradient(colors: [
+                isWindowActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.6, alpha: 1.0) : NSColor(calibratedWhite: 0.3, alpha: 1.0),
+                isWindowActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.3, alpha: 1.0) : NSColor(calibratedWhite: 0.2, alpha: 1.0)
+            ])
+            gradient?.draw(in: bounds, angle: 0)
+            return
+        }
+        
+        let sourceRect = isWindowActive ? SkinElements.TitleBar.active : SkinElements.TitleBar.inactive
+        let tileWidth = sourceRect.width
+        
+        var x: CGFloat = 0
+        while x < bounds.width {
+            let drawWidth = min(tileWidth, bounds.width - x)
+            let destRect = NSRect(x: x, y: 0, width: drawWidth, height: bounds.height)
+            let clippedSource = NSRect(x: sourceRect.minX, y: sourceRect.minY, 
+                                        width: drawWidth, height: sourceRect.height)
+            renderer.drawSprite(from: titlebarImage, sourceRect: clippedSource, to: destRect, in: context)
+            x += tileWidth
+        }
+    }
+    
+    private func drawWindowButtons(renderer: SkinRenderer, context: CGContext) {
+        let minimizeState: ButtonState = (pressedButton == .minimize && mouseInsideButton) ? .pressed : .normal
+        renderer.drawButton(.minimize, state: minimizeState, at: minimizeButtonRect, in: context)
+        
+        let closeState: ButtonState = (pressedButton == .close && mouseInsideButton) ? .pressed : .normal
+        renderer.drawButton(.close, state: closeState, at: closeButtonRect, in: context)
+    }
+    
+    // MARK: - Mouse Handling
+    
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        
+        if closeButtonRect.contains(location) {
+            pressedButton = .close
+            mouseInsideButton = true
+            needsDisplay = true
+            return
+        }
+        
+        if minimizeButtonRect.contains(location) {
+            pressedButton = .minimize
+            mouseInsideButton = true
+            needsDisplay = true
+            return
+        }
+        
+        guard let window = window else { return }
+        initialMouseLocationInScreen = NSEvent.mouseLocation
+        initialWindowOrigin = window.frame.origin
+    }
+    
+    override func mouseDragged(with event: NSEvent) {
+        if pressedButton != nil {
+            let location = convert(event.locationInWindow, from: nil)
+            let buttonRect = pressedButton == .close ? closeButtonRect : minimizeButtonRect
+            let wasInside = mouseInsideButton
+            mouseInsideButton = buttonRect.contains(location)
+            if wasInside != mouseInsideButton {
+                needsDisplay = true
+            }
+            return
+        }
+        
+        guard let window = window,
+              let initialMouse = initialMouseLocationInScreen,
+              let initialOrigin = initialWindowOrigin else { return }
+        
+        let currentMouse = NSEvent.mouseLocation
+        let deltaX = currentMouse.x - initialMouse.x
+        let deltaY = currentMouse.y - initialMouse.y
+        
+        let newOrigin = NSPoint(x: initialOrigin.x + deltaX, y: initialOrigin.y + deltaY)
+        window.setFrameOrigin(newOrigin)
+    }
+    
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            pressedButton = nil
+            mouseInsideButton = false
+            initialMouseLocationInScreen = nil
+            initialWindowOrigin = nil
+            needsDisplay = true
+        }
+        
+        guard let button = pressedButton else { return }
+        
+        let location = convert(event.locationInWindow, from: nil)
+        let buttonRect = button == .close ? closeButtonRect : minimizeButtonRect
+        
+        if buttonRect.contains(location) {
+            switch button {
+            case .close:
+                onClose?()
+            case .minimize:
+                onMinimize?()
+            default:
+                break
+            }
         }
     }
 }
