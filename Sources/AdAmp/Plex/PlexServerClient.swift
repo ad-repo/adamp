@@ -162,7 +162,11 @@ class PlexServerClient {
         let queryItems = [
             URLQueryItem(name: "type", value: "8"),  // type 8 = artist
             URLQueryItem(name: "X-Plex-Container-Start", value: String(offset)),
-            URLQueryItem(name: "X-Plex-Container-Size", value: String(limit))
+            URLQueryItem(name: "X-Plex-Container-Size", value: String(limit)),
+            // Include additional metadata to get album counts
+            URLQueryItem(name: "includeCollections", value: "1"),
+            URLQueryItem(name: "includeAdvanced", value: "1"),
+            URLQueryItem(name: "includeMeta", value: "1")
         ]
         
         guard let request = buildRequest(path: "/library/sections/\(libraryID)/all", queryItems: queryItems) else {
