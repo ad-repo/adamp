@@ -773,7 +773,7 @@ struct SkinElements {
             static let tabBarHeight: CGFloat = 24
             static let serverBarHeight: CGFloat = 24
             static let searchBarHeight: CGFloat = 26
-            static let statusBarHeight: CGFloat = 20
+            static let statusBarHeight: CGFloat = 6  // Bottom padding
             static let scrollbarWidth: CGFloat = 10
             static let alphabetWidth: CGFloat = 16
             static let leftBorder: CGFloat = 6

@@ -351,31 +351,42 @@ class PlexBrowserView: NSView {
         context.translateBy(x: 0, y: -centerY)
         
         if manager.isLinked {
-            // Server dropdown
-            let serverText = manager.currentServer?.name ?? "Select Server"
-            let serverAttrs: [NSAttributedString.Key: Any] = [
+            let textAttrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: colors.normalText,
                 .font: NSFont.systemFont(ofSize: 10)
             ]
-            let serverLabel = "Server: \(serverText) ▼"
-            serverLabel.draw(at: NSPoint(x: barRect.minX + 4, y: barRect.minY + 6), withAttributes: serverAttrs)
             
-            // Refresh button (center)
-            let refreshLabel = "↻ Refresh"
-            let refreshAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: colors.currentText,
-                .font: NSFont.systemFont(ofSize: 10)
-            ]
-            let refreshSize = refreshLabel.size(withAttributes: refreshAttrs)
-            let refreshX = barRect.midX - refreshSize.width / 2
-            refreshLabel.draw(at: NSPoint(x: refreshX, y: barRect.minY + 6), withAttributes: refreshAttrs)
+            // Left side: Plex Server dropdown (allow more space for long names)
+            let serverText = manager.currentServer?.name ?? "Select Server"
+            let serverLabel = "Plex Server: \(serverText) ▼"
+            serverLabel.draw(at: NSPoint(x: barRect.minX + 4, y: barRect.minY + 6), withAttributes: textAttrs)
             
-            // Library dropdown (right side)
+            // Right side: Library dropdown and refresh icon
             let libraryText = manager.currentLibrary?.title ?? "Select Library"
             let libraryLabel = "\(libraryText) ▼"
-            let librarySize = libraryLabel.size(withAttributes: serverAttrs)
-            libraryLabel.draw(at: NSPoint(x: barRect.maxX - librarySize.width - 4, y: barRect.minY + 6),
-                            withAttributes: serverAttrs)
+            let librarySize = libraryLabel.size(withAttributes: textAttrs)
+            
+            // Refresh icon (far right, after library)
+            let refreshIcon = "↻"
+            let refreshAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: colors.currentText,
+                .font: NSFont.systemFont(ofSize: 12)
+            ]
+            let refreshSize = refreshIcon.size(withAttributes: refreshAttrs)
+            refreshIcon.draw(at: NSPoint(x: barRect.maxX - refreshSize.width - 4, y: barRect.minY + 5), withAttributes: refreshAttrs)
+            
+            // Library dropdown (to the left of refresh)
+            libraryLabel.draw(at: NSPoint(x: barRect.maxX - refreshSize.width - librarySize.width - 12, y: barRect.minY + 6),
+                            withAttributes: textAttrs)
+            
+            // Item count (center, subtle)
+            let itemCount = "\(displayItems.count) items"
+            let countAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: colors.normalText.withAlphaComponent(0.5),
+                .font: NSFont.systemFont(ofSize: 9)
+            ]
+            let countSize = itemCount.size(withAttributes: countAttrs)
+            itemCount.draw(at: NSPoint(x: barRect.midX - countSize.width / 2, y: barRect.minY + 7), withAttributes: countAttrs)
         } else {
             // Not linked message
             let linkText = "Click to link your Plex account"
@@ -799,37 +810,8 @@ class PlexBrowserView: NSView {
     }
     
     private func drawStatusBarText(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors) {
-        let statusY = drawBounds.height - Layout.statusBarHeight
-        let statusRect = NSRect(x: Layout.leftBorder, y: statusY,
-                               width: drawBounds.width - Layout.leftBorder - Layout.rightBorder,
-                               height: Layout.statusBarHeight)
-        
-        // Counter-flip for text
-        context.saveGState()
-        let centerY = statusRect.midY
-        context.translateBy(x: 0, y: centerY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -centerY)
-        
-        let manager = PlexManager.shared
-        let statusText: String
-        
-        if !manager.isLinked {
-            statusText = "Not linked"
-        } else if isLoading {
-            statusText = "Loading..."
-        } else {
-            let serverName = manager.currentServer?.name ?? "Unknown"
-            statusText = "Connected to: \(serverName) • \(displayItems.count) items"
-        }
-        
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: colors.normalText.withAlphaComponent(0.6),
-            .font: NSFont.systemFont(ofSize: 9)
-        ]
-        statusText.draw(at: NSPoint(x: statusRect.minX + 4, y: statusRect.midY - 5), withAttributes: attrs)
-        
-        context.restoreGState()
+        // Status info is now shown in the top server bar
+        // This function is kept for potential future use but draws nothing
     }
     
     // MARK: - Loading Animation
@@ -1259,25 +1241,29 @@ class PlexBrowserView: NSView {
     
     private func handleServerBarClick(at winampPoint: NSPoint, event: NSEvent) {
         let originalSize = originalWindowSize
+        let barWidth = originalSize.width - Layout.leftBorder - Layout.rightBorder
         
-        // Check for refresh button click (center area)
-        let refreshLabel = "↻ Refresh"
-        let refreshAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10)
-        ]
-        let refreshSize = refreshLabel.size(withAttributes: refreshAttrs)
-        let refreshX = originalSize.width / 2 - refreshSize.width / 2
-        let refreshEndX = refreshX + refreshSize.width
+        // Layout: [Plex Server: xxx ▼] ... [item count] ... [Library ▼] [↻]
+        // Refresh icon is far right (last ~20px)
+        // Library dropdown is next ~100px from right
+        // Server dropdown is left side
         
-        if winampPoint.x >= refreshX - 10 && winampPoint.x < refreshEndX + 10 {
+        let refreshZone: CGFloat = 25  // Far right area for refresh
+        let libraryZone: CGFloat = 120 // Area for library dropdown
+        
+        let relativeX = winampPoint.x - Layout.leftBorder
+        
+        if relativeX > barWidth - refreshZone {
+            // Refresh icon click
             refreshData()
-        } else if winampPoint.x < originalSize.width / 3 {
-            // Left third = server selection
-            showServerMenu(at: event)
-        } else if winampPoint.x > originalSize.width * 2 / 3 {
-            // Right third = library selection
+        } else if relativeX > barWidth - libraryZone {
+            // Library dropdown click
             showLibraryMenu(at: event)
+        } else if relativeX < barWidth / 2 {
+            // Left half = server selection
+            showServerMenu(at: event)
         }
+        // Center area (item count) - no action
     }
     
     private func handleAlphabetClick(at winampPoint: NSPoint) {
