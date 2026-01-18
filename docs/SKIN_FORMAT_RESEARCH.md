@@ -315,6 +315,13 @@ curl -s "https://raw.githubusercontent.com/captbaritone/webamp/master/packages/w
 
 ## Version History
 
+- **2026-01-18**: Plex Browser title bar color matching
+  - Muted title text colors from 0.8 to 0.55 white (active) / 0.35 white (inactive)
+  - Added window focus state support - title bar dims when window loses focus
+  - Increased custom title text size from 5x6 to 6x7 pixels for better visibility
+  - Key insight: Title bar text should be muted (~55% white) not bright (~80% white)
+  - Apply 40% black overlay on title bar when window is inactive
+
 - **2026-01-18**: Plex Browser tab selection styling
   - Removed blue background fill from selected tabs
   - Selected tab now indicated by white text only (cleaner look)
