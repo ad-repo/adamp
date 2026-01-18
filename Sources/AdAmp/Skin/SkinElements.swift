@@ -774,10 +774,10 @@ struct SkinElements {
             static let serverBarHeight: CGFloat = 24
             static let searchBarHeight: CGFloat = 26
             static let statusBarHeight: CGFloat = 20
-            static let scrollbarWidth: CGFloat = 20
+            static let scrollbarWidth: CGFloat = 10
             static let alphabetWidth: CGFloat = 16
-            static let leftBorder: CGFloat = 12
-            static let rightBorder: CGFloat = 20
+            static let leftBorder: CGFloat = 6
+            static let rightBorder: CGFloat = 6
             static let padding: CGFloat = 3
         }
         
@@ -872,18 +872,18 @@ struct SkinElements {
             static let searchBarHeight: CGFloat = 24
             static let columnHeaderHeight: CGFloat = 22
             static let statusBarHeight: CGFloat = 3   // Thin bottom border
-            static let scrollbarWidth: CGFloat = 14
+            static let scrollbarWidth: CGFloat = 8    // Match playlist scrollbar
             static let leftBorder: CGFloat = 3        // Thin side borders
-            static let rightBorder: CGFloat = 3       // Thin side borders
+            static let rightBorder: CGFloat = 11      // Scrollbar (8) + edge (3)
             static let padding: CGFloat = 3
         }
         
         // MARK: - Window Button Positions
         struct TitleBarButtons {
             /// Close button offset from right edge
-            static let closeOffset: CGFloat = 8
+            static let closeOffset: CGFloat = 5
             /// Shade button offset from right edge
-            static let shadeOffset: CGFloat = 18
+            static let shadeOffset: CGFloat = 15
         }
     }
     

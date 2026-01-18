@@ -91,6 +91,9 @@ class WindowManager {
     /// Flag to prevent feedback loop when moving docked windows programmatically
     private var isMovingDockedWindows = false
     
+    /// Flag to prevent feedback loop when snapping windows
+    private var isSnappingWindow = false
+    
     // MARK: - Initialization
     
     private init() {
@@ -543,8 +546,21 @@ class WindowManager {
         dockedWindowsToMove.removeAll()
     }
     
+    /// Safely apply snapped position to a window without triggering feedback loop
+    func applySnappedPosition(_ window: NSWindow, to position: NSPoint) {
+        guard position != window.frame.origin else { return }
+        isSnappingWindow = true
+        window.setFrameOrigin(position)
+        isSnappingWindow = false
+    }
+    
     /// Called when a window is being dragged - handle snapping and move docked windows
     func windowWillMove(_ window: NSWindow, to newOrigin: NSPoint) -> NSPoint {
+        // Ignore if we're already in the middle of snapping (prevents feedback loop)
+        if isSnappingWindow {
+            return newOrigin
+        }
+        
         // Ignore if this is a docked window being moved programmatically
         if isMovingDockedWindows && dockedWindowsToMove.contains(where: { $0 === window }) {
             return newOrigin
