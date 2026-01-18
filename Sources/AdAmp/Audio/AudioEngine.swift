@@ -3,7 +3,7 @@ import AppKit
 import Accelerate
 import CoreAudio
 import AudioToolbox
-import MediaToolbox
+import AudioStreaming
 
 /// Audio playback state
 enum PlaybackState {
@@ -40,37 +40,10 @@ class AudioEngine {
     /// Current audio file (for local files)
     private var audioFile: AVAudioFile?
     
-    /// AVPlayer for streaming URLs
-    private var streamPlayer: AVPlayer?
-    private var streamPlayerObserver: Any?
+    /// Streaming audio player (for HTTP URLs like Plex) - uses AudioStreaming library
+    /// This routes audio through AVAudioEngine so EQ affects streaming audio
+    private var streamingPlayer: StreamingAudioPlayer?
     private var isStreamingPlayback: Bool = false
-    
-    /// Audio tap for streaming spectrum analysis
-    private var audioTap: MTAudioProcessingTap?
-    
-    /// Context for audio tap callbacks (must be a class to use with UnsafeMutableRawPointer)
-    /// Internal so tap callbacks can access it
-    class AudioTapContext {
-        weak var engine: AudioEngine?
-        var fftSetup: vDSP_DFT_Setup?
-        let fftSize: Int = 2048
-        var isInvalidated: Bool = false
-        
-        init(engine: AudioEngine) {
-            self.engine = engine
-            self.fftSetup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD)
-        }
-        
-        func invalidate() {
-            isInvalidated = true
-            engine = nil
-        }
-        
-        deinit {
-            fftSetup = nil
-        }
-    }
-    private var tapContext: AudioTapContext?
     
     /// Current playback state
     private(set) var state: PlaybackState = .stopped {
@@ -96,7 +69,7 @@ class AudioEngine {
     var volume: Float = 0.2 {
         didSet {
             playerNode.volume = volume
-            streamPlayer?.volume = volume
+            streamingPlayer?.volume = volume
             
             // Also set volume on cast device if casting
             if isCastingActive {
@@ -347,156 +320,6 @@ class AudioEngine {
         }
     }
     
-    // MARK: - Streaming Audio Tap
-    
-    /// Process raw audio samples from streaming tap (called from tap callback)
-    func processStreamingAudioSamples(_ samples: UnsafePointer<Float>, count: Int, sampleRate: Float) {
-        guard let context = tapContext, let fftSetup = context.fftSetup else { return }
-        let fftSize = context.fftSize
-        guard count >= fftSize else { return }
-        
-        // Copy samples for processing
-        var audioSamples = [Float](repeating: 0, count: fftSize)
-        memcpy(&audioSamples, samples, fftSize * MemoryLayout<Float>.size)
-        
-        // Apply Hann window
-        var window = [Float](repeating: 0, count: fftSize)
-        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
-        vDSP_vmul(audioSamples, 1, window, 1, &audioSamples, 1, vDSP_Length(fftSize))
-        
-        // Perform FFT
-        var realIn = audioSamples
-        var imagIn = [Float](repeating: 0, count: fftSize)
-        var realOut = [Float](repeating: 0, count: fftSize)
-        var imagOut = [Float](repeating: 0, count: fftSize)
-        
-        vDSP_DFT_Execute(fftSetup, &realIn, &imagIn, &realOut, &imagOut)
-        
-        // Calculate magnitudes
-        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-        for i in 0..<fftSize / 2 {
-            magnitudes[i] = sqrt(realOut[i] * realOut[i] + imagOut[i] * imagOut[i])
-        }
-        
-        // Convert to dB and normalize
-        var logMagnitudes = [Float](repeating: 0, count: fftSize / 2)
-        var one: Float = 1.0
-        vDSP_vdbcon(magnitudes, 1, &one, &logMagnitudes, 1, vDSP_Length(fftSize / 2), 0)
-        
-        // Map to 75 bands (Winamp-style)
-        let bandCount = 75
-        var newSpectrum = [Float](repeating: 0, count: bandCount)
-        
-        // Logarithmic frequency mapping
-        let minFreq: Float = 20
-        let maxFreq: Float = 20000
-        let binWidth = sampleRate / Float(fftSize)
-        
-        for band in 0..<bandCount {
-            let freqRatio = Float(band) / Float(bandCount - 1)
-            let freq = minFreq * pow(maxFreq / minFreq, freqRatio)
-            let bin = Int(freq / binWidth)
-            
-            if bin < fftSize / 2 && bin >= 0 {
-                var sum: Float = 0
-                var binCount: Float = 0
-                let range = max(1, bin / 10)
-                
-                for j in max(0, bin - range)..<min(fftSize / 2, bin + range + 1) {
-                    sum += magnitudes[j]  // Use linear magnitudes
-                    binCount += 1
-                }
-                
-                newSpectrum[band] = sum / binCount
-            }
-        }
-        
-        // Find peak magnitude for normalization
-        let peakMag = newSpectrum.max() ?? 1.0
-        guard peakMag > 0 else { return }
-        
-        // Normalize relative to peak and apply curve
-        for i in 0..<bandCount {
-            let normalized = newSpectrum[i] / peakMag
-            newSpectrum[i] = pow(normalized, 0.4)
-        }
-        
-        // Update spectrum data on main thread
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            for i in 0..<bandCount {
-                if newSpectrum[i] > self.spectrumData[i] {
-                    self.spectrumData[i] = newSpectrum[i]
-                } else {
-                    self.spectrumData[i] = self.spectrumData[i] * 0.85 + newSpectrum[i] * 0.15
-                }
-            }
-            self.delegate?.audioEngineDidUpdateSpectrum(self.spectrumData)
-        }
-    }
-    
-    /// Create audio tap for streaming player item
-    private func createAudioTapForPlayerItem(_ playerItem: AVPlayerItem) {
-        // Get the audio track from the asset
-        let asset = playerItem.asset
-        
-        // Load tracks asynchronously
-        Task {
-            do {
-                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-                guard let audioTrack = audioTracks.first else {
-                    NSLog("AudioEngine: No audio track found for tap")
-                    return
-                }
-                
-                await MainActor.run {
-                    self.setupAudioTap(for: playerItem, audioTrack: audioTrack)
-                }
-            } catch {
-                NSLog("AudioEngine: Failed to load audio tracks: %@", error.localizedDescription)
-            }
-        }
-    }
-    
-    /// Set up the audio tap on the player item
-    private func setupAudioTap(for playerItem: AVPlayerItem, audioTrack: AVAssetTrack) {
-        // Create tap context - use passRetained so it lives as long as the tap
-        let context = AudioTapContext(engine: self)
-        tapContext = context
-        
-        // Create callbacks struct - passRetained keeps context alive until tapFinalize releases it
-        var callbacks = MTAudioProcessingTapCallbacks(
-            version: kMTAudioProcessingTapCallbacksVersion_0,
-            clientInfo: UnsafeMutableRawPointer(Unmanaged.passRetained(context).toOpaque()),
-            init: tapInit,
-            finalize: tapFinalize,
-            prepare: tapPrepare,
-            unprepare: tapUnprepare,
-            process: tapProcess
-        )
-        
-        // Create the tap
-        var tap: MTAudioProcessingTap?
-        let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
-        
-        guard status == noErr, let unwrappedTap = tap else {
-            NSLog("AudioEngine: Failed to create audio tap: %d", status)
-            return
-        }
-        
-        audioTap = unwrappedTap
-        
-        // Create audio mix with the tap
-        let inputParams = AVMutableAudioMixInputParameters(track: audioTrack)
-        inputParams.audioTapProcessor = audioTap
-        
-        let audioMix = AVMutableAudioMix()
-        audioMix.inputParameters = [inputParams]
-        
-        playerItem.audioMix = audioMix
-        NSLog("AudioEngine: Audio tap installed for streaming")
-    }
-    
     // MARK: - Playback Control
     
     func play() {
@@ -516,13 +339,12 @@ class AudioEngine {
         }
         
         if isStreamingPlayback {
-            // Streaming playback via AVPlayer
-            NSLog("play(): Starting streaming playback")
-            streamPlayer?.play()
+            // Streaming playback via AudioStreaming (with EQ support)
+            NSLog("play(): Starting streaming playback via AudioStreaming")
+            streamingPlayer?.resume()
             playbackStartDate = Date()
             state = .playing
             startTimeUpdates()
-            NSLog("play(): streamPlayer.timeControlStatus = %d", streamPlayer?.timeControlStatus.rawValue ?? -1)
         } else {
             // Local file playback via AVAudioEngine
             do {
@@ -560,7 +382,7 @@ class AudioEngine {
         playbackStartDate = nil
         
         if isStreamingPlayback {
-            streamPlayer?.pause()
+            streamingPlayer?.pause()
         } else {
             playerNode.pause()
         }
@@ -587,8 +409,7 @@ class AudioEngine {
         let currentGeneration = playbackGeneration
         
         if isStreamingPlayback {
-            streamPlayer?.pause()
-            streamPlayer?.seek(to: .zero)
+            streamingPlayer?.stop()
         } else {
             playerNode.stop()
         }
@@ -724,13 +545,9 @@ class AudioEngine {
         let seekTime = max(0, min(time, duration - 0.5))
         
         if isStreamingPlayback {
-            // Streaming playback - seek via AVPlayer
-            guard let player = streamPlayer else { return }
-            
-            let cmTime = CMTime(seconds: seekTime, preferredTimescale: 600)
-            player.seek(to: cmTime) { [weak self] _ in
-                self?.lastReportedTime = seekTime
-            }
+            // Streaming playback - seek via AudioStreaming
+            streamingPlayer?.seek(to: seekTime)
+            lastReportedTime = seekTime
         } else {
             // Local file playback - seek via AVAudioEngine
             guard let file = audioFile else { return }
@@ -794,9 +611,8 @@ class AudioEngine {
         }
         
         if isStreamingPlayback {
-            // Get time from stream player
-            guard let player = streamPlayer else { return 0 }
-            return CMTimeGetSeconds(player.currentTime())
+            // Get time from streaming player
+            return streamingPlayer?.currentTime ?? 0
         } else {
             // Use manual time tracking based on when playback started
             guard state == .playing, let startDate = playbackStartDate else {
@@ -815,14 +631,9 @@ class AudioEngine {
         }
         
         if isStreamingPlayback {
-            // Get duration from stream player
-            guard let player = streamPlayer,
-                  let item = player.currentItem else {
-                // Use track duration if available
-                return currentTrack?.duration ?? 0
-            }
-            let dur = CMTimeGetSeconds(item.duration)
-            return dur.isFinite ? dur : (currentTrack?.duration ?? 0)
+            // Get duration from streaming player, fall back to track metadata
+            let streamDuration = streamingPlayer?.duration ?? 0
+            return streamDuration > 0 ? streamDuration : (currentTrack?.duration ?? 0)
         } else {
             guard let file = audioFile else { return 0 }
             return Double(file.length) / file.processingFormat.sampleRate
@@ -1017,11 +828,11 @@ class AudioEngine {
         if wasCasting {
             // Just stop local playback, keep cast session
             stopLocalOnly()
-            stopStreamPlayer()
+            stopStreamingPlayer()
             isStreamingPlayback = false
         } else {
             stop()
-            stopStreamPlayer()
+            stopStreamingPlayer()
             isStreamingPlayback = false
         }
         
@@ -1103,7 +914,7 @@ class AudioEngine {
     private func loadLocalTrack(_ track: Track) {
         NSLog("loadLocalTrack: %@", track.url.lastPathComponent)
         // Stop any streaming playback
-        stopStreamPlayer()
+        stopStreamingPlayer()
         isStreamingPlayback = false
         
         do {
@@ -1135,9 +946,6 @@ class AudioEngine {
         }
     }
     
-    /// KVO observer for player item status
-    private var playerItemStatusObserver: NSKeyValueObservation?
-    
     private func loadStreamingTrack(_ track: Track) {
         NSLog("loadStreamingTrack: %@ - %@", track.artist ?? "Unknown", track.title)
         NSLog("  URL: %@", track.url.absoluteString)
@@ -1147,17 +955,20 @@ class AudioEngine {
         audioFile = nil
         isStreamingPlayback = true
         
-        // Stop existing stream player
-        stopStreamPlayer()
+        // Stop existing streaming player
+        stopStreamingPlayer()
         
-        // Create new player item and player
-        let playerItem = AVPlayerItem(url: track.url)
+        // Create streaming player if needed
+        if streamingPlayer == nil {
+            streamingPlayer = StreamingAudioPlayer()
+            streamingPlayer?.delegate = self
+        }
         
-        // Set up audio tap for spectrum analysis
-        createAudioTapForPlayerItem(playerItem)
+        // Sync EQ settings from main EQ to streaming player
+        syncEQToStreamingPlayer()
         
-        streamPlayer = AVPlayer(playerItem: playerItem)
-        streamPlayer?.volume = volume
+        // Set volume
+        streamingPlayer?.volume = volume
         
         currentTrack = track
         _currentTime = 0
@@ -1165,90 +976,28 @@ class AudioEngine {
         
         // Increment generation
         playbackGeneration += 1
-        let currentGeneration = playbackGeneration
         
-        // Observe player item status to extract audio format info
-        playerItemStatusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
-            guard let self = self, item.status == .readyToPlay else { return }
-            self.extractStreamAudioFormat(from: item)
-        }
+        // Start playback through the streaming player (routes through AVAudioEngine with EQ)
+        streamingPlayer?.play(url: track.url)
         
-        // Observe when track finishes
-        streamPlayerObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: playerItem,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handlePlaybackComplete(generation: currentGeneration)
-        }
-        
-        NSLog("  Created AVPlayer, ready to play")
+        NSLog("  Created StreamingAudioPlayer, starting playback with EQ")
     }
     
-    /// Extract audio format (sample rate, channels) from a streaming player item
-    private func extractStreamAudioFormat(from playerItem: AVPlayerItem) {
-        guard let track = currentTrack else { return }
+    /// Sync EQ settings from the main engine's EQ to the streaming player's EQ
+    private func syncEQToStreamingPlayer() {
+        guard let sp = streamingPlayer else { return }
         
-        // Only update if we don't already have this info
-        guard track.sampleRate == nil || track.channels == nil else { return }
-        
-        let asset = playerItem.asset
-        let audioTracks = asset.tracks(withMediaType: .audio)
-        
-        guard let audioTrack = audioTracks.first else { return }
-        
-        let formatDescriptions = audioTrack.formatDescriptions as? [CMFormatDescription]
-        guard let formatDesc = formatDescriptions?.first else { return }
-        
-        if let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee {
-            let newSampleRate = track.sampleRate ?? Int(asbd.mSampleRate)
-            let newChannels = track.channels ?? Int(asbd.mChannelsPerFrame)
-            
-            // Create updated track with extracted format info
-            let updatedTrack = Track(
-                id: track.id,
-                url: track.url,
-                title: track.title,
-                artist: track.artist,
-                album: track.album,
-                duration: track.duration,
-                bitrate: track.bitrate,
-                sampleRate: newSampleRate,
-                channels: newChannels
-            )
-            
-            // Update current track and notify delegate
-            currentTrack = updatedTrack
-            
-            // Update playlist entry too
-            if currentIndex >= 0 && currentIndex < playlist.count {
-                playlist[currentIndex] = updatedTrack
-            }
-            
-            NSLog("Extracted stream audio format: %d Hz, %d channels", newSampleRate, newChannels)
+        var bands: [Float] = []
+        for i in 0..<10 {
+            bands.append(eqNode.bands[i].gain)
         }
+        
+        sp.syncEQSettings(bands: bands, preamp: eqNode.globalGain, enabled: !eqNode.bypass)
     }
     
-    private func stopStreamPlayer() {
-        if let observer = streamPlayerObserver {
-            NotificationCenter.default.removeObserver(observer)
-            streamPlayerObserver = nil
-        }
-        playerItemStatusObserver?.invalidate()
-        playerItemStatusObserver = nil
-        
-        // Invalidate context first so tap callbacks stop processing
-        tapContext?.invalidate()
-        
-        // Clear audio mix to stop the tap before releasing references
-        streamPlayer?.currentItem?.audioMix = nil
-        
-        // Clear our references (the context will be released by tapFinalize)
-        audioTap = nil
-        tapContext = nil
-        
-        streamPlayer?.pause()
-        streamPlayer = nil
+    private func stopStreamingPlayer() {
+        streamingPlayer?.stop()
+        // Note: We keep the streamingPlayer instance for reuse
     }
     
     /// Handle playback completion with generation check
@@ -1298,7 +1047,10 @@ class AudioEngine {
     /// Set EQ band gain (-12 to +12 dB)
     func setEQBand(_ band: Int, gain: Float) {
         guard band >= 0 && band < 10 else { return }
-        eqNode.bands[band].gain = max(-12, min(12, gain))
+        let clampedGain = max(-12, min(12, gain))
+        eqNode.bands[band].gain = clampedGain
+        // Sync to streaming player
+        streamingPlayer?.setEQBand(band, gain: clampedGain)
     }
     
     /// Get EQ band gain
@@ -1309,7 +1061,10 @@ class AudioEngine {
     
     /// Set preamp gain (-12 to +12 dB)
     func setPreamp(_ gain: Float) {
-        eqNode.globalGain = max(-12, min(12, gain))
+        let clampedGain = max(-12, min(12, gain))
+        eqNode.globalGain = clampedGain
+        // Sync to streaming player
+        streamingPlayer?.setPreamp(clampedGain)
     }
     
     /// Get preamp gain
@@ -1320,6 +1075,8 @@ class AudioEngine {
     /// Enable/disable equalizer
     func setEQEnabled(_ enabled: Bool) {
         eqNode.bypass = !enabled
+        // Sync to streaming player
+        streamingPlayer?.setEQEnabled(enabled)
     }
     
     /// Check if equalizer is enabled
@@ -1422,7 +1179,7 @@ class AudioEngine {
     func clearPlaylist() {
         NSLog("clearPlaylist: isStreamingPlayback=%d", isStreamingPlayback)
         stop()
-        stopStreamPlayer()
+        stopStreamingPlayer()
         isStreamingPlayback = false
         playlist.removeAll()
         currentIndex = -1
@@ -1593,60 +1350,33 @@ class AudioEngine {
     }
 }
 
-// MARK: - MTAudioProcessingTap Callbacks
+// MARK: - StreamingAudioPlayerDelegate
 
-/// Tap initialization callback
-private func tapInit(tap: MTAudioProcessingTap, clientInfo: UnsafeMutableRawPointer?, tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>) {
-    // Store the client info (AudioTapContext) in tap storage
-    tapStorageOut.pointee = clientInfo
-}
-
-/// Tap finalize callback - releases the retained context
-private func tapFinalize(tap: MTAudioProcessingTap) {
-    // Release the retained context
-    let storage = MTAudioProcessingTapGetStorage(tap)
-    // takeRetainedValue releases the reference that was retained in setupAudioTap
-    _ = Unmanaged<AudioEngine.AudioTapContext>.fromOpaque(storage).takeRetainedValue()
-}
-
-/// Tap prepare callback - called when audio format is known
-private func tapPrepare(tap: MTAudioProcessingTap, maxFrames: CMItemCount, processingFormat: UnsafePointer<AudioStreamBasicDescription>) {
-    // Format is now known, could store it if needed
-}
-
-/// Tap unprepare callback
-private func tapUnprepare(tap: MTAudioProcessingTap) {
-    // Nothing to unprepare
-}
-
-/// Tap process callback - called for each audio buffer
-private func tapProcess(tap: MTAudioProcessingTap, numberFrames: CMItemCount, flags: MTAudioProcessingTapFlags, bufferListInOut: UnsafeMutablePointer<AudioBufferList>, numberFramesOut: UnsafeMutablePointer<CMItemCount>, flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>) {
-    // Get the source audio first
-    let status = MTAudioProcessingTapGetSourceAudio(tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
-    guard status == noErr else { return }
+extension AudioEngine: StreamingAudioPlayerDelegate {
+    func streamingPlayerDidChangeState(_ state: AudioPlayerState) {
+        // Map AudioStreaming state to our PlaybackState
+        switch state {
+        case .playing:
+            self.state = .playing
+            playbackStartDate = Date()
+        case .paused:
+            self.state = .paused
+        case .stopped:
+            self.state = .stopped
+        default:
+            // bufferingStart, bufferingEnd, ready, etc. - don't change our state
+            break
+        }
+    }
     
-    // Get the tap context from storage
-    let storage = MTAudioProcessingTapGetStorage(tap)
+    func streamingPlayerDidFinishPlaying() {
+        // Handle track completion - advance to next track
+        handlePlaybackComplete(generation: playbackGeneration)
+    }
     
-    let context = Unmanaged<AudioEngine.AudioTapContext>.fromOpaque(storage).takeUnretainedValue()
-    
-    // Check if context has been invalidated (stop requested)
-    guard !context.isInvalidated, let engine = context.engine else { return }
-    
-    // Process the audio buffer
-    let bufferList = UnsafeMutableAudioBufferListPointer(bufferListInOut)
-    guard let firstBuffer = bufferList.first,
-          let data = firstBuffer.mData else { return }
-    
-    let frameCount = Int(numberFramesOut.pointee)
-    guard frameCount > 0 else { return }
-    
-    // Convert to float samples
-    let floatData = data.assumingMemoryBound(to: Float.self)
-    
-    // Use a reasonable sample rate (will be overwritten if we can get the actual rate)
-    let sampleRate: Float = 44100
-    
-    // Process the samples
-    engine.processStreamingAudioSamples(floatData, count: frameCount, sampleRate: sampleRate)
+    func streamingPlayerDidUpdateSpectrum(_ levels: [Float]) {
+        // Forward spectrum data from streaming player to delegate
+        spectrumData = levels
+        delegate?.audioEngineDidUpdateSpectrum(levels)
+    }
 }
