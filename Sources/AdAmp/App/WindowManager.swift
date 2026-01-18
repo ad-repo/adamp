@@ -40,12 +40,19 @@ class WindowManager {
         }
     }
     
-    /// Double size mode (2x scaling)
+    /// Double size mode (2x scaling) - not persisted, always starts at 1x
     var isDoubleSize: Bool = false {
         didSet {
-            UserDefaults.standard.set(isDoubleSize, forKey: "isDoubleSize")
             applyDoubleSize()
             NotificationCenter.default.post(name: .doubleSizeDidChange, object: nil)
+        }
+    }
+    
+    /// Always on top mode (floating window level)
+    var isAlwaysOnTop: Bool = false {
+        didSet {
+            UserDefaults.standard.set(isAlwaysOnTop, forKey: "isAlwaysOnTop")
+            applyAlwaysOnTop()
         }
     }
     
@@ -109,7 +116,7 @@ class WindowManager {
     private func registerPreferenceDefaults() {
         UserDefaults.standard.register(defaults: [
             "timeDisplayMode": TimeDisplayMode.elapsed.rawValue,
-            "isDoubleSize": false
+            "isAlwaysOnTop": false
         ])
     }
     
@@ -119,7 +126,9 @@ class WindowManager {
            let displayMode = TimeDisplayMode(rawValue: mode) {
             timeDisplayMode = displayMode
         }
-        isDoubleSize = UserDefaults.standard.bool(forKey: "isDoubleSize")
+        // Note: isDoubleSize always starts false - windows are created at 1x size
+        // and we apply double size after they're created if needed
+        isAlwaysOnTop = UserDefaults.standard.bool(forKey: "isAlwaysOnTop")
     }
     
     // MARK: - Window Management
@@ -492,43 +501,94 @@ class WindowManager {
     private func applyDoubleSize() {
         let scale: CGFloat = isDoubleSize ? 2.0 : 1.0
         
-        // Main window
-        if let window = mainWindowController?.window {
-            let targetSize = NSSize(width: Skin.mainWindowSize.width * scale,
+        // Get main window position as anchor point
+        guard let mainWindow = mainWindowController?.window else { return }
+        
+        // Store old main window frame for calculating relative positions
+        let oldMainFrame = mainWindow.frame
+        
+        // Resize main window first (anchor top-left)
+        let mainTargetSize = NSSize(width: Skin.mainWindowSize.width * scale,
                                     height: Skin.mainWindowSize.height * scale)
-            var frame = window.frame
-            let heightDiff = targetSize.height - frame.height
-            frame.origin.y -= heightDiff  // Anchor top-left
-            frame.size = targetSize
-            window.setFrame(frame, display: true, animate: true)
+        var mainFrame = mainWindow.frame
+        let mainTopY = mainFrame.maxY  // Keep top edge fixed
+        mainFrame.size = mainTargetSize
+        mainFrame.origin.y = mainTopY - mainTargetSize.height
+        mainWindow.setFrame(mainFrame, display: true, animate: true)
+        
+        // Track the bottom edge for stacking windows below main
+        var nextY = mainFrame.minY
+        
+        // EQ window - position below main window
+        if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
+            let eqTargetSize = NSSize(width: Skin.eqWindowSize.width * scale,
+                                      height: Skin.eqWindowSize.height * scale)
+            let eqFrame = NSRect(
+                x: mainFrame.minX,
+                y: nextY - eqTargetSize.height,
+                width: eqTargetSize.width,
+                height: eqTargetSize.height
+            )
+            eqWindow.setFrame(eqFrame, display: true, animate: true)
+            nextY = eqFrame.minY
         }
         
-        // EQ window
-        if let window = equalizerWindowController?.window {
-            let targetSize = NSSize(width: Skin.eqWindowSize.width * scale,
-                                    height: Skin.eqWindowSize.height * scale)
-            var frame = window.frame
-            let heightDiff = targetSize.height - frame.height
-            frame.origin.y -= heightDiff
-            frame.size = targetSize
-            window.setFrame(frame, display: true, animate: true)
-        }
-        
-        // Playlist - scale minimum size and current size proportionally
-        if let window = playlistWindowController?.window {
-            let minWidth: CGFloat = 275 * scale
-            let minHeight: CGFloat = 116 * scale
-            window.minSize = NSSize(width: minWidth, height: minHeight)
+        // Playlist - position below EQ (or main if no EQ)
+        if let playlistWindow = playlistWindowController?.window, playlistWindow.isVisible {
+            let baseMinSize = Skin.playlistMinSize
+            let minWidth = baseMinSize.width * scale
+            let minHeight = baseMinSize.height * scale
+            playlistWindow.minSize = NSSize(width: minWidth, height: minHeight)
             
             // Scale current size
-            var frame = window.frame
-            let newWidth = max(minWidth, frame.width * (isDoubleSize ? 2.0 : 0.5))
-            let newHeight = max(minHeight, frame.height * (isDoubleSize ? 2.0 : 0.5))
-            let heightDiff = newHeight - frame.height
-            frame.origin.y -= heightDiff
-            frame.size = NSSize(width: newWidth, height: newHeight)
-            window.setFrame(frame, display: true, animate: true)
+            let currentFrame = playlistWindow.frame
+            let newWidth = max(minWidth, currentFrame.width * (isDoubleSize ? 2.0 : 0.5))
+            let newHeight = max(minHeight, currentFrame.height * (isDoubleSize ? 2.0 : 0.5))
+            
+            let playlistFrame = NSRect(
+                x: mainFrame.minX,
+                y: nextY - newHeight,
+                width: newWidth,
+                height: newHeight
+            )
+            playlistWindow.setFrame(playlistFrame, display: true, animate: true)
         }
+        
+        // Plex browser - maintain relative position to main window (don't scale size)
+        if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
+            var plexFrame = plexWindow.frame
+            // Calculate offset from old main window
+            let offsetX = plexFrame.minX - oldMainFrame.maxX
+            let offsetY = plexFrame.maxY - oldMainFrame.maxY
+            // Apply same offset to new main window position
+            plexFrame.origin.x = mainFrame.maxX + offsetX
+            plexFrame.origin.y = mainFrame.maxY + offsetY - plexFrame.height
+            plexWindow.setFrame(plexFrame, display: true, animate: true)
+        }
+        
+        // Media library - maintain relative position to main window (don't scale size)
+        if let libraryWindow = mediaLibraryWindowController?.window, libraryWindow.isVisible {
+            var libraryFrame = libraryWindow.frame
+            // Calculate offset from old main window
+            let offsetX = libraryFrame.minX - oldMainFrame.maxX
+            let offsetY = libraryFrame.maxY - oldMainFrame.maxY
+            // Apply same offset to new main window position
+            libraryFrame.origin.x = mainFrame.maxX + offsetX
+            libraryFrame.origin.y = mainFrame.maxY + offsetY - libraryFrame.height
+            libraryWindow.setFrame(libraryFrame, display: true, animate: true)
+        }
+    }
+    
+    private func applyAlwaysOnTop() {
+        let level: NSWindow.Level = isAlwaysOnTop ? .floating : .normal
+        
+        // Apply to all app windows
+        mainWindowController?.window?.level = level
+        equalizerWindowController?.window?.level = level
+        playlistWindowController?.window?.level = level
+        mediaLibraryWindowController?.window?.level = level
+        plexBrowserWindowController?.window?.level = level
+        videoPlayerWindowController?.window?.level = level
     }
     
     // MARK: - Window Snapping & Docking
