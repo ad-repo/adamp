@@ -597,14 +597,23 @@ struct SkinElements {
         static let sliderThumbNormal = NSRect(x: 0, y: 164, width: 11, height: 11)
         static let sliderThumbPressed = NSRect(x: 0, y: 176, width: 11, height: 11)
         
-        /// Colored slider bar graphics - shows fill levels
-        /// Located at bottom of eqmain.bmp (starting around row 294)
-        /// Each column is 14 pixels wide, full bar is 63 pixels tall
-        /// There are 28 different fill states horizontally
-        static let sliderBarY: CGFloat = 294
-        static let sliderBarWidth: CGFloat = 14
+        /// Colored slider bar sprites - 28 fill states horizontally arranged
+        /// Located in eqmain.bmp at y=164, each state shows different fill level
+        /// Colors: green (top/boost) → yellow → orange → red (bottom/cut)
+        static let sliderBarSpriteX: CGFloat = 13
+        static let sliderBarSpriteY: CGFloat = 164
+        static let sliderBarSpriteWidth: CGFloat = 209
+        static let sliderBarStateWidth: CGFloat = 209.0 / 28.0  // ~7.46 pixels per state
+        static let sliderBarStateCount: Int = 28
         static let sliderBarHeight: CGFloat = 63
-        static let sliderBarStates: Int = 28
+        
+        /// Get source rect for a specific fill state (0-27)
+        /// State 0 = minimal fill (knob at top), State 27 = full fill (knob at bottom)
+        static func sliderBarSource(state: Int) -> NSRect {
+            let clampedState = min(27, max(0, state))
+            let x = sliderBarSpriteX + CGFloat(clampedState) * sliderBarStateWidth
+            return NSRect(x: x, y: sliderBarSpriteY, width: sliderBarStateWidth, height: sliderBarHeight)
+        }
         
         /// Positions on EQ window
         struct Positions {
@@ -614,7 +623,9 @@ struct SkinElements {
         }
     }
     
-    // MARK: - Playlist Elements (pledit.bmp)
+    // MARK: - Playlist Elements (pledit.bmp - 280x186)
+    // Coordinates verified from webamp source:
+    // https://github.com/captbaritone/webamp/blob/master/packages/webamp/js/skinSprites.ts
     
     struct Playlist {
         /// Minimum playlist size
@@ -623,38 +634,238 @@ struct SkinElements {
         /// Title bar height
         static let titleHeight: CGFloat = 20
         
-        /// Corner sections for resizable window
-        static let topLeftCorner = NSRect(x: 0, y: 0, width: 25, height: 20)
-        static let topTile = NSRect(x: 26, y: 0, width: 100, height: 20)
-        static let topRightCorner = NSRect(x: 153, y: 0, width: 25, height: 20)
+        /// Bottom bar height
+        static let bottomHeight: CGFloat = 38
         
-        static let bottomLeftCorner = NSRect(x: 0, y: 42, width: 125, height: 38)
+        // === TITLE BAR (active: y=0, inactive: y=21) ===
+        // Total width: 25 + 100 + 25 + 25 = 175px (tiled to fill)
+        
+        /// Title bar - active state components
+        struct TitleBarActive {
+            static let leftCorner = NSRect(x: 0, y: 0, width: 25, height: 20)
+            static let title = NSRect(x: 26, y: 0, width: 100, height: 20)
+            static let tile = NSRect(x: 127, y: 0, width: 25, height: 20)
+            static let rightCorner = NSRect(x: 153, y: 0, width: 25, height: 20)
+        }
+        
+        /// Title bar - inactive state components
+        struct TitleBarInactive {
+            static let leftCorner = NSRect(x: 0, y: 21, width: 25, height: 20)
+            static let title = NSRect(x: 26, y: 21, width: 100, height: 20)
+            static let tile = NSRect(x: 127, y: 21, width: 25, height: 20)
+            static let rightCorner = NSRect(x: 153, y: 21, width: 25, height: 20)
+        }
+        
+        // === SIDE TILES (for vertical stretching) ===
+        
+        /// Left side tile (12px wide)
+        static let leftSideTile = NSRect(x: 0, y: 42, width: 12, height: 29)
+        
+        /// Right side tile (20px wide) - includes scrollbar track
+        static let rightSideTile = NSRect(x: 31, y: 42, width: 20, height: 29)
+        
+        // === BOTTOM BAR (height: 38px) ===
+        
+        /// Bottom bar left corner (contains ADD/REM/SEL buttons)
+        static let bottomLeftCorner = NSRect(x: 0, y: 72, width: 125, height: 38)
+        
+        /// Bottom bar tile (fills middle)
         static let bottomTile = NSRect(x: 179, y: 0, width: 25, height: 38)
-        static let bottomRightCorner = NSRect(x: 126, y: 42, width: 150, height: 38)
         
-        /// Side tiles
-        static let leftTile = NSRect(x: 0, y: 21, width: 12, height: 20)
-        static let rightTile = NSRect(x: 31, y: 21, width: 19, height: 20)
+        /// Bottom bar right corner (contains MISC/LIST buttons + resize grip)
+        static let bottomRightCorner = NSRect(x: 126, y: 72, width: 150, height: 38)
         
-        /// Scrollbar
-        static let scrollbarTop = NSRect(x: 52, y: 53, width: 8, height: 18)
-        static let scrollbarMiddle = NSRect(x: 61, y: 53, width: 8, height: 18)
-        static let scrollbarBottom = NSRect(x: 69, y: 72, width: 8, height: 17)
-        static let scrollbarThumb = NSRect(x: 52, y: 72, width: 8, height: 18)
+        // === SCROLLBAR ===
         
-        /// Control buttons at bottom
+        /// Scrollbar handle - normal state
+        static let scrollbarThumbNormal = NSRect(x: 52, y: 53, width: 8, height: 18)
+        
+        /// Scrollbar handle - pressed state
+        static let scrollbarThumbPressed = NSRect(x: 61, y: 53, width: 8, height: 18)
+        
+        /// Scrollbar background/track (tiled vertically)
+        static let scrollbarTrack = NSRect(x: 36, y: 42, width: 8, height: 29)
+        
+        // === BUTTON GROUPS (each button is 22x18, pressed state at x+23) ===
+        // Button groups are positioned in the bottom bar
+        
         struct Buttons {
-            static let addURL = NSRect(x: 0, y: 111, width: 22, height: 18)
-            static let addDir = NSRect(x: 23, y: 111, width: 22, height: 18)
-            static let addFile = NSRect(x: 46, y: 111, width: 22, height: 18)
+            /// Button size
+            static let buttonWidth: CGFloat = 22
+            static let buttonHeight: CGFloat = 18
             
-            static let removeAll = NSRect(x: 54, y: 111, width: 22, height: 18)
-            static let removeCrop = NSRect(x: 77, y: 111, width: 22, height: 18)
-            static let removeSelected = NSRect(x: 100, y: 111, width: 22, height: 18)
+            // ADD button group (3 options in popup)
+            static let addURLNormal = NSRect(x: 0, y: 111, width: 22, height: 18)
+            static let addURLPressed = NSRect(x: 23, y: 111, width: 22, height: 18)
+            static let addDirNormal = NSRect(x: 0, y: 130, width: 22, height: 18)
+            static let addDirPressed = NSRect(x: 23, y: 130, width: 22, height: 18)
+            static let addFileNormal = NSRect(x: 0, y: 149, width: 22, height: 18)
+            static let addFilePressed = NSRect(x: 23, y: 149, width: 22, height: 18)
             
-            static let selectInvert = NSRect(x: 104, y: 111, width: 22, height: 18)
-            static let selectZero = NSRect(x: 127, y: 111, width: 22, height: 18)
-            static let selectAll = NSRect(x: 150, y: 111, width: 22, height: 18)
+            // REM button group (4 options in popup)
+            static let remAllNormal = NSRect(x: 54, y: 111, width: 22, height: 18)
+            static let remAllPressed = NSRect(x: 77, y: 111, width: 22, height: 18)
+            static let remCropNormal = NSRect(x: 54, y: 130, width: 22, height: 18)
+            static let remCropPressed = NSRect(x: 77, y: 130, width: 22, height: 18)
+            static let remSelectedNormal = NSRect(x: 54, y: 149, width: 22, height: 18)
+            static let remSelectedPressed = NSRect(x: 77, y: 149, width: 22, height: 18)
+            static let remMiscNormal = NSRect(x: 54, y: 168, width: 22, height: 18)
+            static let remMiscPressed = NSRect(x: 77, y: 168, width: 22, height: 18)
+            
+            // SEL button group (3 options in popup)
+            static let selInvertNormal = NSRect(x: 104, y: 111, width: 22, height: 18)
+            static let selInvertPressed = NSRect(x: 127, y: 111, width: 22, height: 18)
+            static let selZeroNormal = NSRect(x: 104, y: 130, width: 22, height: 18)
+            static let selZeroPressed = NSRect(x: 127, y: 130, width: 22, height: 18)
+            static let selAllNormal = NSRect(x: 104, y: 149, width: 22, height: 18)
+            static let selAllPressed = NSRect(x: 127, y: 149, width: 22, height: 18)
+            
+            // MISC button group (3 options in popup)
+            static let miscSortNormal = NSRect(x: 154, y: 111, width: 22, height: 18)
+            static let miscSortPressed = NSRect(x: 177, y: 111, width: 22, height: 18)
+            static let miscInfoNormal = NSRect(x: 154, y: 130, width: 22, height: 18)
+            static let miscInfoPressed = NSRect(x: 177, y: 130, width: 22, height: 18)
+            static let miscOptsNormal = NSRect(x: 154, y: 149, width: 22, height: 18)
+            static let miscOptsPressed = NSRect(x: 177, y: 149, width: 22, height: 18)
+            
+            // LIST button group (3 options in popup)
+            static let listNewNormal = NSRect(x: 204, y: 111, width: 22, height: 18)
+            static let listNewPressed = NSRect(x: 227, y: 111, width: 22, height: 18)
+            static let listSaveNormal = NSRect(x: 204, y: 130, width: 22, height: 18)
+            static let listSavePressed = NSRect(x: 227, y: 130, width: 22, height: 18)
+            static let listLoadNormal = NSRect(x: 204, y: 149, width: 22, height: 18)
+            static let listLoadPressed = NSRect(x: 227, y: 149, width: 22, height: 18)
+        }
+        
+        /// Button positions in the bottom bar (in Winamp coordinates)
+        struct ButtonPositions {
+            // Button positions relative to bottom-left of window
+            // These are at y=0 of the bottom bar (which is 38px tall)
+            static let addButton = NSRect(x: 11, y: 0, width: 25, height: 18)
+            static let remButton = NSRect(x: 40, y: 0, width: 25, height: 18)
+            static let selButton = NSRect(x: 70, y: 0, width: 25, height: 18)
+            static let miscButton = NSRect(x: 99, y: 0, width: 25, height: 18)
+            // LIST button is positioned relative to right edge
+            static let listButtonOffset: CGFloat = 46  // From right edge
+        }
+        
+        /// Window control button positions in title bar
+        struct TitleBarButtons {
+            // Relative to right edge of window
+            static let closeOffset: CGFloat = 11   // Right edge - 11px
+            static let shadeOffset: CGFloat = 20   // Right edge - 20px
+        }
+    }
+    
+    // MARK: - Plex Browser Elements
+    // Uses playlist sprites for frame/chrome with custom content areas
+    
+    struct PlexBrowser {
+        /// Minimum window size (wider than playlist to fit tabs)
+        static let minSize = NSSize(width: 480, height: 300)
+        
+        /// Default window size
+        static let defaultSize = NSSize(width: 550, height: 450)
+        
+        /// Layout constants for Plex browser areas
+        struct Layout {
+            static let titleBarHeight: CGFloat = 20
+            static let tabBarHeight: CGFloat = 24
+            static let serverBarHeight: CGFloat = 24
+            static let searchBarHeight: CGFloat = 26
+            static let statusBarHeight: CGFloat = 20
+            static let scrollbarWidth: CGFloat = 20
+            static let alphabetWidth: CGFloat = 16
+            static let leftBorder: CGFloat = 12
+            static let rightBorder: CGFloat = 20
+            static let padding: CGFloat = 3
+        }
+        
+        /// Shade mode height (same as playlist shade)
+        static let shadeHeight: CGFloat = 14
+        
+        /// Window control button positions in title bar (same as playlist)
+        struct TitleBarButtons {
+            // Relative to right edge of window
+            static let closeOffset: CGFloat = 11
+            static let shadeOffset: CGFloat = 20
+        }
+    }
+    
+    // MARK: - Title Bar Font
+    
+    /// Character sources for title bar text
+    /// Characters can come from:
+    /// - PLEDIT.BMP title sprite (26,0 - 100x20): "WINAMP PLAYLIST"
+    /// - EQMAIN.BMP title bar (0, 134 - 275x14): "EQUALIZER"
+    struct TitleBarFont {
+        static let charWidth: CGFloat = 5
+        static let charHeight: CGFloat = 6
+        static let charSpacing: CGFloat = 1
+        
+        /// Source image for a character
+        enum CharSource {
+            case pledit(x: CGFloat, y: CGFloat)  // From pledit.bmp title sprite area
+            case eqmain(x: CGFloat, y: CGFloat)  // From eqmain.bmp title bar
+            case fallback  // Not available, use pixel fallback
+        }
+        
+        /// Get the source for a character
+        /// PLEDIT title sprite: "WINAMP PLAYLIST" at (26,0), text starts ~x=33, y=5
+        /// EQMAIN title bar: "EQUALIZER" at (0,134), text starts ~x=108, y=5
+        static func charSource(for char: Character) -> CharSource {
+            // Offsets within the respective sprites
+            let pleditBase: CGFloat = 26 + 7  // Title sprite starts at 26, text at +7
+            let pleditY: CGFloat = 5
+            let eqBase: CGFloat = 108  // "EQUALIZER" centered in 275px title bar
+            let eqY: CGFloat = 134 + 5  // Title bar at y=134, text at +5
+            
+            switch char.uppercased().first ?? " " {
+            // From "WINAMP PLAYLIST" in pledit.bmp
+            case "W": return .pledit(x: pleditBase + 0, y: pleditY)
+            case "I": return .pledit(x: pleditBase + 6, y: pleditY)
+            case "N": return .pledit(x: pleditBase + 12, y: pleditY)
+            case "A": return .pledit(x: pleditBase + 18, y: pleditY)
+            case "M": return .pledit(x: pleditBase + 24, y: pleditY)
+            case "P": return .pledit(x: pleditBase + 30, y: pleditY)
+            case " ": return .pledit(x: pleditBase + 36, y: pleditY)
+            case "L": return .pledit(x: pleditBase + 48, y: pleditY)
+            case "Y": return .pledit(x: pleditBase + 60, y: pleditY)
+            case "S": return .pledit(x: pleditBase + 78, y: pleditY)
+            case "T": return .pledit(x: pleditBase + 84, y: pleditY)
+            
+            // From "EQUALIZER" in eqmain.bmp
+            case "E": return .eqmain(x: eqBase + 0, y: eqY)
+            case "Q": return .eqmain(x: eqBase + 6, y: eqY)
+            case "U": return .eqmain(x: eqBase + 12, y: eqY)
+            // A already from WINAMP
+            // L already from PLAYLIST
+            // I already from WINAMP
+            case "Z": return .eqmain(x: eqBase + 30, y: eqY)
+            case "R": return .eqmain(x: eqBase + 42, y: eqY)  // Last R in EQUALIZER
+            
+            // Fallback for missing characters (X, B, O, etc.)
+            default: return .fallback
+            }
+        }
+        
+        /// Pixel patterns for fallback characters (5x6 pixels)
+        /// Each row is 5 bits, MSB on left
+        static func fallbackPixels(for char: Character) -> [UInt8] {
+            switch char.uppercased().first ?? "?" {
+            case "B": return [0b11110, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110]
+            case "C": return [0b01110, 0b10001, 0b10000, 0b10000, 0b10001, 0b01110]
+            case "D": return [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110]
+            case "F": return [0b11111, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000]
+            case "G": return [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b01110]
+            case "H": return [0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]
+            case "J": return [0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100]
+            case "K": return [0b10001, 0b10010, 0b11100, 0b10010, 0b10001, 0b10001]
+            case "O": return [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]
+            case "V": return [0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100]
+            case "X": return [0b10001, 0b01010, 0b00100, 0b00100, 0b01010, 0b10001]
+            default:  return [0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b11111] // Box
+            }
         }
     }
 }

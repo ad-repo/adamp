@@ -783,7 +783,7 @@ class MainWindowView: NSView {
         case .playlistToggle:
             WindowManager.shared.togglePlaylist()
         case .close:
-            window?.close()
+            NSApplication.shared.terminate(nil)
         case .minimize:
             window?.miniaturize(nil)
         case .shade, .unshade:

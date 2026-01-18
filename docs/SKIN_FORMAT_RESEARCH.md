@@ -71,6 +71,29 @@ A `.wsz` file is a ZIP archive containing BMP images:
 
 ---
 
+## Title Bar Sprite Font (PLEDIT/EQMAIN)
+
+The playlist and equalizer title bars contain a pixel font embedded in the title sprites:
+- **PLEDIT.BMP** title sprite includes letters for "WINAMP PLAYLIST"
+- **EQMAIN.BMP** title bar includes letters for "EQUALIZER"
+
+AdAmp combines these letter sprites to build new titles (ex: "PLEX BROWSER") and
+falls back to a 5x6 pixel pattern for missing letters. See:
+- `SkinElements.TitleBarFont` for character sources and fallback pixels
+- `SkinRenderer.drawTitleBarSpriteText()` for rendering logic
+
+## Plex Browser Title Font Asset
+
+For the Plex browser title, AdAmp now uses a dedicated sprite atlas:
+- Resource: `Sources/AdAmp/Resources/title_font_plex.png`
+- Cell size: 5x6 pixels with 1px spacing
+- Characters included: P, L, E, X, B, R, O, W, S
+
+`SkinRenderer.drawTitleBarSpriteText()` pulls glyphs from this atlas to render
+“PLEX BROWSER” in the same pixel style as the title sprites.
+
+---
+
 ## EQMAIN.BMP Layout (275x315 pixels)
 
 The equalizer sprite sheet contains all EQ window elements:
@@ -109,10 +132,45 @@ The equalizer sprite sheet contains all EQ window elements:
 | EQ_GRAPH_BACKGROUND | 0 | 294 | 113 | 19 | Graph area background |
 | EQ_GRAPH_LINE_COLORS | 115 | 294 | 1 | 19 | Color palette for graph line |
 
-### Colored Slider Bars
-The colored bars (green/yellow/orange/red gradient) that show EQ levels are located in the lower portion of EQMAIN.BMP. These are pre-rendered sprites at different fill levels.
+### Colored Slider Bars (Programmatic Implementation)
 
-**NOTE**: The exact coordinates for the 28 different fill-level sprites need further research. They appear to be in rows 200+ of the sprite sheet.
+**Important Discovery:** The EQ slider colored bars are NOT sprite-based with multiple fill states. Instead, they are programmatically drawn with a **single solid color** that represents the current knob position.
+
+**How it works:**
+- The entire slider track is filled with ONE color
+- The color is determined by WHERE the knob is positioned on the gradient scale
+- The knob sits on top of this colored track
+
+**Color Scale (based on knob position):**
+| Knob Position | dB Value | Color |
+|---------------|----------|-------|
+| Top | +12dB (boost) | RED |
+| Upper-middle | +6dB | Orange |
+| Middle | 0dB | YELLOW |
+| Lower-middle | -6dB | Yellow-green |
+| Bottom | -12dB (cut) | GREEN |
+
+**Visual Style:**
+- Bar width: 4 pixels (slim, centered in track)
+- Corner radius: 2 pixels (slightly rounded top and bottom)
+- Drawn behind the slider thumb
+
+**Implementation (SkinRenderer.swift):**
+```swift
+// Normalize knob position to 0-1 range
+let normalized = (value + 12) / 24  // 0 = -12dB, 1 = +12dB
+
+// Interpolate color from gradient stops
+// Green (0.0) → Yellow (0.5) → Red (1.0)
+let trackColor = interpolateColor(at: normalized, stops: colorStops)
+
+// Draw rounded rect for the track
+let path = NSBezierPath(roundedRect: barRect, xRadius: 2, yRadius: 2)
+trackColor.setFill()
+path.fill()
+```
+
+**Note:** The EQ_SLIDER_BACKGROUND sprite at (13, 164) in EQMAIN.BMP may contain pre-rendered states, but the programmatic approach provides more flexibility and matches the classic Winamp appearance better.
 
 ---
 
@@ -180,13 +238,15 @@ let thumbY = sliderY + (sliderHeight - thumbSize) * (1 - normalizedValue)
 ## Known Issues & Future Work
 
 ### EQ Window
-1. **Colored slider bars** - Currently disabled. Need to implement using pre-rendered sprites from EQMAIN.BMP (rows 200+). The bars should:
-   - Fill the full width of the slider track (11px)
-   - Fill from knob position DOWN to bottom of track
-   - Show gradient: GREEN (top) → YELLOW → ORANGE → RED (bottom)
-   - Use sprite-based rendering, not programmatic drawing
+1. **Colored slider bars** - ✅ IMPLEMENTED. Programmatically drawn (not sprite-based). The bars:
+   - Fill the entire track with a single solid color based on knob position
+   - Color scale: RED (+12dB boost) → YELLOW (0dB) → GREEN (-12dB cut)
+   - Slim design (4px wide) with rounded corners (2px radius)
+   - Drawn behind the slider thumb
 
-2. **Graph curve** - The EQ response curve in the graph area needs verification for correct orientation
+2. **Graph curve** - ✅ IMPLEMENTED. Uses the same color scale as slider bars:
+   - Each line segment colored based on the band values it connects
+   - RED for boosted frequencies, YELLOW for neutral, GREEN for cut
 
 3. **Shade mode** - EQ shade mode (compact view) needs implementation
 
@@ -255,6 +315,24 @@ curl -s "https://raw.githubusercontent.com/captbaritone/webamp/master/packages/w
 
 ## Version History
 
+- **2026-01-18**: Plex Browser tab selection styling
+  - Removed blue background fill from selected tabs
+  - Selected tab now indicated by white text only (cleaner look)
+
+- **2026-01-17**: EQ colored slider bars and graph curve
+  - Implemented colored slider track backgrounds (programmatic, not sprite-based)
+  - Key insight: bars use a SINGLE solid color based on knob position, not gradient fill
+  - Color scale: RED (+12dB) → YELLOW (0dB) → GREEN (-12dB)
+  - Slim bar design (4px) with rounded corners (2px radius)
+  - EQ graph curve now uses same color scale for line segments
+  - Removed sprite-based approach in favor of programmatic drawing for flexibility
+
+- **2026-01-17**: Playlist window skin implementation completed
+  - Fully skinned playlist window using PLEDIT.BMP sprites
+  - Implemented proper scaling architecture matching Main/EQ windows
+  - Added comprehensive implementation notes: `docs/PLAYLIST_IMPLEMENTATION_NOTES.md`
+  - Key learnings documented: coordinate systems, scaling, hit testing patterns
+
 - **2026-01-16**: Initial research document created
   - Documented EQMAIN.BMP sprite coordinates from webamp
   - Fixed EQ slider knob (was 14x63, corrected to 11x11 at y=164)
@@ -262,3 +340,9 @@ curl -s "https://raw.githubusercontent.com/captbaritone/webamp/master/packages/w
   - Implemented window dragging fix for EQ (sliders vs window drag)
   - Implemented basic window snapping/docking
   - Disabled colored bars pending proper sprite-based implementation
+
+---
+
+## Related Documentation
+
+- **[PLAYLIST_IMPLEMENTATION_NOTES.md](./PLAYLIST_IMPLEMENTATION_NOTES.md)** - Detailed implementation guide covering coordinate systems, scaling architecture, hit testing patterns, and common pitfalls for the playlist window (applicable to all skinned windows)

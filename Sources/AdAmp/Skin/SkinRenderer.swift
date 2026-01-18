@@ -21,6 +21,8 @@ class SkinRenderer {
     
     /// Scale factor for Retina displays (renders at 1x then scales)
     var scaleFactor: CGFloat = 2.0
+
+    private let plexTitleText = "PLEX BROWSER"
     
     // MARK: - Initialization
     
@@ -203,6 +205,120 @@ class SkinRenderer {
         drawSprite(from: image, sourceRect: sourceRect, to: destRect, in: context)
     }
     
+    // MARK: - Public Text/Digit Drawing Methods
+    
+    /// Draw text using the skin's text.bmp font at any position
+    /// Returns the width of the drawn text
+    @discardableResult
+    func drawSkinText(_ text: String, at position: NSPoint, in context: CGContext) -> CGFloat {
+        guard let textImage = skin.text else {
+            // Fallback to system font
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.green,
+                .font: NSFont.monospacedSystemFont(ofSize: 6, weight: .regular)
+            ]
+            text.draw(at: position, withAttributes: attrs)
+            return CGFloat(text.count) * 5
+        }
+        
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
+        var xPos = position.x
+        
+        for char in text.uppercased() {
+            let charRect = SkinElements.TextFont.character(char)
+            let destRect = NSRect(x: xPos, y: position.y, width: charWidth, height: charHeight)
+            drawSprite(from: textImage, sourceRect: charRect, to: destRect, in: context)
+            xPos += charWidth
+        }
+        
+        return CGFloat(text.count) * charWidth
+    }
+    
+    /// Draw digits using the skin's numbers.bmp at any position
+    /// Returns the width of the drawn digits
+    @discardableResult
+    func drawSkinDigits(_ number: Int, at position: NSPoint, in context: CGContext, minDigits: Int = 1) -> CGFloat {
+        guard let numbersImage = skin.numbers else {
+            // Fallback to system font
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.green,
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+            ]
+            let str = String(number)
+            str.draw(at: position, withAttributes: attrs)
+            return CGFloat(str.count) * 9
+        }
+        
+        let digitWidth = SkinElements.Numbers.digitWidth
+        let digitHeight = SkinElements.Numbers.digitHeight
+        
+        // Convert number to string with minimum digits
+        let str = String(format: "%0\(minDigits)d", number)
+        var xPos = position.x
+        
+        for char in str {
+            let digit = Int(String(char)) ?? 0
+            let sourceRect = SkinElements.Numbers.digit(digit)
+            let destRect = NSRect(x: xPos, y: position.y, width: digitWidth, height: digitHeight)
+            drawSprite(from: numbersImage, sourceRect: sourceRect, to: destRect, in: context)
+            xPos += digitWidth
+        }
+        
+        return CGFloat(str.count) * digitWidth
+    }
+    
+    /// Draw time in MM:SS format using skin digits at any position
+    /// Returns the total width drawn
+    @discardableResult
+    func drawSkinTime(minutes: Int, seconds: Int, at position: NSPoint, in context: CGContext) -> CGFloat {
+        guard let numbersImage = skin.numbers, let textImage = skin.text else {
+            // Fallback
+            let str = String(format: "%d:%02d", minutes, seconds)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.green,
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+            ]
+            str.draw(at: position, withAttributes: attrs)
+            return CGFloat(str.count) * 9
+        }
+        
+        let digitWidth = SkinElements.Numbers.digitWidth
+        let digitHeight = SkinElements.Numbers.digitHeight
+        var xPos = position.x
+        
+        // Draw minutes (variable width)
+        let minStr = String(minutes)
+        for char in minStr {
+            let digit = Int(String(char)) ?? 0
+            let sourceRect = SkinElements.Numbers.digit(digit)
+            let destRect = NSRect(x: xPos, y: position.y, width: digitWidth, height: digitHeight)
+            drawSprite(from: numbersImage, sourceRect: sourceRect, to: destRect, in: context)
+            xPos += digitWidth
+        }
+        
+        // Draw colon using text font (centered vertically with digits)
+        let colonRect = SkinElements.TextFont.character(":")
+        let colonY = position.y + (digitHeight - SkinElements.TextFont.charHeight) / 2
+        let colonDest = NSRect(x: xPos, y: colonY, 
+                              width: SkinElements.TextFont.charWidth, 
+                              height: SkinElements.TextFont.charHeight)
+        drawSprite(from: textImage, sourceRect: colonRect, to: colonDest, in: context)
+        xPos += SkinElements.TextFont.charWidth
+        
+        // Draw seconds (always 2 digits)
+        let secStr = String(format: "%02d", seconds)
+        for char in secStr {
+            let digit = Int(String(char)) ?? 0
+            let sourceRect = SkinElements.Numbers.digit(digit)
+            let destRect = NSRect(x: xPos, y: position.y, width: digitWidth, height: digitHeight)
+            drawSprite(from: numbersImage, sourceRect: sourceRect, to: destRect, in: context)
+            xPos += digitWidth
+        }
+        
+        return xPos - position.x
+    }
+    
     // MARK: - Marquee Text
     
     /// Draw scrolling marquee text with circular/seamless wrapping
@@ -291,9 +407,84 @@ class SkinRenderer {
     // MARK: - Visualization
     
     /// Draw spectrum analyzer visualization
+    /// - Parameters:
+    ///   - levels: Array of frequency levels (0-1), typically 75 bands from FFT
+    ///   - context: Graphics context to draw into
     func drawSpectrumAnalyzer(levels: [Float], in context: CGContext) {
-        // Spectrum analyzer disabled - the skin background already has this area styled
-        // TODO: Implement proper skin-based visualization when needed
+        let displayArea = SkinElements.Visualization.displayArea
+        let barCount = SkinElements.Visualization.barCount
+        let barWidth = SkinElements.Visualization.barWidth
+        let barSpacing = SkinElements.Visualization.barSpacing
+        let maxHeight = displayArea.height
+        
+        // Get visualization colors from skin (24 colors, 0=darkest, 23=brightest)
+        let colors = skin.visColors
+        guard !colors.isEmpty else { return }
+        
+        // Calculate the bottom Y position (in Winamp coords where Y increases downward)
+        // The bars grow upward from the bottom of the display area
+        let bottomY = displayArea.minY + displayArea.height
+        
+        // Map input levels (75 bands) to display bars (19 bars)
+        let mappedLevels: [Float]
+        if levels.isEmpty {
+            // No audio - show flat/empty bars
+            mappedLevels = Array(repeating: 0, count: barCount)
+        } else if levels.count >= barCount {
+            // Average multiple FFT bands into each display bar
+            let bandsPerBar = levels.count / barCount
+            mappedLevels = (0..<barCount).map { barIndex in
+                let start = barIndex * bandsPerBar
+                let end = min(start + bandsPerBar, levels.count)
+                let slice = levels[start..<end]
+                return slice.reduce(0, +) / Float(slice.count)
+            }
+        } else {
+            // Fewer levels than bars - interpolate
+            mappedLevels = (0..<barCount).map { barIndex in
+                let sourceIndex = Float(barIndex) * Float(levels.count - 1) / Float(barCount - 1)
+                let lowerIndex = Int(sourceIndex)
+                let upperIndex = min(lowerIndex + 1, levels.count - 1)
+                let fraction = sourceIndex - Float(lowerIndex)
+                return levels[lowerIndex] * (1 - fraction) + levels[upperIndex] * fraction
+            }
+        }
+        
+        // Draw each bar
+        for (barIndex, level) in mappedLevels.enumerated() {
+            let barX = displayArea.minX + CGFloat(barIndex) * (barWidth + barSpacing)
+            
+            // Calculate bar height (0-16 pixels based on level)
+            // Apply a slight boost for visual appeal
+            let boostedLevel = min(1.0, level * 1.2)
+            let barHeight = Int(boostedLevel * Float(maxHeight))
+            
+            guard barHeight > 0 else { continue }
+            
+            // Draw bar pixel by pixel from bottom to top
+            // Each row gets progressively brighter color
+            for row in 0..<barHeight {
+                // Map row position to color index
+                // row 0 is bottom (darkest), row barHeight-1 is top (brightest)
+                // Use the bar height to determine which colors to use from the palette
+                let colorIndex: Int
+                if barHeight <= 1 {
+                    colorIndex = 0
+                } else {
+                    // Scale row position to color palette (24 colors for 16 pixel max height)
+                    let rowFraction = Float(row) / Float(maxHeight - 1)
+                    colorIndex = min(colors.count - 1, Int(rowFraction * Float(colors.count - 1)))
+                }
+                
+                let color = colors[colorIndex]
+                color.setFill()
+                
+                // Draw pixel row - Y position counts from bottom up
+                let pixelY = bottomY - CGFloat(row + 1)
+                let pixelRect = NSRect(x: barX, y: pixelY, width: barWidth, height: 1)
+                context.fill(pixelRect)
+            }
+        }
     }
     
     // MARK: - Status Indicators
@@ -867,12 +1058,73 @@ class SkinRenderer {
         }
     }
     
-    /// Draw colored bar indicators on EQ slider - fills the track from knob down to bottom
-    /// Colors: GREEN at top of track, YELLOW middle, ORANGE, RED at bottom
+    /// Draw colored bar in the EQ slider track
+    /// The ENTIRE track is filled with a SINGLE color based on knob position
+    /// Color scale: green (top/+12dB) → yellow (middle/0dB) → red (bottom/-12dB)
+    /// - Parameters:
+    ///   - xPos: X position of the slider (left edge of thumb)
+    ///   - sliderY: Y position of the slider track top
+    ///   - sliderHeight: Height of the slider track (63px)
+    ///   - normalizedValue: Value from 0 (bottom/-12dB) to 1 (top/+12dB)
+    ///   - context: Graphics context
     private func drawEQSliderColorBars(at xPos: CGFloat, sliderY: CGFloat, sliderHeight: CGFloat,
                                         normalizedValue: CGFloat, in context: CGContext) {
-        // Color bars disabled for now - the background already has track graphics
-        // TODO: Implement proper colored bar sprites from eqmain.bmp
+        let thumbSize: CGFloat = 11
+        // Slim bar centered in track
+        let barWidth: CGFloat = 4
+        let barX = xPos + (thumbSize - barWidth) / 2  // Center in track
+        
+        // Color scale: knob position determines the single color for entire track
+        // normalizedValue=1 (top, +12dB): RED (boost)
+        // normalizedValue=0.5 (middle, 0dB): YELLOW
+        // normalizedValue=0 (bottom, -12dB): GREEN (cut)
+        let colorStops: [(position: CGFloat, color: NSColor)] = [
+            (0.0, NSColor(calibratedRed: 0.0, green: 0.85, blue: 0.0, alpha: 1.0)),   // Green at bottom (-12dB)
+            (0.33, NSColor(calibratedRed: 0.5, green: 0.85, blue: 0.0, alpha: 1.0)),  // Yellow-green
+            (0.5, NSColor(calibratedRed: 0.85, green: 0.85, blue: 0.0, alpha: 1.0)),  // Yellow at middle (0dB)
+            (0.66, NSColor(calibratedRed: 0.85, green: 0.5, blue: 0.0, alpha: 1.0)),  // Orange
+            (1.0, NSColor(calibratedRed: 0.85, green: 0.15, blue: 0.0, alpha: 1.0)),  // Red at top (+12dB)
+        ]
+        
+        // Get the single color based on knob position
+        let trackColor = interpolateColor(at: normalizedValue, stops: colorStops)
+        
+        // Draw rounded rect for the track (rounded top and bottom)
+        let barRect = NSRect(x: barX, y: sliderY, width: barWidth, height: sliderHeight)
+        let cornerRadius: CGFloat = 2  // Slight rounding at top and bottom
+        
+        trackColor.setFill()
+        let path = NSBezierPath(roundedRect: barRect, xRadius: cornerRadius, yRadius: cornerRadius)
+        path.fill()
+    }
+    
+    /// Interpolate color between gradient stops
+    private func interpolateColor(at position: CGFloat, stops: [(position: CGFloat, color: NSColor)]) -> NSColor {
+        var lowerStop = stops[0]
+        var upperStop = stops[stops.count - 1]
+        
+        for i in 0..<stops.count - 1 {
+            if position >= stops[i].position && position <= stops[i + 1].position {
+                lowerStop = stops[i]
+                upperStop = stops[i + 1]
+                break
+            }
+        }
+        
+        let range = upperStop.position - lowerStop.position
+        let factor = range > 0 ? (position - lowerStop.position) / range : 0
+        
+        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        lowerStop.color.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        upperStop.color.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        
+        return NSColor(
+            calibratedRed: r1 + (r2 - r1) * factor,
+            green: g1 + (g2 - g1) * factor,
+            blue: b1 + (b2 - b1) * factor,
+            alpha: 1.0
+        )
     }
     
     /// Draw fallback EQ slider knob when skin not available
@@ -900,78 +1152,1189 @@ class SkinRenderer {
     
     // MARK: - Playlist Window
     
-    /// Draw playlist window background (handles resizable windows)
-    func drawPlaylistBackground(in context: CGContext, bounds: NSRect) {
-        if let pleditImage = skin.pledit {
-            // Title bar height is 20 pixels
-            let titleHeight: CGFloat = 20
-            // Bottom bar height is 38 pixels
-            let bottomHeight: CGFloat = 38
+    /// Playlist button types
+    enum PlaylistButtonType {
+        case add, rem, sel, misc, list
+        case close, shade
+    }
+    
+    /// Draw the complete playlist window using skin sprites
+    func drawPlaylistWindow(in context: CGContext, bounds: NSRect, isActive: Bool,
+                            pressedButton: PlaylistButtonType?, scrollPosition: CGFloat) {
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        
+        // Fill background with playlist colors first
+        skin.playlistColors.normalBackground.setFill()
+        context.fill(bounds)
+        
+        // Draw title bar
+        drawPlaylistTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
+        
+        // Draw side borders
+        drawPlaylistSideBorders(in: context, bounds: bounds)
+        
+        // Draw bottom bar
+        drawPlaylistBottomBar(in: context, bounds: bounds, pressedButton: pressedButton)
+        
+        // Draw scrollbar
+        let contentHeight = bounds.height - titleHeight - bottomHeight
+        drawPlaylistScrollbar(in: context, bounds: bounds, scrollPosition: scrollPosition, contentHeight: contentHeight)
+    }
+    
+    /// Draw playlist title bar with skin sprites
+    /// The title text sprite (100px) should be CENTERED in the available space between corners
+    func drawPlaylistTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlaylistButtonType?) {
+        guard let pleditImage = skin.pledit else {
+            drawFallbackPlaylistTitleBar(in: context, bounds: bounds, isActive: isActive)
+            return
+        }
+        
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let leftCornerWidth: CGFloat = 25
+        let rightCornerWidth: CGFloat = 25
+        let titleSpriteWidth: CGFloat = 100
+        let tileWidth: CGFloat = 25
+        
+        // Get the correct sprite set for active/inactive state
+        let leftCorner = isActive ? SkinElements.Playlist.TitleBarActive.leftCorner : SkinElements.Playlist.TitleBarInactive.leftCorner
+        let titleSprite = isActive ? SkinElements.Playlist.TitleBarActive.title : SkinElements.Playlist.TitleBarInactive.title
+        let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
+        let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
+        
+        // Draw left corner
+        drawSprite(from: pleditImage, sourceRect: leftCorner,
+                  to: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
+        
+        // Draw right corner (contains window buttons)
+        drawSprite(from: pleditImage, sourceRect: rightCorner,
+                  to: NSRect(x: bounds.width - rightCornerWidth, y: 0, width: rightCornerWidth, height: titleHeight), in: context)
+        
+        // Calculate available space for middle section
+        let middleStart = leftCornerWidth
+        let middleEnd = bounds.width - rightCornerWidth
+        let middleWidth = middleEnd - middleStart
+        
+        // Fill the entire middle section with tiles FIRST
+        var x: CGFloat = middleStart
+        while x < middleEnd {
+            let w = min(tileWidth, middleEnd - x)
+            drawSprite(from: pleditImage, sourceRect: tileSprite,
+                      to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
+            x += tileWidth
+        }
+        
+        // Draw title text sprite CENTERED over the tiles
+        let titleX = middleStart + (middleWidth - titleSpriteWidth) / 2
+        drawSprite(from: pleditImage, sourceRect: titleSprite,
+                  to: NSRect(x: titleX, y: 0, width: titleSpriteWidth, height: titleHeight), in: context)
+        
+        // Draw window control button pressed states if needed
+        if pressedButton == .close {
+            // Close button highlight - drawn over the right corner
+            let closeRect = NSRect(x: bounds.width - SkinElements.Playlist.TitleBarButtons.closeOffset, 
+                                   y: 3, width: 9, height: 9)
+            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
+            context.fill(closeRect)
+        }
+        
+        if pressedButton == .shade {
+            // Shade button highlight
+            let shadeRect = NSRect(x: bounds.width - SkinElements.Playlist.TitleBarButtons.shadeOffset, 
+                                   y: 3, width: 9, height: 9)
+            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
+            context.fill(shadeRect)
+        }
+    }
+    
+    /// Draw playlist side borders
+    private func drawPlaylistSideBorders(in context: CGContext, bounds: NSRect) {
+        guard let pleditImage = skin.pledit else { return }
+        
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        
+        // Left side border
+        var y: CGFloat = titleHeight
+        while y < bounds.height - bottomHeight {
+            let h = min(29, bounds.height - bottomHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.leftSideTile,
+                      to: NSRect(x: 0, y: y, width: 12, height: h), in: context)
+            y += 29
+        }
+        
+        // Right side border (before scrollbar)
+        y = titleHeight
+        while y < bounds.height - bottomHeight {
+            let h = min(29, bounds.height - bottomHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.rightSideTile,
+                      to: NSRect(x: bounds.width - 20, y: y, width: 20, height: h), in: context)
+            y += 29
+        }
+    }
+    
+    /// Draw playlist bottom bar with button areas
+    func drawPlaylistBottomBar(in context: CGContext, bounds: NSRect, pressedButton: PlaylistButtonType?) {
+        guard let pleditImage = skin.pledit else {
+            drawFallbackPlaylistBottomBar(in: context, bounds: bounds, pressedButton: pressedButton)
+            return
+        }
+        
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let bottomY = bounds.height - bottomHeight
+        
+        // Draw left corner (125px wide) - contains ADD, REM, SEL button areas
+        drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.bottomLeftCorner,
+                  to: NSRect(x: 0, y: bottomY, width: 125, height: bottomHeight), in: context)
+        
+        // Draw right corner (150px wide) - contains MISC, LIST button areas + resize grip
+        drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.bottomRightCorner,
+                  to: NSRect(x: bounds.width - 150, y: bottomY, width: 150, height: bottomHeight), in: context)
+        
+        // Tile the middle section
+        var x: CGFloat = 125
+        while x < bounds.width - 150 {
+            let w = min(25, bounds.width - 150 - x)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.bottomTile,
+                      to: NSRect(x: x, y: bottomY, width: w, height: bottomHeight), in: context)
+            x += 25
+        }
+        
+        // Draw button pressed highlights
+        if let pressed = pressedButton {
+            let buttonY = bottomY + 10  // Buttons are positioned 10px from bottom of bar
+            var buttonRect: NSRect?
             
-            // For standard width (275), draw without tiling
-            // For wider windows, tile the middle sections
-            let standardWidth: CGFloat = 275
-            
-            // === TITLE BAR (TOP) ===
-            if bounds.width <= standardWidth {
-                // Draw the full title bar as one piece (no stretching)
-                let fullTitleRect = NSRect(x: 0, y: 0, width: 275, height: 20)
-                drawSprite(from: pleditImage, sourceRect: fullTitleRect,
-                          to: NSRect(x: 0, y: 0, width: min(bounds.width, 275), height: titleHeight), in: context)
-            } else {
-                // Left corner (25 pixels)
-                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topLeftCorner,
-                          to: NSRect(x: 0, y: 0, width: 25, height: titleHeight), in: context)
-                
-                // Right corner (25 pixels) - positioned at right edge
-                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.topRightCorner,
-                          to: NSRect(x: bounds.width - 25, y: 0, width: 25, height: titleHeight), in: context)
-                
-                // Middle section - tile the title bar pattern (not stretch)
-                var x: CGFloat = 25
-                let tileWidth: CGFloat = 25  // Use small tiles to avoid text repetition
-                while x < bounds.width - 25 {
-                    let w = min(tileWidth, bounds.width - 25 - x)
-                    // Use a small section from the title bar that's just pattern
-                    let tileSource = NSRect(x: 127, y: 0, width: 25, height: 20)
-                    drawSprite(from: pleditImage, sourceRect: tileSource,
-                              to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
-                    x += tileWidth
-                }
+            switch pressed {
+            case .add:
+                buttonRect = NSRect(x: 11, y: buttonY, width: 25, height: 18)
+            case .rem:
+                buttonRect = NSRect(x: 40, y: buttonY, width: 25, height: 18)
+            case .sel:
+                buttonRect = NSRect(x: 70, y: buttonY, width: 25, height: 18)
+            case .misc:
+                buttonRect = NSRect(x: bounds.width - 150 + 10, y: buttonY, width: 25, height: 18)
+            case .list:
+                buttonRect = NSRect(x: bounds.width - 46, y: buttonY, width: 25, height: 18)
+            default:
+                break
             }
             
-            // === BOTTOM BAR ===
-            // The bottom bar is complex - for now, draw a solid background matching the skin theme
-            // This avoids rendering incorrect graphics from wrong skin coordinates
-            let bottomBarRect = NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: bottomHeight)
-            
-            // Use a dark color that matches Winamp's playlist style
-            NSColor(calibratedRed: 0.14, green: 0.14, blue: 0.18, alpha: 1.0).setFill()
-            context.fill(bottomBarRect)
-            
-            // Draw a subtle top border
-            NSColor(calibratedWhite: 0.3, alpha: 1.0).setStroke()
-            context.setLineWidth(1)
-            context.move(to: CGPoint(x: 0, y: bounds.height - bottomHeight))
-            context.addLine(to: CGPoint(x: bounds.width, y: bounds.height - bottomHeight))
-            context.strokePath()
-            
-            // === CENTER CONTENT AREA ===
-            // Fill the entire content area with the playlist background color
-            // (Skip side borders as their coordinates may not match this skin)
-            let centerRect = NSRect(
-                x: 0,
-                y: titleHeight,
-                width: bounds.width,
-                height: bounds.height - titleHeight - bottomHeight
-            )
-            skin.playlistColors.normalBackground.setFill()
-            context.fill(centerRect)
-        } else {
-            // Fallback playlist background
-            skin.playlistColors.normalBackground.setFill()
-            context.fill(bounds)
+            if let rect = buttonRect {
+                NSColor(calibratedWhite: 0.2, alpha: 0.4).setFill()
+                context.fill(rect)
+            }
         }
+    }
+    
+    /// Draw playlist scrollbar
+    func drawPlaylistScrollbar(in context: CGContext, bounds: NSRect, scrollPosition: CGFloat, contentHeight: CGFloat) {
+        guard let pleditImage = skin.pledit else {
+            drawFallbackPlaylistScrollbar(in: context, bounds: bounds, scrollPosition: scrollPosition)
+            return
+        }
+        
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let trackHeight = bounds.height - titleHeight - bottomHeight
+        let scrollbarX = bounds.width - 15
+        
+        // Draw scrollbar track background
+        var y: CGFloat = titleHeight
+        while y < bounds.height - bottomHeight {
+            let h = min(29, bounds.height - bottomHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.scrollbarTrack,
+                      to: NSRect(x: scrollbarX, y: y, width: 8, height: h), in: context)
+            y += 29
+        }
+        
+        // Draw scrollbar thumb
+        let thumbHeight: CGFloat = 18
+        let availableTrack = trackHeight - thumbHeight
+        let thumbY = titleHeight + (availableTrack * scrollPosition)
+        
+        drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.scrollbarThumbNormal,
+                  to: NSRect(x: scrollbarX, y: thumbY, width: 8, height: thumbHeight), in: context)
+    }
+    
+    /// Draw playlist background (handles resizable windows) - legacy method
+    func drawPlaylistBackground(in context: CGContext, bounds: NSRect) {
+        // Use the new complete drawing method with defaults
+        drawPlaylistWindow(in: context, bounds: bounds, isActive: true, pressedButton: nil, scrollPosition: 0)
+    }
+    
+    // MARK: - Playlist Fallback Rendering
+    
+    private func drawFallbackPlaylistTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool) {
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let titleRect = NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight)
+        
+        // Draw gradient background matching main window style
+        if isActive {
+            let gradient = NSGradient(colors: [
+                NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.5, alpha: 1.0),
+                NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.25, alpha: 1.0)
+            ])
+            gradient?.draw(in: titleRect, angle: 90)
+        } else {
+            let gradient = NSGradient(colors: [
+                NSColor(calibratedWhite: 0.35, alpha: 1.0),
+                NSColor(calibratedWhite: 0.25, alpha: 1.0)
+            ])
+            gradient?.draw(in: titleRect, angle: 90)
+        }
+        
+        // Draw decorative left bar (similar to skin sprites)
+        NSColor(calibratedRed: 0.5, green: 0.5, blue: 0.3, alpha: 1.0).setFill()
+        context.fill(NSRect(x: 4, y: 6, width: 8, height: 8))
+        
+        // Title text - flip back for text rendering and CENTER it
+        context.saveGState()
+        context.translateBy(x: 0, y: titleHeight)
+        context.scaleBy(x: 1, y: -1)
+        
+        let title = "WINAMP PLAYLIST"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.boldSystemFont(ofSize: 8)
+        ]
+        let titleSize = title.size(withAttributes: attrs)
+        let titleX = (bounds.width - titleSize.width) / 2
+        title.draw(at: NSPoint(x: titleX, y: (titleHeight - titleSize.height) / 2), withAttributes: attrs)
+        
+        context.restoreGState()
+        
+        // Draw decorative pattern (dots/lines like Winamp)
+        NSColor(calibratedRed: 0.3, green: 0.3, blue: 0.4, alpha: 1.0).setFill()
+        var patternX: CGFloat = 16
+        let titleLeft = titleX - 8
+        let titleRight = titleX + titleSize.width + 8
+        
+        // Pattern before title
+        while patternX < titleLeft {
+            context.fill(NSRect(x: patternX, y: 8, width: 2, height: 4))
+            patternX += 4
+        }
+        
+        // Pattern after title
+        patternX = titleRight
+        while patternX < bounds.width - 30 {
+            context.fill(NSRect(x: patternX, y: 8, width: 2, height: 4))
+            patternX += 4
+        }
+        
+        // Window control buttons (shade, close) - simple rectangles
+        NSColor(calibratedWhite: 0.4, alpha: 1.0).setFill()
+        context.fill(NSRect(x: bounds.width - 22, y: 6, width: 9, height: 9))
+        context.fill(NSRect(x: bounds.width - 11, y: 6, width: 9, height: 9))
+    }
+    
+    private func drawFallbackPlaylistBottomBar(in context: CGContext, bounds: NSRect, pressedButton: PlaylistButtonType?) {
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let barRect = NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: bottomHeight)
+        
+        // Background
+        NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0).setFill()
+        context.fill(barRect)
+        
+        // Top border line
+        NSColor(calibratedRed: 0.25, green: 0.25, blue: 0.35, alpha: 1.0).setFill()
+        context.fill(NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: 1))
+        
+        // Draw button labels
+        let buttonY = bounds.height - bottomHeight + 10
+        let buttonColor = NSColor(calibratedRed: 0.25, green: 0.25, blue: 0.3, alpha: 1.0)
+        let buttonHighlight = NSColor(calibratedRed: 0.35, green: 0.35, blue: 0.4, alpha: 1.0)
+        
+        let buttons: [(String, CGFloat, PlaylistButtonType)] = [
+            ("ADD", 11, .add),
+            ("REM", 40, .rem),
+            ("SEL", 70, .sel),
+            ("MISC", bounds.width - 140, .misc),
+            ("LIST", bounds.width - 46, .list)
+        ]
+        
+        for (title, x, buttonType) in buttons {
+            let buttonRect = NSRect(x: x, y: buttonY, width: 30, height: 18)
+            
+            // Button face
+            let isPressed = pressedButton == buttonType
+            (isPressed ? buttonHighlight : buttonColor).setFill()
+            context.fill(buttonRect)
+            
+            // Draw text (in flipped context)
+            context.saveGState()
+            context.translateBy(x: 0, y: buttonY + 18)
+            context.scaleBy(x: 1, y: -1)
+            
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 8)
+            ]
+            let textSize = title.size(withAttributes: attrs)
+            title.draw(at: NSPoint(x: buttonRect.midX - textSize.width / 2, y: 4), withAttributes: attrs)
+            
+            context.restoreGState()
+        }
+    }
+    
+    private func drawFallbackPlaylistScrollbar(in context: CGContext, bounds: NSRect, scrollPosition: CGFloat) {
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let scrollbarWidth: CGFloat = 15
+        
+        let scrollRect = NSRect(
+            x: bounds.width - scrollbarWidth,
+            y: titleHeight,
+            width: scrollbarWidth,
+            height: bounds.height - titleHeight - bottomHeight
+        )
+        
+        // Track background
+        NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0).setFill()
+        context.fill(scrollRect)
+        
+        // Thumb
+        let thumbHeight: CGFloat = max(20, scrollRect.height * 0.2)
+        let availableTrack = scrollRect.height - thumbHeight
+        let thumbY = scrollRect.minY + (availableTrack * scrollPosition)
+        
+        NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.35, alpha: 1.0).setFill()
+        let thumbRect = NSRect(x: scrollRect.minX + 2, y: thumbY, width: scrollRect.width - 4, height: thumbHeight)
+        context.fill(thumbRect)
+    }
+    
+    // MARK: - Plex Browser Window
+    
+    /// Plex browser button types
+    enum PlexBrowserButtonType {
+        case close, shade
+    }
+    
+    /// Draw the complete Plex browser window using skin sprites
+    /// Uses playlist sprites for frame/chrome with custom content areas
+    func drawPlexBrowserWindow(in context: CGContext, bounds: NSRect, isActive: Bool,
+                               pressedButton: PlexBrowserButtonType?, scrollPosition: CGFloat) {
+        let layout = SkinElements.PlexBrowser.Layout.self
+        
+        // Fill background with playlist colors first
+        skin.playlistColors.normalBackground.setFill()
+        context.fill(bounds)
+        
+        // Draw title bar (using playlist title sprites)
+        drawPlexBrowserTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
+        
+        // Draw side borders (using playlist side sprites)
+        drawPlexBrowserSideBorders(in: context, bounds: bounds)
+        
+        // Draw status bar at bottom (using playlist bottom sprites adapted)
+        drawPlexBrowserStatusBar(in: context, bounds: bounds)
+        
+        // Draw scrollbar
+        let contentTop = layout.titleBarHeight + layout.serverBarHeight + layout.tabBarHeight
+        let contentHeight = bounds.height - contentTop - layout.statusBarHeight
+        drawPlexBrowserScrollbar(in: context, bounds: bounds, scrollPosition: scrollPosition, contentHeight: contentHeight)
+    }
+    
+    /// Draw Plex browser title bar with skin sprites
+    /// Uses the same approach as playlist: draws title sprite (with solid background) over tiles
+    func drawPlexBrowserTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlexBrowserButtonType?) {
+        guard let pleditImage = skin.pledit else {
+            drawFallbackPlexBrowserTitleBar(in: context, bounds: bounds, isActive: isActive)
+            return
+        }
+        
+        let titleHeight = SkinElements.Playlist.titleHeight
+        let leftCornerWidth: CGFloat = 25
+        let rightCornerWidth: CGFloat = 25
+        let titleSpriteWidth: CGFloat = 100  // Same as playlist title sprite width
+        let tileWidth: CGFloat = 25
+        
+        // Get the correct sprite set for active/inactive state
+        let leftCorner = isActive ? SkinElements.Playlist.TitleBarActive.leftCorner : SkinElements.Playlist.TitleBarInactive.leftCorner
+        let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
+        let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
+        
+        // Draw left corner
+        drawSprite(from: pleditImage, sourceRect: leftCorner,
+                  to: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
+        
+        // Draw right corner (contains window buttons)
+        drawSprite(from: pleditImage, sourceRect: rightCorner,
+                  to: NSRect(x: bounds.width - rightCornerWidth, y: 0, width: rightCornerWidth, height: titleHeight), in: context)
+        
+        // Calculate available space for middle section
+        let middleStart = leftCornerWidth
+        let middleEnd = bounds.width - rightCornerWidth
+        let middleWidth = middleEnd - middleStart
+        
+        // Fill the entire middle section with tiles FIRST
+        var x: CGFloat = middleStart
+        while x < middleEnd {
+            let w = min(tileWidth, middleEnd - x)
+            drawSprite(from: pleditImage, sourceRect: tileSprite,
+                      to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
+            x += tileWidth
+        }
+        
+        // Calculate where the title text will go (centered)
+        let titleX = middleStart + (middleWidth - titleSpriteWidth) / 2
+        
+        // Fill the title area with the same background as left/right tiles
+        if let titleBg = plexTitleTileBackgroundColor(from: pleditImage, sourceRect: tileSprite) {
+            titleBg.setFill()
+            context.fill(NSRect(x: titleX, y: 0, width: titleSpriteWidth, height: titleHeight))
+        }
+
+        // Explicitly paint the top border line to match surrounding tiles
+        if let titleBg = plexTitleTileBackgroundColor(from: pleditImage, sourceRect: tileSprite) {
+            titleBg.setFill()
+            context.fill(NSRect(x: titleX, y: 0, width: titleSpriteWidth, height: 1))
+        }
+        
+        // Draw "PLEX BROWSER" text centered on the solid background
+        drawPlexTitleText(centeredIn: NSRect(x: titleX, y: 0, width: titleSpriteWidth, height: titleHeight),
+                          in: context)
+        
+        // Draw window control button pressed states if needed
+        if pressedButton == .close {
+            let closeRect = NSRect(x: bounds.width - SkinElements.PlexBrowser.TitleBarButtons.closeOffset - 9, 
+                                   y: 3, width: 9, height: 9)
+            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
+            context.fill(closeRect)
+        }
+        
+        if pressedButton == .shade {
+            let shadeRect = NSRect(x: bounds.width - SkinElements.PlexBrowser.TitleBarButtons.shadeOffset - 9, 
+                                   y: 3, width: 9, height: 9)
+            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
+            context.fill(shadeRect)
+        }
+    }
+    
+    /// Draw Plex browser title text using sprite glyphs
+    private func drawPlexTitleText(centeredIn rect: NSRect, in context: CGContext) {
+        let charWidth: CGFloat = 5
+        let charHeight: CGFloat = 6
+        let letterSpacing: CGFloat = 1
+        let spaceWidth: CGFloat = charWidth + letterSpacing
+
+        context.saveGState()
+        context.setAllowsAntialiasing(false)
+        context.setShouldAntialias(false)
+        context.interpolationQuality = .none
+
+        let chars = Array(plexTitleText)
+        let totalWidth = plexTitleTextWidth(chars, letterSpacing: letterSpacing, spaceWidth: spaceWidth)
+        let startX = rect.midX - totalWidth / 2
+        let startY = rect.midY - charHeight / 2
+
+        let manualColor = plexTitleManualColor()
+        var xPos = startX
+
+        for (index, char) in chars.enumerated() {
+            if char == " " {
+                xPos += spaceWidth
+                continue
+            }
+
+            if let pattern = plexTitlePixels()[char.uppercased().first ?? " "] {
+                drawTitleBarPixelChar(pattern, at: NSPoint(x: xPos, y: startY), color: manualColor, in: context)
+                xPos += charWidth
+            } else {
+                drawTitleBarFallbackChar(char, at: NSPoint(x: xPos, y: startY), color: manualColor, in: context)
+                xPos += charWidth
+            }
+
+            if index < chars.count - 1, chars[index + 1] != " " {
+                xPos += letterSpacing
+            }
+        }
+
+        context.restoreGState()
+    }
+
+    /// Draw title bar text using the skin's TEXT.BMP font sprites
+    private func drawTitleBarText(_ text: String, centeredIn rect: NSRect, in context: CGContext) {
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
+        let charSpacing: CGFloat = 0
+        
+        // Calculate total text width
+        let totalWidth = CGFloat(text.count) * (charWidth + charSpacing)
+        let startX = rect.midX - totalWidth / 2
+        let startY = rect.midY - charHeight / 2
+        
+        guard let textImage = skin.text else {
+            // Fallback if no TEXT.BMP
+            drawTitleBarTextFallback(text, centeredIn: rect, in: context)
+            return
+        }
+        
+        // Draw each character from TEXT.BMP
+        var xPos = startX
+        for char in text.uppercased() {
+            let sourceRect = SkinElements.TextFont.character(char)
+            let destRect = NSRect(x: xPos, y: startY, width: charWidth, height: charHeight)
+            drawSprite(from: textImage, sourceRect: sourceRect, to: destRect, in: context)
+            xPos += charWidth + charSpacing
+        }
+    }
+
+    private func drawTitleBarFallbackChar(_ char: Character, at origin: NSPoint, color: NSColor?, in context: CGContext) {
+        let pixels = SkinElements.TitleBarFont.fallbackPixels(for: char)
+        let fillColor = color ?? NSColor(calibratedWhite: 0.8, alpha: 1.0)
+        fillColor.setFill()
+
+        for (rowIndex, rowBits) in pixels.enumerated() {
+            for col in 0..<5 {
+                let mask = UInt8(1 << (4 - col))
+                guard (rowBits & mask) != 0 else { continue }
+                let pixelRect = NSRect(x: origin.x + CGFloat(col),
+                                       y: origin.y + CGFloat(rowIndex),
+                                       width: 1, height: 1)
+                context.fill(pixelRect)
+            }
+        }
+    }
+
+    private func titleBarFallbackColor() -> NSColor? {
+        if let pleditImage = skin.pledit,
+           let color = sampleSpriteTextColor(in: pleditImage, for: "A") {
+            return color
+        }
+        if let eqmainImage = skin.eqmain,
+           let color = sampleSpriteTextColor(in: eqmainImage, for: "E") {
+            return color
+        }
+        return nil
+    }
+
+    private func sampleSpriteTextColor(in image: NSImage, for char: Character) -> NSColor? {
+        let source = SkinElements.TitleBarFont.charSource(for: char)
+        let point: NSPoint?
+        switch source {
+        case .pledit(let x, let y), .eqmain(let x, let y):
+            point = NSPoint(x: x + 2, y: y + 2)
+        case .fallback:
+            point = nil
+        }
+
+        guard let samplePoint = point,
+              let color = samplePixelColor(in: image, at: samplePoint),
+              color.alphaComponent > 0.2 else {
+            return nil
+        }
+
+        return color
+    }
+
+    private func samplePixelColor(in image: NSImage, at point: NSPoint) -> NSColor? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+
+        let x = Int(point.x)
+        let flippedY = Int(image.size.height - point.y - 1)
+        guard x >= 0, flippedY >= 0, x < cgImage.width, flippedY < cgImage.height else { return nil }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var pixelData = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(data: &pixelData,
+                                      width: 1,
+                                      height: 1,
+                                      bitsPerComponent: 8,
+                                      bytesPerRow: 4,
+                                      space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+
+        context.draw(cgImage, in: CGRect(x: -x, y: -flippedY,
+                                         width: cgImage.width, height: cgImage.height))
+
+        return NSColor(red: CGFloat(pixelData[0]) / 255.0,
+                       green: CGFloat(pixelData[1]) / 255.0,
+                       blue: CGFloat(pixelData[2]) / 255.0,
+                       alpha: CGFloat(pixelData[3]) / 255.0)
+    }
+
+    private func plexTitleTileBackgroundColor(from image: NSImage, sourceRect: NSRect) -> NSColor? {
+        // Sample a background pixel from the title bar tile sprite
+        let samplePoint = NSPoint(x: sourceRect.minX + sourceRect.width / 2,
+                                  y: sourceRect.minY + sourceRect.height / 2)
+        return samplePixelColor(in: image, at: samplePoint)
+    }
+
+    private func plexTitleTextWidth(_ chars: [Character], letterSpacing: CGFloat, spaceWidth: CGFloat) -> CGFloat {
+        var width: CGFloat = 0
+        var lastWasLetter = false
+
+        for char in chars {
+            if char == " " {
+                width += spaceWidth
+                lastWasLetter = false
+                continue
+            }
+
+            if lastWasLetter {
+                width += letterSpacing
+            }
+
+            width += 5
+            lastWasLetter = true
+        }
+
+        return width
+    }
+
+    private func plexTitleManualColor() -> NSColor? {
+        return NSColor(calibratedWhite: 0.8, alpha: 1.0)
+    }
+
+
+    private func plexTitlePixels() -> [Character: [UInt8]] {
+        return [
+            "P": [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000],
+            "L": [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+            "E": [0b11111, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+            "R": [0b11110, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
+            "W": [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b01010],
+            "S": [0b01111, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
+            "X": [0b10001, 0b01010, 0b00100, 0b00100, 0b01010, 0b10001],
+            "B": [0b11110, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
+            "O": [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        ]
+    }
+
+    private func drawTitleBarPixelChar(_ pixels: [UInt8], at origin: NSPoint, color: NSColor?, in context: CGContext) {
+        let fillColor = color ?? NSColor(calibratedWhite: 0.8, alpha: 1.0)
+        fillColor.setFill()
+
+        for (rowIndex, rowBits) in pixels.enumerated() {
+            for col in 0..<5 {
+                let mask = UInt8(1 << (4 - col))
+                guard (rowBits & mask) != 0 else { continue }
+                let pixelRect = NSRect(x: origin.x + CGFloat(col),
+                                       y: origin.y + CGFloat(rowIndex),
+                                       width: 1, height: 1)
+                context.fill(pixelRect)
+            }
+        }
+    }
+
+    // MARK: - Title Sprite Font Extraction
+
+    private struct TitleSpriteFont {
+        struct Glyph {
+            let image: NSImage
+            let rect: NSRect
+        }
+
+        var glyphs: [Character: Glyph]
+        var letterSpacing: CGFloat
+        var spaceWidth: CGFloat
+        var height: CGFloat
+    }
+
+    private func titleSpriteFont() -> TitleSpriteFont? {
+        nil
+    }
+
+    private func buildTitleSpriteFont() -> TitleSpriteFont? {
+        let playlistText = "WINAMP PLAYLIST"
+        let eqText = "EQUALIZER"
+
+        let playlistFont = skin.pledit.flatMap { image in
+            extractTitleSpriteFont(from: image, titleRect: SkinElements.Playlist.TitleBarActive.title, text: playlistText)
+        }
+
+        let eqFont = skin.eqmain.flatMap { image in
+            extractTitleSpriteFont(from: image, titleRect: SkinElements.Equalizer.titleActive, text: eqText)
+        }
+
+        guard playlistFont != nil || eqFont != nil else {
+            return nil
+        }
+
+        var glyphs: [Character: TitleSpriteFont.Glyph] = [:]
+        if let playlistFont = playlistFont {
+            glyphs.merge(playlistFont.glyphs, uniquingKeysWith: { first, _ in first })
+        }
+        if let eqFont = eqFont {
+            for (char, glyph) in eqFont.glyphs where glyphs[char] == nil {
+                glyphs[char] = glyph
+            }
+        }
+
+        let letterSpacing = playlistFont?.letterSpacing ?? eqFont?.letterSpacing ?? SkinElements.TitleBarFont.charSpacing
+        let spaceWidth = playlistFont?.spaceWidth ?? eqFont?.spaceWidth ?? (SkinElements.TitleBarFont.charWidth + letterSpacing)
+        let height = playlistFont?.height ?? eqFont?.height ?? SkinElements.TitleBarFont.charHeight
+
+        return TitleSpriteFont(glyphs: glyphs,
+                               letterSpacing: letterSpacing,
+                               spaceWidth: spaceWidth,
+                               height: height)
+    }
+
+    private func extractTitleSpriteFont(from image: NSImage, titleRect: NSRect, text: String) -> TitleSpriteFont? {
+        guard let buffer = spriteBuffer(from: image, rect: titleRect) else { return nil }
+
+        let width = buffer.width
+        let height = buffer.height
+        let background = mostCommonColor(in: buffer)
+
+        let textMask = buildTextMask(width: width, height: height, buffer: buffer, background: background)
+        guard let textRows = textRowRange(mask: textMask, width: width, height: height) else { return nil }
+
+        let colMask = columnMask(mask: textMask, width: width, rowRange: textRows)
+        let segments = mergeSegments(findSegments(in: colMask), gapThreshold: 1)
+
+        let letters = text.uppercased().filter { $0 != " " }
+        guard segments.count == letters.count else { return nil }
+
+        var glyphs: [Character: TitleSpriteFont.Glyph] = [:]
+        let textHeight = CGFloat(textRows.max - textRows.min + 1)
+        var segmentIndex = 0
+        var prevSegmentIndex: Int?
+        var hadSpaceSincePrev = false
+        var letterGaps: [Int] = []
+        var spaceGaps: [Int] = []
+
+        for char in text.uppercased() {
+            if char == " " {
+                hadSpaceSincePrev = true
+                continue
+            }
+
+            let segment = segments[segmentIndex]
+            if glyphs[char] == nil {
+                let rect = NSRect(x: titleRect.origin.x + CGFloat(segment.start),
+                                  y: titleRect.origin.y + CGFloat(textRows.min),
+                                  width: CGFloat(segment.end - segment.start + 1),
+                                  height: textHeight)
+                glyphs[char] = TitleSpriteFont.Glyph(image: image, rect: rect)
+            }
+
+            if let prevIndex = prevSegmentIndex {
+                let gap = segment.start - segments[prevIndex].end - 1
+                if hadSpaceSincePrev {
+                    spaceGaps.append(gap)
+                } else {
+                    letterGaps.append(gap)
+                }
+            }
+
+            prevSegmentIndex = segmentIndex
+            segmentIndex += 1
+            hadSpaceSincePrev = false
+        }
+
+        guard !glyphs.isEmpty else { return nil }
+
+        let letterSpacing = letterGaps.isEmpty
+            ? SkinElements.TitleBarFont.charSpacing
+            : CGFloat(letterGaps.reduce(0, +)) / CGFloat(letterGaps.count)
+        let spaceWidth = spaceGaps.isEmpty
+            ? (SkinElements.TitleBarFont.charWidth + letterSpacing)
+            : CGFloat(spaceGaps.reduce(0, +)) / CGFloat(spaceGaps.count)
+
+        return TitleSpriteFont(glyphs: glyphs,
+                               letterSpacing: letterSpacing,
+                               spaceWidth: spaceWidth,
+                               height: textHeight)
+    }
+
+    private func titleSpriteTextWidth(_ chars: [Character],
+                                      font: TitleSpriteFont?,
+                                      letterSpacing: CGFloat,
+                                      spaceWidth: CGFloat) -> CGFloat {
+        var width: CGFloat = 0
+        var lastWasLetter = false
+
+        for char in chars {
+            if char == " " {
+                width += spaceWidth
+                lastWasLetter = false
+                continue
+            }
+
+            if lastWasLetter {
+                width += letterSpacing
+            }
+
+            let glyphWidth = font?.glyphs[char]?.rect.width ?? SkinElements.TitleBarFont.charWidth
+            width += glyphWidth
+            lastWasLetter = true
+        }
+
+        return width
+    }
+
+    private struct SpriteBuffer {
+        let data: [UInt8]
+        let width: Int
+        let height: Int
+    }
+
+    private func spriteBuffer(from image: NSImage, rect: NSRect) -> SpriteBuffer? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+
+        let flippedY = image.size.height - rect.origin.y - rect.height
+        let sourceInCG = CGRect(x: rect.origin.x, y: flippedY, width: rect.width, height: rect.height)
+        guard let cropped = cgImage.cropping(to: sourceInCG) else { return nil }
+
+        let width = cropped.width
+        let height = cropped.height
+        let bytesPerRow = width * 4
+        var data = [UInt8](repeating: 0, count: bytesPerRow * height)
+
+        guard let context = CGContext(data: &data,
+                                      width: width,
+                                      height: height,
+                                      bitsPerComponent: 8,
+                                      bytesPerRow: bytesPerRow,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+
+        context.draw(cropped, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return SpriteBuffer(data: data, width: width, height: height)
+    }
+
+    private func mostCommonColor(in buffer: SpriteBuffer) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
+        var counts: [UInt32: Int] = [:]
+        let data = buffer.data
+        let pixelCount = buffer.width * buffer.height
+
+        for i in 0..<pixelCount {
+            let idx = i * 4
+            let r = data[idx]
+            let g = data[idx + 1]
+            let b = data[idx + 2]
+            let a = data[idx + 3]
+            guard a > 0 else { continue }
+            let packed = (UInt32(r) << 24) | (UInt32(g) << 16) | (UInt32(b) << 8) | UInt32(a)
+            counts[packed, default: 0] += 1
+        }
+
+        let most = counts.max { $0.value < $1.value }?.key ?? 0
+        return (r: UInt8((most >> 24) & 0xFF),
+                g: UInt8((most >> 16) & 0xFF),
+                b: UInt8((most >> 8) & 0xFF),
+                a: UInt8(most & 0xFF))
+    }
+
+    private func buildTextMask(width: Int,
+                               height: Int,
+                               buffer: SpriteBuffer,
+                               background: (r: UInt8, g: UInt8, b: UInt8, a: UInt8)) -> [Bool] {
+        let data = buffer.data
+        var mask = [Bool](repeating: false, count: width * height)
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let index = (y * width + x) * 4
+                let r = data[index]
+                let g = data[index + 1]
+                let b = data[index + 2]
+                let a = data[index + 3]
+                guard a > 80 else { continue }
+
+                let dr = abs(Int(r) - Int(background.r))
+                let dg = abs(Int(g) - Int(background.g))
+                let db = abs(Int(b) - Int(background.b))
+                let diff = dr + dg + db
+
+                if diff > 20 {
+                    mask[y * width + x] = true
+                }
+            }
+        }
+
+        return mask
+    }
+
+    private func textRowRange(mask: [Bool], width: Int, height: Int) -> (min: Int, max: Int)? {
+        var minRow: Int?
+        var maxRow: Int?
+
+        for y in 0..<height {
+            let rowStart = y * width
+            let hasText = mask[rowStart..<(rowStart + width)].contains(true)
+            if hasText {
+                minRow = minRow ?? y
+                maxRow = y
+            }
+        }
+
+        guard let minRow, let maxRow else { return nil }
+        return (min: minRow, max: maxRow)
+    }
+
+    private func columnMask(mask: [Bool], width: Int, rowRange: (min: Int, max: Int)) -> [Bool] {
+        var columns = [Bool](repeating: false, count: width)
+        for x in 0..<width {
+            for y in rowRange.min...rowRange.max {
+                if mask[y * width + x] {
+                    columns[x] = true
+                    break
+                }
+            }
+        }
+        return columns
+    }
+
+    private func findSegments(in columnMask: [Bool]) -> [(start: Int, end: Int)] {
+        var segments: [(Int, Int)] = []
+        var start: Int?
+
+        for (index, on) in columnMask.enumerated() {
+            if on {
+                if start == nil { start = index }
+            } else if let s = start {
+                segments.append((s, index - 1))
+                start = nil
+            }
+        }
+        if let s = start {
+            segments.append((s, columnMask.count - 1))
+        }
+        return segments
+    }
+
+    private func mergeSegments(_ segments: [(start: Int, end: Int)], gapThreshold: Int) -> [(start: Int, end: Int)] {
+        guard !segments.isEmpty else { return segments }
+        var merged: [(start: Int, end: Int)] = [segments[0]]
+
+        for segment in segments.dropFirst() {
+            if let last = merged.last, segment.start - last.end - 1 <= gapThreshold {
+                merged[merged.count - 1] = (start: last.start, end: segment.end)
+            } else {
+                merged.append(segment)
+            }
+        }
+        return merged
+    }
+
+    
+    /// Fallback title bar text if TEXT.BMP not available
+    private func drawTitleBarTextFallback(_ text: String, centeredIn rect: NSRect, in context: CGContext) {
+        context.saveGState()
+        let textCenterY = rect.midY
+        context.translateBy(x: 0, y: textCenterY)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: 0, y: -textCenterY)
+        
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor(calibratedWhite: 0.75, alpha: 1.0),
+            .font: NSFont.systemFont(ofSize: 8, weight: .bold)
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        let textX = rect.midX - textSize.width / 2
+        let textY = rect.midY - textSize.height / 2
+        text.draw(at: NSPoint(x: textX, y: textY), withAttributes: attrs)
+        context.restoreGState()
+    }
+    
+    /// Draw Plex browser side borders
+    private func drawPlexBrowserSideBorders(in context: CGContext, bounds: NSRect) {
+        guard let pleditImage = skin.pledit else { return }
+        
+        let layout = SkinElements.PlexBrowser.Layout.self
+        let titleHeight = layout.titleBarHeight
+        let statusHeight = layout.statusBarHeight
+        
+        // Left side border
+        var y: CGFloat = titleHeight
+        while y < bounds.height - statusHeight {
+            let h = min(29, bounds.height - statusHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.leftSideTile,
+                      to: NSRect(x: 0, y: y, width: 12, height: h), in: context)
+            y += 29
+        }
+        
+        // Right side border (before scrollbar)
+        y = titleHeight
+        while y < bounds.height - statusHeight {
+            let h = min(29, bounds.height - statusHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.rightSideTile,
+                      to: NSRect(x: bounds.width - 20, y: y, width: 20, height: h), in: context)
+            y += 29
+        }
+    }
+    
+    /// Draw Plex browser status bar at bottom
+    private func drawPlexBrowserStatusBar(in context: CGContext, bounds: NSRect) {
+        let layout = SkinElements.PlexBrowser.Layout.self
+        let statusHeight = layout.statusBarHeight
+        let statusY = bounds.height - statusHeight
+        
+        // Use playlist colors for consistent look
+        let colors = skin.playlistColors
+        
+        // Draw status bar background
+        colors.normalBackground.withAlphaComponent(0.8).setFill()
+        context.fill(NSRect(x: 0, y: statusY, width: bounds.width, height: statusHeight))
+        
+        // Draw top border line
+        NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
+        context.fill(NSRect(x: 0, y: statusY, width: bounds.width, height: 1))
+    }
+    
+    /// Draw Plex browser scrollbar
+    func drawPlexBrowserScrollbar(in context: CGContext, bounds: NSRect, scrollPosition: CGFloat, contentHeight: CGFloat) {
+        guard let pleditImage = skin.pledit else {
+            drawFallbackPlexBrowserScrollbar(in: context, bounds: bounds, scrollPosition: scrollPosition)
+            return
+        }
+        
+        let layout = SkinElements.PlexBrowser.Layout.self
+        let titleHeight = layout.titleBarHeight + layout.serverBarHeight + layout.tabBarHeight
+        let statusHeight = layout.statusBarHeight
+        let trackHeight = bounds.height - titleHeight - statusHeight
+        let scrollbarX = bounds.width - 15
+        
+        // Draw scrollbar track background
+        var y: CGFloat = titleHeight
+        while y < bounds.height - statusHeight {
+            let h = min(29, bounds.height - statusHeight - y)
+            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.scrollbarTrack,
+                      to: NSRect(x: scrollbarX, y: y, width: 8, height: h), in: context)
+            y += 29
+        }
+        
+        // Draw scrollbar thumb
+        let thumbHeight: CGFloat = 18
+        let availableTrack = trackHeight - thumbHeight
+        let thumbY = titleHeight + (availableTrack * scrollPosition)
+        
+        drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.scrollbarThumbNormal,
+                  to: NSRect(x: scrollbarX, y: thumbY, width: 8, height: thumbHeight), in: context)
+    }
+    
+    /// Draw Plex browser in shade mode
+    func drawPlexBrowserShade(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlexBrowserButtonType?) {
+        // Use playlist shade sprites
+        if let pleditImage = skin.pledit {
+            // Left corner
+            drawSprite(from: pleditImage, sourceRect: SkinElements.PlaylistShade.leftCorner,
+                      to: NSRect(x: 0, y: 0, width: 25, height: 14), in: context)
+            
+            // Right corner
+            let rightCornerX = bounds.width - 75
+            drawSprite(from: pleditImage, sourceRect: SkinElements.PlaylistShade.rightCorner,
+                      to: NSRect(x: rightCornerX, y: 0, width: 75, height: 14), in: context)
+            
+            // Tile middle
+            var x: CGFloat = 25
+            while x < rightCornerX {
+                let tileWidth = min(25, rightCornerX - x)
+                drawSprite(from: pleditImage, sourceRect: SkinElements.PlaylistShade.tile,
+                          to: NSRect(x: x, y: 0, width: tileWidth, height: 14), in: context)
+                x += 25
+            }
+            
+            // Draw "PLEX" text in shade mode using the same pixel font style
+            drawTitleBarText("PLEX", centeredIn: NSRect(x: 25, y: 0, width: 50, height: 14), in: context)
+        } else {
+            // Fallback shade background
+            let gradient = NSGradient(colors: [
+                isActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.5, alpha: 1.0) : NSColor(calibratedWhite: 0.3, alpha: 1.0),
+                isActive ? NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.3, alpha: 1.0) : NSColor(calibratedWhite: 0.2, alpha: 1.0)
+            ])
+            gradient?.draw(in: bounds, angle: 90)
+            
+            // Draw PLEX label
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.boldSystemFont(ofSize: 9)
+            ]
+            "PLEX".draw(at: NSPoint(x: 6, y: 3), withAttributes: attrs)
+        }
+        
+        // Draw window control buttons (relative to right edge)
+        let closeRect = NSRect(x: bounds.width + SkinElements.PlaylistShade.Positions.closeButton.minX,
+                               y: SkinElements.PlaylistShade.Positions.closeButton.minY,
+                               width: 9, height: 9)
+        let shadeRect = NSRect(x: bounds.width + SkinElements.PlaylistShade.Positions.shadeButton.minX,
+                               y: SkinElements.PlaylistShade.Positions.shadeButton.minY,
+                               width: 9, height: 9)
+        
+        let closeState: ButtonState = (pressedButton == .close) ? .pressed : .normal
+        drawButton(.close, state: closeState, at: closeRect, in: context)
+        
+        let shadeState: ButtonState = (pressedButton == .shade) ? .pressed : .normal
+        drawButton(.unshade, state: shadeState, at: shadeRect, in: context)
+    }
+    
+    // MARK: - Plex Browser Fallback Rendering
+    
+    private func drawFallbackPlexBrowserTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool) {
+        let titleHeight = SkinElements.PlexBrowser.Layout.titleBarHeight
+        let titleRect = NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight)
+        
+        // Draw gradient background
+        if isActive {
+            let gradient = NSGradient(colors: [
+                NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.5, alpha: 1.0),
+                NSColor(calibratedRed: 0.0, green: 0.0, blue: 0.25, alpha: 1.0)
+            ])
+            gradient?.draw(in: titleRect, angle: 90)
+        } else {
+            let gradient = NSGradient(colors: [
+                NSColor(calibratedWhite: 0.35, alpha: 1.0),
+                NSColor(calibratedWhite: 0.25, alpha: 1.0)
+            ])
+            gradient?.draw(in: titleRect, angle: 90)
+        }
+        
+        // Draw decorative left bar
+        NSColor(calibratedRed: 0.5, green: 0.5, blue: 0.3, alpha: 1.0).setFill()
+        context.fill(NSRect(x: 4, y: 6, width: 8, height: 8))
+        
+        // Title text - flip back for text rendering
+        context.saveGState()
+        context.translateBy(x: 0, y: titleHeight)
+        context.scaleBy(x: 1, y: -1)
+        
+        let title = "PLEX BROWSER"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.boldSystemFont(ofSize: 8)
+        ]
+        let titleSize = title.size(withAttributes: attrs)
+        let titleX = (bounds.width - titleSize.width) / 2
+        title.draw(at: NSPoint(x: titleX, y: (titleHeight - titleSize.height) / 2), withAttributes: attrs)
+        
+        context.restoreGState()
+        
+        // Window control buttons
+        NSColor(calibratedWhite: 0.4, alpha: 1.0).setFill()
+        context.fill(NSRect(x: bounds.width - 22, y: 6, width: 9, height: 9))
+        context.fill(NSRect(x: bounds.width - 11, y: 6, width: 9, height: 9))
+    }
+    
+    private func drawFallbackPlexBrowserScrollbar(in context: CGContext, bounds: NSRect, scrollPosition: CGFloat) {
+        let layout = SkinElements.PlexBrowser.Layout.self
+        let titleHeight = layout.titleBarHeight + layout.serverBarHeight + layout.tabBarHeight
+        let statusHeight = layout.statusBarHeight
+        let scrollbarWidth: CGFloat = 15
+        
+        let scrollRect = NSRect(
+            x: bounds.width - scrollbarWidth,
+            y: titleHeight,
+            width: scrollbarWidth,
+            height: bounds.height - titleHeight - statusHeight
+        )
+        
+        // Track background
+        NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.2, alpha: 1.0).setFill()
+        context.fill(scrollRect)
+        
+        // Thumb
+        let thumbHeight: CGFloat = max(20, scrollRect.height * 0.2)
+        let availableTrack = scrollRect.height - thumbHeight
+        let thumbY = scrollRect.minY + (availableTrack * scrollPosition)
+        
+        NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.35, alpha: 1.0).setFill()
+        let thumbRect = NSRect(x: scrollRect.minX + 2, y: thumbY, width: scrollRect.width - 4, height: thumbHeight)
+        context.fill(thumbRect)
     }
     
     // MARK: - Core Drawing Methods

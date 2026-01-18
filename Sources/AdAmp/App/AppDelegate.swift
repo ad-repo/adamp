@@ -96,8 +96,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         NSLog("Intro finished playing, clearing playlist")
         // Clear the playlist and stop when intro finishes - resets UI to clean state
-        windowManager.audioEngine.clearPlaylist()
-        introPlayer = nil
+        // Must dispatch to main thread since this delegate may be called from audio thread
+        DispatchQueue.main.async { [weak self] in
+            self?.windowManager.audioEngine.clearPlaylist()
+            self?.introPlayer = nil
+        }
     }
     
     // MARK: - Menu Setup
@@ -294,6 +297,8 @@ extension AppDelegate: AudioEngineDelegate {
     }
     
     func audioEngineDidUpdateTime(current: TimeInterval, duration: TimeInterval) {
+        // Don't update main window time if video is playing (video has its own time source)
+        guard !windowManager.isVideoPlaying else { return }
         windowManager.mainWindowController?.updateTime(current: current, duration: duration)
     }
     

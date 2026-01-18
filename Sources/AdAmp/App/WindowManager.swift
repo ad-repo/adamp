@@ -72,12 +72,12 @@ class WindowManager {
     private(set) var videoDuration: TimeInterval = 0
     private(set) var videoTitle: String?
     
-    /// Snap threshold in pixels
-    private let snapThreshold: CGFloat = 10
+    /// Snap threshold in pixels - how close windows need to be to snap
+    private let snapThreshold: CGFloat = 15
     
     /// Docking threshold - windows closer than this are considered docked
     /// Should be >= snapThreshold to ensure snapped windows are detected as docked
-    private let dockThreshold: CGFloat = 12
+    private let dockThreshold: CGFloat = 16
     
     /// Track which window is currently being dragged
     private var draggingWindow: NSWindow?
@@ -140,7 +140,15 @@ class WindowManager {
         if playlistWindowController == nil {
             playlistWindowController = PlaylistWindowController()
         }
+        
+        // Position playlist window snapped below main window (or below EQ if visible)
+        if let playlistWindow = playlistWindowController?.window {
+            positionSubWindow(playlistWindow, preferBelowEQ: false)
+            NSLog("showPlaylist: window frame = \(playlistWindow.frame)")
+        }
+        
         playlistWindowController?.showWindow(nil)
+        playlistWindowController?.window?.makeKeyAndOrderFront(nil)
         notifyMainWindowVisibilityChanged()
     }
 
@@ -161,6 +169,12 @@ class WindowManager {
         if equalizerWindowController == nil {
             equalizerWindowController = EQWindowController()
         }
+        
+        // Position EQ window snapped below main window (or below playlist if visible)
+        if let eqWindow = equalizerWindowController?.window {
+            positionSubWindow(eqWindow, preferBelowEQ: true)
+        }
+        
         equalizerWindowController?.showWindow(nil)
         notifyMainWindowVisibilityChanged()
     }
@@ -176,6 +190,50 @@ class WindowManager {
             showEqualizer()
         }
         notifyMainWindowVisibilityChanged()
+    }
+    
+    /// Position a sub-window (EQ or Playlist) snapped below the main window stack
+    /// - Parameters:
+    ///   - window: The window to position
+    ///   - preferBelowEQ: If true and EQ is visible, position below EQ. If false and Playlist is visible, position below Playlist.
+    private func positionSubWindow(_ window: NSWindow, preferBelowEQ: Bool) {
+        guard let mainWindow = mainWindowController?.window else { return }
+        
+        let mainFrame = mainWindow.frame
+        
+        // Match the main window's width
+        let targetWidth = mainFrame.width
+        let currentHeight = window.frame.height
+        
+        // Determine the anchor window (the window we'll position below)
+        var anchorFrame = mainFrame
+        
+        // Check if the other sub-window is already visible
+        if preferBelowEQ {
+            // We're showing EQ - check if Playlist is visible
+            if let playlistWindow = playlistWindowController?.window, playlistWindow.isVisible {
+                anchorFrame = playlistWindow.frame
+            }
+        } else {
+            // We're showing Playlist - check if EQ is visible
+            if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
+                anchorFrame = eqWindow.frame
+            }
+        }
+        
+        // Position directly below the anchor window, left-aligned
+        let newOrigin = NSPoint(
+            x: anchorFrame.minX,
+            y: anchorFrame.minY - currentHeight  // Below the anchor
+        )
+        
+        // Set the frame with matched width
+        let newFrame = NSRect(
+            origin: newOrigin,
+            size: NSSize(width: targetWidth, height: currentHeight)
+        )
+        
+        window.setFrame(newFrame, display: true)
     }
     
     func showMediaLibrary() {
@@ -523,8 +581,55 @@ class WindowManager {
     
     /// Apply snapping to other windows and screen edges
     private func applySnapping(for window: NSWindow, to newOrigin: NSPoint) -> NSPoint {
-        var snappedOrigin = newOrigin
+        var snappedX = newOrigin.x
+        var snappedY = newOrigin.y
         let frame = NSRect(origin: newOrigin, size: window.frame.size)
+        
+        // Track best snaps (closest distance)
+        var bestHorizontalSnap: (distance: CGFloat, value: CGFloat)? = nil
+        var bestVerticalSnap: (distance: CGFloat, value: CGFloat)? = nil
+        
+        // Helper to check if ranges overlap (with tolerance for snapping)
+        func rangesOverlap(_ min1: CGFloat, _ max1: CGFloat, _ min2: CGFloat, _ max2: CGFloat) -> Bool {
+            return max1 > min2 - snapThreshold && min1 < max2 + snapThreshold
+        }
+        
+        // Snap to screen edges first
+        if let screen = window.screen ?? NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            
+            // Left edge to screen left
+            let leftDist = abs(frame.minX - screenFrame.minX)
+            if leftDist < snapThreshold {
+                if bestHorizontalSnap == nil || leftDist < bestHorizontalSnap!.distance {
+                    bestHorizontalSnap = (leftDist, screenFrame.minX)
+                }
+            }
+            
+            // Right edge to screen right
+            let rightDist = abs(frame.maxX - screenFrame.maxX)
+            if rightDist < snapThreshold {
+                if bestHorizontalSnap == nil || rightDist < bestHorizontalSnap!.distance {
+                    bestHorizontalSnap = (rightDist, screenFrame.maxX - frame.width)
+                }
+            }
+            
+            // Bottom edge to screen bottom
+            let bottomDist = abs(frame.minY - screenFrame.minY)
+            if bottomDist < snapThreshold {
+                if bestVerticalSnap == nil || bottomDist < bestVerticalSnap!.distance {
+                    bestVerticalSnap = (bottomDist, screenFrame.minY)
+                }
+            }
+            
+            // Top edge to screen top
+            let topDist = abs(frame.maxY - screenFrame.maxY)
+            if topDist < snapThreshold {
+                if bestVerticalSnap == nil || topDist < bestVerticalSnap!.distance {
+                    bestVerticalSnap = (topDist, screenFrame.maxY - frame.height)
+                }
+            }
+        }
         
         // Snap to other visible windows
         for otherWindow in allWindows() {
@@ -534,42 +639,97 @@ class WindowManager {
             
             let otherFrame = otherWindow.frame
             
-            // Horizontal snapping - snap right edge to left edge
-            if abs(frame.maxX - otherFrame.minX) < snapThreshold {
-                snappedOrigin.x = otherFrame.minX - frame.width
-            }
-            // Snap left edge to right edge
-            if abs(frame.minX - otherFrame.maxX) < snapThreshold {
-                snappedOrigin.x = otherFrame.maxX
-            }
-            // Snap left edges together
-            if abs(frame.minX - otherFrame.minX) < snapThreshold {
-                snappedOrigin.x = otherFrame.minX
-            }
-            // Snap right edges together
-            if abs(frame.maxX - otherFrame.maxX) < snapThreshold {
-                snappedOrigin.x = otherFrame.maxX - frame.width
+            // Check if windows overlap or are close vertically (for horizontal snapping)
+            let verticallyClose = rangesOverlap(frame.minY, frame.maxY, otherFrame.minY, otherFrame.maxY)
+            
+            // Check if windows overlap or are close horizontally (for vertical snapping)
+            let horizontallyClose = rangesOverlap(frame.minX, frame.maxX, otherFrame.minX, otherFrame.maxX)
+            
+            // HORIZONTAL SNAPPING (only if vertically aligned)
+            if verticallyClose {
+                // Priority 1: Edge-to-edge docking (most intuitive)
+                // Snap right edge to left edge (dock side by side)
+                let rightToLeftDist = abs(frame.maxX - otherFrame.minX)
+                if rightToLeftDist < snapThreshold {
+                    if bestHorizontalSnap == nil || rightToLeftDist < bestHorizontalSnap!.distance {
+                        bestHorizontalSnap = (rightToLeftDist, otherFrame.minX - frame.width)
+                    }
+                }
+                
+                // Snap left edge to right edge (dock side by side)
+                let leftToRightDist = abs(frame.minX - otherFrame.maxX)
+                if leftToRightDist < snapThreshold {
+                    if bestHorizontalSnap == nil || leftToRightDist < bestHorizontalSnap!.distance {
+                        bestHorizontalSnap = (leftToRightDist, otherFrame.maxX)
+                    }
+                }
+                
+                // Priority 2: Edge alignment (only if not already snapping to edge-to-edge)
+                // Snap left edges together
+                let leftToLeftDist = abs(frame.minX - otherFrame.minX)
+                if leftToLeftDist < snapThreshold && leftToLeftDist > 0 {
+                    if bestHorizontalSnap == nil || leftToLeftDist < bestHorizontalSnap!.distance * 0.8 {
+                        // Only use alignment snap if significantly closer (0.8 factor)
+                        bestHorizontalSnap = (leftToLeftDist, otherFrame.minX)
+                    }
+                }
+                
+                // Snap right edges together
+                let rightToRightDist = abs(frame.maxX - otherFrame.maxX)
+                if rightToRightDist < snapThreshold && rightToRightDist > 0 {
+                    if bestHorizontalSnap == nil || rightToRightDist < bestHorizontalSnap!.distance * 0.8 {
+                        bestHorizontalSnap = (rightToRightDist, otherFrame.maxX - frame.width)
+                    }
+                }
             }
             
-            // Vertical snapping - snap top to bottom
-            if abs(frame.maxY - otherFrame.minY) < snapThreshold {
-                snappedOrigin.y = otherFrame.minY - frame.height
-            }
-            // Snap bottom to top
-            if abs(frame.minY - otherFrame.maxY) < snapThreshold {
-                snappedOrigin.y = otherFrame.maxY
-            }
-            // Snap tops together
-            if abs(frame.maxY - otherFrame.maxY) < snapThreshold {
-                snappedOrigin.y = otherFrame.maxY - frame.height
-            }
-            // Snap bottoms together
-            if abs(frame.minY - otherFrame.minY) < snapThreshold {
-                snappedOrigin.y = otherFrame.minY
+            // VERTICAL SNAPPING (only if horizontally aligned)
+            if horizontallyClose {
+                // Priority 1: Edge-to-edge docking
+                // Snap bottom edge to top edge (stack below)
+                let bottomToTopDist = abs(frame.minY - otherFrame.maxY)
+                if bottomToTopDist < snapThreshold {
+                    if bestVerticalSnap == nil || bottomToTopDist < bestVerticalSnap!.distance {
+                        bestVerticalSnap = (bottomToTopDist, otherFrame.maxY)
+                    }
+                }
+                
+                // Snap top edge to bottom edge (stack above)
+                let topToBottomDist = abs(frame.maxY - otherFrame.minY)
+                if topToBottomDist < snapThreshold {
+                    if bestVerticalSnap == nil || topToBottomDist < bestVerticalSnap!.distance {
+                        bestVerticalSnap = (topToBottomDist, otherFrame.minY - frame.height)
+                    }
+                }
+                
+                // Priority 2: Edge alignment
+                // Snap top edges together
+                let topToTopDist = abs(frame.maxY - otherFrame.maxY)
+                if topToTopDist < snapThreshold && topToTopDist > 0 {
+                    if bestVerticalSnap == nil || topToTopDist < bestVerticalSnap!.distance * 0.8 {
+                        bestVerticalSnap = (topToTopDist, otherFrame.maxY - frame.height)
+                    }
+                }
+                
+                // Snap bottom edges together
+                let bottomToBottomDist = abs(frame.minY - otherFrame.minY)
+                if bottomToBottomDist < snapThreshold && bottomToBottomDist > 0 {
+                    if bestVerticalSnap == nil || bottomToBottomDist < bestVerticalSnap!.distance * 0.8 {
+                        bestVerticalSnap = (bottomToBottomDist, otherFrame.minY)
+                    }
+                }
             }
         }
         
-        return snappedOrigin
+        // Apply best snaps
+        if let hSnap = bestHorizontalSnap {
+            snappedX = hSnap.value
+        }
+        if let vSnap = bestVerticalSnap {
+            snappedY = vSnap.value
+        }
+        
+        return NSPoint(x: snappedX, y: snappedY)
     }
     
     /// Find all windows that are docked (touching) the given window
