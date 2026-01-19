@@ -315,6 +315,14 @@ curl -s "https://raw.githubusercontent.com/captbaritone/webamp/master/packages/w
 
 ## Version History
 
+- **2026-01-19**: Plex Browser server name circular scrolling
+  - Added marquee-style circular scrolling for long server names in the Plex Browser server bar
+  - Server name scrolls when it exceeds the available width between "PLEX SERVER:" label and item count
+  - Uses the same pattern as MainWindowView's marquee (timer-based offset animation)
+  - Key implementation: `serverNameScrollOffset` property, `serverScrollTimer`, `drawScrollingServerName()`
+  - Scroll speed: 1px per 0.05s (20fps), with separator "   " for seamless wrap
+  - Clipping applied to the server name area to create the scroll viewport effect
+
 - **2026-01-19**: Plex Browser skin text font
   - Updated all text in Plex Browser to use TEXT.BMP pixel font via `renderer.drawSkinText()`
   - Replaced NSFont.systemFont() with skin sprite-based text for: server bar, tab bar, search bar, list items, alphabet index, empty/error/loading states

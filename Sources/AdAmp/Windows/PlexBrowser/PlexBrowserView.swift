@@ -107,6 +107,11 @@ class PlexBrowserView: NSView {
     private var loadingAnimationTimer: Timer?
     private var loadingAnimationFrame: Int = 0
     
+    /// Server name scrolling animation
+    private var serverNameScrollOffset: CGFloat = 0
+    private var serverScrollTimer: Timer?
+    private var lastServerName: String = ""
+    
     /// Shade mode state
     private(set) var isShadeMode = false
     
@@ -180,6 +185,9 @@ class PlexBrowserView: NSView {
         
         // Initial data load
         reloadData()
+        
+        // Start server name scroll animation
+        startServerNameScroll()
     }
     
     @objc private func plexContentDidPreload() {
@@ -190,6 +198,7 @@ class PlexBrowserView: NSView {
     deinit {
         NotificationCenter.default.removeObserver(self)
         stopLoadingAnimation()
+        stopServerNameScroll()
     }
     
     // MARK: - Scaling Support
@@ -400,10 +409,9 @@ class PlexBrowserView: NSView {
             let prefix = "Plex Server: "
             drawScaledSkinText(prefix, at: NSPoint(x: barRect.minX + 4, y: textY), scale: textScale, renderer: renderer, in: context)
             
-            // Server name in WHITE skin text
-            let serverText = manager.currentServer?.name ?? "Select Server"
+            // Calculate layout positions for the bar
             let prefixWidth = CGFloat(prefix.count) * scaledCharWidth
-            drawScaledWhiteSkinText(serverText, at: NSPoint(x: barRect.minX + 4 + prefixWidth, y: textY), scale: textScale, renderer: renderer, in: context)
+            let serverNameStartX = barRect.minX + 4 + prefixWidth
             
             // Right side: Refresh icon in green skin text
             let refreshX = barRect.maxX - scaledCharWidth - 4
@@ -418,11 +426,28 @@ class PlexBrowserView: NSView {
             // Item count (center) - number in gray, "items" in green
             let countNumber = "\(displayItems.count)"
             let countLabel = " items"
-            let totalWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
-            let countX = barRect.midX - totalWidth / 2
+            let countTotalWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
+            let countX = barRect.midX - countTotalWidth / 2
             drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
             let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
             drawScaledSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
+            
+            // Server name in WHITE skin text - with circular scrolling if too long
+            let serverText = manager.currentServer?.name ?? "Select Server"
+            let serverTextWidth = CGFloat(serverText.count) * scaledCharWidth
+            
+            // Available width for server name (from after prefix to before item count, with padding)
+            let availableWidth = countX - serverNameStartX - 16
+            
+            if serverTextWidth <= availableWidth || availableWidth <= 0 {
+                // Text fits - draw normally
+                drawScaledWhiteSkinText(serverText, at: NSPoint(x: serverNameStartX, y: textY), scale: textScale, renderer: renderer, in: context)
+            } else {
+                // Text too long - draw with circular scrolling and clipping
+                drawScrollingServerName(serverText, startX: serverNameStartX, textY: textY,
+                                       availableWidth: availableWidth, scale: textScale,
+                                       renderer: renderer, in: context)
+            }
         } else {
             // Not linked message in green skin text
             let linkText = "Click to link your Plex account"
@@ -430,6 +455,47 @@ class PlexBrowserView: NSView {
             let linkX = barRect.midX - linkWidth / 2
             drawScaledSkinText(linkText, at: NSPoint(x: linkX, y: textY), scale: textScale, renderer: renderer, in: context)
         }
+    }
+    
+    /// Draw server name with circular scrolling when it's too long
+    private func drawScrollingServerName(_ text: String, startX: CGFloat, textY: CGFloat,
+                                         availableWidth: CGFloat, scale: CGFloat,
+                                         renderer: SkinRenderer, in context: CGContext) {
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
+        let scaledCharWidth = charWidth * scale
+        let scaledCharHeight = charHeight * scale
+        
+        let textWidth = CGFloat(text.count) * scaledCharWidth
+        let separator = "   "  // Separator for seamless wrap
+        let separatorWidth = CGFloat(separator.count) * scaledCharWidth
+        let totalCycleWidth = textWidth + separatorWidth
+        
+        // Clip to the available area
+        context.saveGState()
+        let clipRect = NSRect(x: startX, y: textY, width: availableWidth, height: scaledCharHeight)
+        context.clip(to: clipRect)
+        
+        // Draw two copies of "text + separator" for seamless circular scrolling
+        let fullText = text + separator
+        
+        for pass in 0..<2 {
+            let baseX = startX - serverNameScrollOffset + (CGFloat(pass) * totalCycleWidth)
+            
+            // Check if this pass could be visible
+            if baseX + totalCycleWidth < startX || baseX > startX + availableWidth {
+                continue
+            }
+            
+            // Draw text at calculated position using scaled white skin text
+            context.saveGState()
+            context.translateBy(x: baseX, y: textY)
+            context.scaleBy(x: scale, y: scale)
+            renderer.drawSkinTextWhite(fullText, at: NSPoint(x: 0, y: 0), in: context)
+            context.restoreGState()
+        }
+        
+        context.restoreGState()
     }
     
     private func drawTabBar(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
@@ -840,6 +906,93 @@ class PlexBrowserView: NSView {
         loadingAnimationTimer?.invalidate()
         loadingAnimationTimer = nil
         loadingAnimationFrame = 0
+    }
+    
+    // MARK: - Server Name Scroll Animation
+    
+    private func startServerNameScroll() {
+        guard serverScrollTimer == nil else { return }
+        serverScrollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.updateServerNameScroll()
+        }
+    }
+    
+    private func stopServerNameScroll() {
+        serverScrollTimer?.invalidate()
+        serverScrollTimer = nil
+        serverNameScrollOffset = 0
+    }
+    
+    private func updateServerNameScroll() {
+        let manager = PlexManager.shared
+        guard manager.isLinked else {
+            if serverNameScrollOffset != 0 {
+                serverNameScrollOffset = 0
+                needsDisplay = true
+            }
+            return
+        }
+        
+        let serverName = manager.currentServer?.name ?? "Select Server"
+        
+        // Reset scroll if server name changed
+        if serverName != lastServerName {
+            lastServerName = serverName
+            serverNameScrollOffset = 0
+        }
+        
+        let charWidth = SkinElements.TextFont.charWidth
+        let textScale: CGFloat = 1.5
+        let scaledCharWidth = charWidth * textScale
+        
+        // Calculate available width for server name
+        let drawBounds = bounds
+        let barRect = NSRect(x: Layout.leftBorder, y: Layout.titleBarHeight,
+                            width: drawBounds.width - Layout.leftBorder - Layout.rightBorder,
+                            height: Layout.serverBarHeight)
+        
+        let prefix = "Plex Server: "
+        let prefixWidth = CGFloat(prefix.count) * scaledCharWidth
+        let serverNameStartX = barRect.minX + 4 + prefixWidth
+        
+        // Center elements: item count
+        let countNumber = "\(displayItems.count)"
+        let countLabel = " items"
+        let countTotalWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
+        let countCenterX = barRect.midX
+        let countStartX = countCenterX - countTotalWidth / 2
+        
+        // Available width for server name (from after prefix to before count, with padding)
+        let availableWidth = countStartX - serverNameStartX - 16  // 16px padding
+        
+        let serverTextWidth = CGFloat(serverName.count) * scaledCharWidth
+        
+        if serverTextWidth > availableWidth && availableWidth > 0 {
+            // Text is too long, scroll it
+            let separator = "   "  // Separator for circular scroll
+            let separatorWidth = CGFloat(separator.count) * scaledCharWidth
+            let totalCycleWidth = serverTextWidth + separatorWidth
+            
+            serverNameScrollOffset += 1
+            // Reset when one full cycle completes
+            if serverNameScrollOffset >= totalCycleWidth {
+                serverNameScrollOffset = 0
+            }
+            
+            // Only redraw the server bar area
+            let serverBarArea = NSRect(x: 0, y: bounds.height - Layout.titleBarHeight - Layout.serverBarHeight,
+                                       width: bounds.width, height: Layout.serverBarHeight)
+            setNeedsDisplay(serverBarArea)
+        } else {
+            // Text fits - no scrolling needed
+            if serverNameScrollOffset != 0 {
+                serverNameScrollOffset = 0
+                let serverBarArea = NSRect(x: 0, y: bounds.height - Layout.titleBarHeight - Layout.serverBarHeight,
+                                           width: bounds.width, height: Layout.serverBarHeight)
+                setNeedsDisplay(serverBarArea)
+            }
+        }
     }
     
     // MARK: - Public Methods
