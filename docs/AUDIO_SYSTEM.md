@@ -204,6 +204,66 @@ Formats supported by AVAudioFile:
 
 - **macOS 13.0+** (required by AudioStreaming library)
 
+## Plex Play Statistics
+
+When playing Plex content, AdAmp reports playback activity back to the Plex server. This enables:
+
+- **Play count tracking** - Tracks are marked as "played" and count increments
+- **Last played date** - Server records when you last listened/watched
+- **Now Playing** - Shows what's playing in other Plex clients
+- **Continue watching** - Resume playback where you left off (videos)
+
+### PlexPlaybackReporter
+
+The `PlexPlaybackReporter` singleton manages all Plex reporting:
+
+```swift
+// Automatic integration - no manual calls needed
+// AudioEngine calls the reporter at appropriate playback events:
+- trackDidStart()    // When a Plex track begins playing
+- trackDidPause()    // When playback is paused
+- trackDidResume()   // When playback resumes
+- trackDidStop()     // When playback stops or track finishes
+- updatePosition()   // Called every 100ms for progress tracking
+```
+
+### Timeline Updates
+
+Periodic updates are sent to Plex every **10 seconds** during playback:
+- Current playback position
+- Playing/paused/stopped state
+- Enables "Now Playing" in Plex dashboard
+
+### Scrobbling
+
+A track is marked as "played" (scrobbled) when:
+1. Track reaches **90% completion**, OR
+2. Track finishes naturally (reaches the end)
+
+**AND** at least **30 seconds** have been played (prevents accidental scrobbles from quick skips).
+
+### API Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/:/timeline` | Report playback state and position |
+| `/:/scrobble` | Mark item as played |
+| `/:/unscrobble` | Mark item as unplayed |
+| `/:/progress` | Update resume position |
+
+### Track Model Integration
+
+Plex items include a `plexRatingKey` property in the Track model:
+
+```swift
+struct Track {
+    // ... other properties ...
+    let plexRatingKey: String?  // nil for local files
+}
+```
+
+The reporter checks for this key and only reports for Plex content.
+
 ## Historical Note
 
 Prior to the AudioStreaming integration, Plex streaming used `AVPlayer` which outputs directly to hardware, bypassing `AVAudioEngine`. An attempt was made to bridge this using `MTAudioProcessingTap` and a ring buffer to route audio through the EQ, but this failed due to fundamental timing mismatches between the tap's push model and the engine's pull model.

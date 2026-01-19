@@ -345,6 +345,11 @@ class AudioEngine {
             playbackStartDate = Date()
             state = .playing
             startTimeUpdates()
+            
+            // Report resume to Plex
+            if let track = currentTrack {
+                PlexPlaybackReporter.shared.trackDidResume(at: currentTime)
+            }
         } else {
             // Local file playback via AVAudioEngine
             do {
@@ -355,6 +360,11 @@ class AudioEngine {
                 playbackStartDate = Date()  // Start tracking time
                 state = .playing
                 startTimeUpdates()
+                
+                // Report resume to Plex (local files won't have plexRatingKey so this is a no-op)
+                if let track = currentTrack {
+                    PlexPlaybackReporter.shared.trackDidResume(at: currentTime)
+                }
             } catch {
                 print("Failed to start audio engine: \(error)")
             }
@@ -376,6 +386,7 @@ class AudioEngine {
     /// Pause local playback only (used internally when casting takes over)
     func pauseLocalOnly() {
         // Save current position before pausing
+        let pausePosition = currentTime
         if let startDate = playbackStartDate {
             _currentTime += Date().timeIntervalSince(startDate)
         }
@@ -388,6 +399,9 @@ class AudioEngine {
         }
         state = .paused
         stopTimeUpdates()
+        
+        // Report pause to Plex
+        PlexPlaybackReporter.shared.trackDidPause(at: pausePosition)
     }
     
     func stop() {
@@ -404,6 +418,9 @@ class AudioEngine {
     /// Stop local playback without affecting cast session
     /// Used when loading new tracks while casting - we want to keep the cast session active
     private func stopLocalOnly() {
+        // Capture position before stopping for Plex reporting
+        let stopPosition = currentTime
+        
         // Increment generation to invalidate completion handlers
         playbackGeneration += 1
         let currentGeneration = playbackGeneration
@@ -419,6 +436,9 @@ class AudioEngine {
         lastReportedTime = 0
         state = .stopped
         stopTimeUpdates()
+        
+        // Report stop to Plex (not finished - user manually stopped)
+        PlexPlaybackReporter.shared.trackDidStop(at: stopPosition, finished: false)
         
         // Clear spectrum analyzer
         clearSpectrum()
@@ -743,6 +763,9 @@ class AudioEngine {
             self.lastReportedTime = current
             self.delegate?.audioEngineDidUpdateTime(current: current, duration: trackDuration)
             
+            // Update Plex playback position (for scrobble threshold detection)
+            PlexPlaybackReporter.shared.updatePosition(current)
+            
             // Decay spectrum when not playing locally (casting or stopped)
             if self.isCastingActive || self.state != .playing {
                 self.decaySpectrum()
@@ -940,6 +963,10 @@ class AudioEngine {
                     self?.handlePlaybackComplete(generation: currentGeneration)
                 }
             }
+            
+            // Report track start to Plex (no-op for local files without plexRatingKey)
+            PlexPlaybackReporter.shared.trackDidStart(track, at: 0)
+            
             NSLog("loadLocalTrack: file scheduled, EQ bypass = %d", eqNode.bypass)
         } catch {
             NSLog("loadLocalTrack: FAILED - %@", error.localizedDescription)
@@ -980,6 +1007,9 @@ class AudioEngine {
         // Start playback through the streaming player (routes through AVAudioEngine with EQ)
         streamingPlayer?.play(url: track.url)
         
+        // Report track start to Plex
+        PlexPlaybackReporter.shared.trackDidStart(track, at: 0)
+        
         NSLog("  Created StreamingAudioPlayer, starting playback with EQ")
     }
     
@@ -1013,6 +1043,10 @@ class AudioEngine {
     }
     
     private func trackDidFinish() {
+        // Report track finished to Plex (natural end)
+        let finishPosition = duration
+        PlexPlaybackReporter.shared.trackDidStop(at: finishPosition, finished: true)
+        
         if repeatEnabled {
             if shuffleEnabled {
                 // Repeat mode + shuffle: pick a random track
@@ -1185,6 +1219,10 @@ class AudioEngine {
         currentIndex = -1
         currentTrack = nil
         audioFile = nil
+        
+        // Stop Plex playback tracking
+        PlexPlaybackReporter.shared.stopTracking()
+        
         NSLog("clearPlaylist: done, playlist count=%d", playlist.count)
         delegate?.audioEngineDidChangePlaylist()
     }

@@ -688,7 +688,8 @@ class PlexManager {
             duration: plexTrack.durationInSeconds,
             bitrate: bitrate,
             sampleRate: nil,  // Plex doesn't provide sample rate in API
-            channels: channels
+            channels: channels,
+            plexRatingKey: plexTrack.id  // Store rating key for play tracking
         )
     }
     
