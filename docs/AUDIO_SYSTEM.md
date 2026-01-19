@@ -166,6 +166,46 @@ player.frameFiltering.add(entry: "spectrumAnalyzer") { [weak self] buffer, _ in
 delegate?.audioEngineDidUpdateSpectrum(spectrumData)
 ```
 
+## Milkdrop Visualization
+
+AdAmp includes a Milkdrop visualization window powered by projectM (libprojectM-4).
+
+### Idle Mode (Calm Visualization)
+
+When audio is not playing, the visualization automatically enters "idle mode" to provide a calmer visual experience:
+
+- **Beat sensitivity** is reduced from 1.0 (normal) to 0.2 (idle)
+- The visualization continues animating but responds less dramatically to any residual audio data
+- When music starts playing, beat sensitivity automatically returns to normal
+
+This prevents the visualization from appearing overly active when no music is playing.
+
+### Fullscreen Mode
+
+The Milkdrop window supports fullscreen mode:
+
+- Press **F** to toggle fullscreen
+- Press **Escape** to exit fullscreen
+- Menu bar and dock auto-hide in fullscreen
+- Window chrome is hidden for immersive viewing
+
+Note: The Milkdrop window uses a custom fullscreen implementation (rather than macOS native fullscreen) because it's a borderless window for authentic Winamp styling.
+
+### Keyboard Controls
+
+| Key | Action |
+|-----|--------|
+| F | Toggle fullscreen |
+| Escape | Exit fullscreen |
+| Space | Cycle visualization mode (Milkdrop → Spectrum → Oscilloscope) |
+| → | Next preset |
+| ← | Previous preset |
+| Shift+→ | Next preset (hard cut) |
+| Shift+← | Previous preset (hard cut) |
+| R | Random preset |
+| Shift+R | Random preset (hard cut) |
+| L | Toggle preset lock |
+
 ## Output Device Selection
 
 AudioEngine supports routing audio to specific output devices:

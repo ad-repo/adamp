@@ -57,6 +57,15 @@ class VisualizationGLView: NSOpenGLView {
         }
     }
     
+    /// Whether audio is currently playing (affects visualization behavior)
+    private var isAudioActive = false
+    
+    /// Normal beat sensitivity (restored when audio starts)
+    private let normalBeatSensitivity: Float = 1.0
+    
+    /// Idle beat sensitivity (used when audio is not playing for calmer visualization)
+    private let idleBeatSensitivity: Float = 0.2
+    
     /// Local copy of spectrum data for thread-safe access
     private var localSpectrum: [Float] = Array(repeating: 0, count: 75)
     private var localPCM: [Float] = Array(repeating: 0, count: 1024)
@@ -300,10 +309,13 @@ class VisualizationGLView: NSOpenGLView {
             // Load bundled presets
             pm.loadBundledPresets()
             
+            // Start with idle beat sensitivity (calmer until audio plays)
+            pm.beatSensitivity = idleBeatSensitivity
+            
             if pm.presetCount > 0 {
                 // Set default visualization mode to milkdrop
                 mode = .milkdrop
-                NSLog("VisualizationGLView: projectM initialized with %d presets", pm.presetCount)
+                NSLog("VisualizationGLView: projectM initialized with %d presets, idle beat sensitivity = %.2f", pm.presetCount, idleBeatSensitivity)
             } else {
                 // No presets found, fall back to spectrum
                 mode = .spectrum
@@ -379,6 +391,23 @@ class VisualizationGLView: NSOpenGLView {
             localPCM[i] = data[i]
         }
         dataLock.unlock()
+    }
+    
+    /// Set whether audio is actively playing
+    /// When false, visualization becomes calmer with reduced beat sensitivity
+    func setAudioActive(_ active: Bool) {
+        guard active != isAudioActive else { return }
+        isAudioActive = active
+        
+        if active {
+            // Audio started playing - restore normal beat sensitivity
+            projectM?.beatSensitivity = normalBeatSensitivity
+            NSLog("VisualizationGLView: Audio active, beat sensitivity = %.2f", normalBeatSensitivity)
+        } else {
+            // Audio stopped - reduce beat sensitivity for calmer visualization
+            projectM?.beatSensitivity = idleBeatSensitivity
+            NSLog("VisualizationGLView: Audio idle, beat sensitivity = %.2f", idleBeatSensitivity)
+        }
     }
     
     // MARK: - Frame Rendering

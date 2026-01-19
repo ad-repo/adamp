@@ -17,6 +17,11 @@ class MilkdropWindowController: NSWindowController {
     private var currentPresetIndex: Int = 0
     private var presetCount: Int = 0
     
+    /// Custom fullscreen state (for borderless window)
+    private var isCustomFullscreen = false
+    private var preFullscreenFrame: NSRect?
+    private var preFullscreenLevel: NSWindow.Level = .normal
+    
     // MARK: - Initialization
     
     convenience init() {
@@ -146,18 +151,78 @@ class MilkdropWindowController: NSWindowController {
     // MARK: - Fullscreen
     
     /// Toggle fullscreen mode
+    /// Uses custom fullscreen implementation for borderless windows
     func toggleFullscreen() {
         guard let window = window else { return }
         
-        if window.styleMask.contains(.fullScreen) {
-            window.toggleFullScreen(nil)
+        if isCustomFullscreen {
+            exitCustomFullscreen()
         } else {
-            // Exit shade mode before going fullscreen
-            if isShadeMode {
-                setShadeMode(false)
-            }
-            window.toggleFullScreen(nil)
+            enterCustomFullscreen()
         }
+    }
+    
+    /// Enter custom fullscreen mode (for borderless window)
+    private func enterCustomFullscreen() {
+        guard let window = window else { return }
+        
+        // Exit shade mode before going fullscreen
+        if isShadeMode {
+            setShadeMode(false)
+        }
+        
+        // Get the screen containing the window (or main screen as fallback)
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        
+        // Store pre-fullscreen state
+        preFullscreenFrame = window.frame
+        preFullscreenLevel = window.level
+        
+        // Hide window chrome
+        milkdropView.setFullscreen(true)
+        
+        // Set window to fullscreen
+        isCustomFullscreen = true
+        window.level = .screenSaver  // Above everything except system dialogs
+        window.setFrame(screen.frame, display: true, animate: true)
+        
+        // Hide cursor after a short delay
+        NSCursor.setHiddenUntilMouseMoves(true)
+        
+        // Hide menu bar and dock
+        NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
+        
+        NSLog("MilkdropWindowController: Entered custom fullscreen")
+    }
+    
+    /// Exit custom fullscreen mode
+    private func exitCustomFullscreen() {
+        guard let window = window else { return }
+        
+        isCustomFullscreen = false
+        
+        // Restore window level
+        window.level = preFullscreenLevel
+        
+        // Restore presentation options
+        NSApp.presentationOptions = []
+        
+        // Show window chrome
+        milkdropView.setFullscreen(false)
+        
+        // Restore pre-fullscreen frame
+        if let frame = preFullscreenFrame {
+            window.setFrame(frame, display: true, animate: true)
+        }
+        
+        preFullscreenFrame = nil
+        
+        NSLog("MilkdropWindowController: Exited custom fullscreen")
+    }
+    
+    /// Whether the window is in custom fullscreen mode
+    var isFullscreen: Bool {
+        return isCustomFullscreen
     }
     
     // MARK: - Preset Navigation
@@ -239,6 +304,11 @@ extension MilkdropWindowController: NSWindowDelegate {
     }
     
     func windowWillClose(_ notification: Notification) {
+        // Exit fullscreen if needed before closing
+        if isCustomFullscreen {
+            exitCustomFullscreen()
+        }
+        
         // Stop rendering when window closes
         milkdropView.stopRendering()
         WindowManager.shared.notifyMainWindowVisibilityChanged()

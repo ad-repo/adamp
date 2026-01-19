@@ -22,6 +22,9 @@ class MilkdropView: NSView {
     /// Shade mode state
     private(set) var isShadeMode = false
     
+    /// Fullscreen mode state (hides window chrome)
+    private(set) var isFullscreen = false
+    
     /// Button being pressed (for visual feedback)
     private var pressedButton: SkinRenderer.MilkdropButtonType?
     
@@ -76,6 +79,11 @@ class MilkdropView: NSView {
     }
     
     private func calculateVisualizationArea() -> NSRect {
+        // In fullscreen mode, visualization takes the entire bounds
+        if isFullscreen {
+            return bounds
+        }
+        
         // The visualization area is the content area inside the chrome
         // Chrome: title bar at top, thin borders on sides and bottom
         let titleHeight = Layout.titleBarHeight
@@ -112,6 +120,13 @@ class MilkdropView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         
+        // In fullscreen mode, just draw black background (visualization fills the rest)
+        if isFullscreen {
+            context.setFillColor(NSColor.black.cgColor)
+            context.fill(bounds)
+            return
+        }
+        
         let skin = WindowManager.shared.currentSkin
         let renderer = SkinRenderer(skin: skin ?? SkinLoader.shared.loadDefault())
         let isActive = window?.isKeyWindow ?? true
@@ -134,6 +149,10 @@ class MilkdropView: NSView {
         guard !isShadeMode else { return }
         
         let audioEngine = WindowManager.shared.audioEngine
+        
+        // Update audio active state for idle mode (calmer visualization when not playing)
+        let isPlaying = audioEngine.state == .playing
+        visualizationGLView?.setAudioActive(isPlaying)
         
         // Get spectrum data from audio engine
         let spectrum = audioEngine.spectrumData
@@ -165,6 +184,13 @@ class MilkdropView: NSView {
             updateVisualizationFrame()
         }
         
+        needsDisplay = true
+    }
+    
+    /// Set fullscreen mode (hides window chrome)
+    func setFullscreen(_ enabled: Bool) {
+        isFullscreen = enabled
+        updateVisualizationFrame()
         needsDisplay = true
     }
     
@@ -375,6 +401,14 @@ class MilkdropView: NSView {
         let hasShift = event.modifierFlags.contains(.shift)
         
         switch event.keyCode {
+        case 53: // Escape - exit fullscreen if in fullscreen mode
+            if isFullscreen {
+                controller?.toggleFullscreen()
+                return
+            }
+            super.keyDown(with: event)
+            return
+            
         case 3: // F key - toggle fullscreen
             controller?.toggleFullscreen()
             
