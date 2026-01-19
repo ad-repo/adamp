@@ -303,29 +303,29 @@ class PlexBrowserView: NSView {
             let colors = skin?.playlistColors ?? .default
             
             // Draw server/library selector bar
-            drawServerBar(in: context, drawBounds: drawBounds, colors: colors)
+            drawServerBar(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             
             // Draw tab bar
-            drawTabBar(in: context, drawBounds: drawBounds, colors: colors)
+            drawTabBar(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             
             // Draw search bar (only in search mode)
             if browseMode == .search {
-                drawSearchBar(in: context, drawBounds: drawBounds, colors: colors)
+                drawSearchBar(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             }
             
             // Draw list area or connection status
             if !PlexManager.shared.isLinked {
-                drawNotLinkedState(in: context, drawBounds: drawBounds, colors: colors)
+                drawNotLinkedState(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             } else if isLoading {
-                drawLoadingState(in: context, drawBounds: drawBounds, colors: colors)
+                drawLoadingState(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             } else if let error = errorMessage {
-                drawErrorState(in: context, drawBounds: drawBounds, message: error, colors: colors)
+                drawErrorState(in: context, drawBounds: drawBounds, message: error, colors: colors, renderer: renderer)
             } else {
-                drawListArea(in: context, drawBounds: drawBounds, colors: colors)
+                drawListArea(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             }
             
             // Draw status bar text
-            drawStatusBarText(in: context, drawBounds: drawBounds, colors: colors)
+            drawStatusBarText(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
         }
         
         context.restoreGState()
@@ -346,9 +346,54 @@ class PlexBrowserView: NSView {
         return min(1, max(0, scrollOffset / scrollRange))
     }
     
-    // MARK: - Content Drawing (in Winamp coordinates, with counter-flip for text)
+    // MARK: - Content Drawing (in Winamp coordinates, using skin text font)
     
-    private func drawServerBar(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors) {
+    /// Helper to draw scaled skin text
+    private func drawScaledSkinText(_ text: String, at position: NSPoint, scale: CGFloat, renderer: SkinRenderer, in context: CGContext) {
+        context.saveGState()
+        context.translateBy(x: position.x, y: position.y)
+        context.scaleBy(x: scale, y: scale)
+        renderer.drawSkinText(text, at: NSPoint(x: 0, y: 0), in: context)
+        context.restoreGState()
+    }
+    
+    /// Helper to draw white text using system font (for selected/highlighted items)
+    private func drawWhiteText(_ text: String, centeredIn rect: NSRect, fontSize: CGFloat, in context: CGContext) {
+        context.saveGState()
+        let centerY = rect.midY
+        context.translateBy(x: 0, y: centerY)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: 0, y: -centerY)
+        
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .medium)
+        ]
+        let size = text.size(withAttributes: attrs)
+        let point = NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2)
+        text.draw(at: point, withAttributes: attrs)
+        
+        context.restoreGState()
+    }
+    
+    /// Helper to draw white text at a specific position using system font
+    private func drawWhiteTextAt(_ text: String, at position: NSPoint, fontSize: CGFloat, height: CGFloat, in context: CGContext) {
+        context.saveGState()
+        let centerY = position.y + height / 2
+        context.translateBy(x: 0, y: centerY)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: 0, y: -centerY)
+        
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .medium)
+        ]
+        text.draw(at: NSPoint(x: position.x, y: position.y), withAttributes: attrs)
+        
+        context.restoreGState()
+    }
+    
+    private func drawServerBar(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         let barY = Layout.titleBarHeight
         let barRect = NSRect(x: Layout.leftBorder, y: barY,
                             width: drawBounds.width - Layout.leftBorder - Layout.rightBorder,
@@ -359,67 +404,51 @@ class PlexBrowserView: NSView {
         context.fill(barRect)
         
         let manager = PlexManager.shared
-        
-        // Counter-flip for text rendering
-        context.saveGState()
-        let centerY = barRect.midY
-        context.translateBy(x: 0, y: centerY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -centerY)
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
+        let textScale: CGFloat = 1.5
+        let scaledCharWidth = charWidth * textScale
+        let scaledCharHeight = charHeight * textScale
+        let textY = barRect.minY + (barRect.height - scaledCharHeight) / 2
         
         if manager.isLinked {
-            let textAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: colors.normalText,
-                .font: NSFont.systemFont(ofSize: 10)
-            ]
+            // Left side: "Plex Server:" label in green skin text
+            let prefix = "Plex Server: "
+            drawScaledSkinText(prefix, at: NSPoint(x: barRect.minX + 4, y: textY), scale: textScale, renderer: renderer, in: context)
             
-            // Left side: Plex Server dropdown (allow more space for long names)
+            // Server name in WHITE (system font)
             let serverText = manager.currentServer?.name ?? "Select Server"
-            let serverLabel = "Plex Server: \(serverText) ▼"
-            serverLabel.draw(at: NSPoint(x: barRect.minX + 4, y: barRect.minY + 6), withAttributes: textAttrs)
+            let serverLabel = "\(serverText) ▼"
+            let prefixWidth = CGFloat(prefix.count) * scaledCharWidth
+            drawWhiteTextAt(serverLabel, at: NSPoint(x: barRect.minX + 4 + prefixWidth, y: textY - 2), fontSize: 10, height: scaledCharHeight, in: context)
             
-            // Right side: Library dropdown and refresh icon
+            // Right side: Refresh icon in green skin text
+            let refreshX = barRect.maxX - scaledCharWidth - 4
+            drawScaledSkinText("O", at: NSPoint(x: refreshX, y: textY), scale: textScale, renderer: renderer, in: context)
+            
+            // Library name in WHITE (system font)
             let libraryText = manager.currentLibrary?.title ?? "Select Library"
             let libraryLabel = "\(libraryText) ▼"
-            let librarySize = libraryLabel.size(withAttributes: textAttrs)
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10, weight: .medium)]
+            let librarySize = libraryLabel.size(withAttributes: attrs)
+            let libraryX = refreshX - librarySize.width - 8
+            drawWhiteTextAt(libraryLabel, at: NSPoint(x: libraryX, y: textY - 2), fontSize: 10, height: scaledCharHeight, in: context)
             
-            // Refresh icon (far right, after library)
-            let refreshIcon = "↻"
-            let refreshAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: colors.currentText,
-                .font: NSFont.systemFont(ofSize: 12)
-            ]
-            let refreshSize = refreshIcon.size(withAttributes: refreshAttrs)
-            refreshIcon.draw(at: NSPoint(x: barRect.maxX - refreshSize.width - 4, y: barRect.minY + 5), withAttributes: refreshAttrs)
-            
-            // Library dropdown (to the left of refresh)
-            libraryLabel.draw(at: NSPoint(x: barRect.maxX - refreshSize.width - librarySize.width - 12, y: barRect.minY + 6),
-                            withAttributes: textAttrs)
-            
-            // Item count (center, subtle)
+            // Item count (center) in green skin text
             let itemCount = "\(displayItems.count) items"
-            let countAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: colors.normalText.withAlphaComponent(0.5),
-                .font: NSFont.systemFont(ofSize: 9)
-            ]
-            let countSize = itemCount.size(withAttributes: countAttrs)
-            itemCount.draw(at: NSPoint(x: barRect.midX - countSize.width / 2, y: barRect.minY + 7), withAttributes: countAttrs)
+            let countWidth = CGFloat(itemCount.count) * scaledCharWidth
+            let countX = barRect.midX - countWidth / 2
+            drawScaledSkinText(itemCount, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
         } else {
-            // Not linked message
+            // Not linked message in green skin text
             let linkText = "Click to link your Plex account"
-            let linkAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor(calibratedRed: 0.9, green: 0.6, blue: 0.1, alpha: 1.0),
-                .font: NSFont.systemFont(ofSize: 10)
-            ]
-            let linkSize = linkText.size(withAttributes: linkAttrs)
-            linkText.draw(at: NSPoint(x: barRect.midX - linkSize.width / 2, y: barRect.minY + 6),
-                         withAttributes: linkAttrs)
+            let linkWidth = CGFloat(linkText.count) * scaledCharWidth
+            let linkX = barRect.midX - linkWidth / 2
+            drawScaledSkinText(linkText, at: NSPoint(x: linkX, y: textY), scale: textScale, renderer: renderer, in: context)
         }
-        
-        context.restoreGState()
     }
     
-    private func drawTabBar(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors) {
+    private func drawTabBar(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         let tabBarY = Layout.titleBarHeight + Layout.serverBarHeight
         let tabBarRect = NSRect(x: Layout.leftBorder, y: tabBarY,
                                width: drawBounds.width - Layout.leftBorder - Layout.rightBorder,
@@ -431,34 +460,32 @@ class PlexBrowserView: NSView {
         
         // Draw tabs
         let tabWidth = tabBarRect.width / CGFloat(PlexBrowseMode.allCases.count)
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
+        let textScale: CGFloat = 1.5
+        let scaledCharWidth = charWidth * textScale
+        let scaledCharHeight = charHeight * textScale
         
         for (index, mode) in PlexBrowseMode.allCases.enumerated() {
             let tabRect = NSRect(x: tabBarRect.minX + CGFloat(index) * tabWidth, y: tabBarY,
                                 width: tabWidth, height: Layout.tabBarHeight)
             
-            // Selected tab indicated by white text only (no background fill)
+            let isSelected = mode == browseMode
             
-            // Tab title (counter-flip for text)
-            context.saveGState()
-            let centerY = tabRect.midY
-            context.translateBy(x: 0, y: centerY)
-            context.scaleBy(x: 1, y: -1)
-            context.translateBy(x: 0, y: -centerY)
-            
-            let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: mode == browseMode ? colors.currentText : colors.normalText.withAlphaComponent(0.6),
-                .font: NSFont.systemFont(ofSize: 10, weight: mode == browseMode ? .semibold : .regular)
-            ]
-            let titleSize = mode.title.size(withAttributes: attrs)
-            let titlePoint = NSPoint(x: tabRect.midX - titleSize.width / 2,
-                                    y: tabRect.midY - titleSize.height / 2)
-            mode.title.draw(at: titlePoint, withAttributes: attrs)
-            
-            context.restoreGState()
+            if isSelected {
+                // Selected tab in WHITE (system font)
+                drawWhiteText(mode.title, centeredIn: tabRect, fontSize: 10, in: context)
+            } else {
+                // Unselected tabs in green skin text
+                let titleWidth = CGFloat(mode.title.count) * scaledCharWidth
+                let textX = tabRect.midX - titleWidth / 2
+                let textY = tabRect.minY + (tabRect.height - scaledCharHeight) / 2
+                drawScaledSkinText(mode.title, at: NSPoint(x: textX, y: textY), scale: textScale, renderer: renderer, in: context)
+            }
         }
     }
     
-    private func drawSearchBar(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors) {
+    private func drawSearchBar(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         let searchY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
         let searchRect = NSRect(x: Layout.leftBorder + Layout.padding, y: searchY + 3,
                                width: drawBounds.width - Layout.leftBorder - Layout.rightBorder - Layout.padding * 2,
@@ -480,40 +507,23 @@ class PlexBrowserView: NSView {
             path.stroke()
         }
         
-        // Counter-flip for text
-        context.saveGState()
-        let centerY = searchRect.midY
-        context.translateBy(x: 0, y: centerY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -centerY)
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
+        let textY = searchRect.minY + (searchRect.height - charHeight) / 2
         
-        // Search icon
-        let iconAttrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: colors.normalText.withAlphaComponent(0.6),
-            .font: NSFont.systemFont(ofSize: 10)
-        ]
-        "🔍".draw(at: NSPoint(x: searchRect.minX + 6, y: searchRect.midY - 6), withAttributes: iconAttrs)
-        
-        // Search text or placeholder
-        let textAttrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: searchQuery.isEmpty ? colors.normalText.withAlphaComponent(0.5) : colors.normalText,
-            .font: NSFont.systemFont(ofSize: 10)
-        ]
+        // Search text or placeholder using skin font
         let displayText = searchQuery.isEmpty ? "Type to search..." : searchQuery
-        displayText.draw(at: NSPoint(x: searchRect.minX + 24, y: searchRect.midY - 6), withAttributes: textAttrs)
+        renderer.drawSkinText(displayText, at: NSPoint(x: searchRect.minX + 6, y: textY), in: context)
         
         // Draw cursor if focused
-        if isFocused {
-            let textSize = (searchQuery.isEmpty ? "" : searchQuery).size(withAttributes: textAttrs)
-            let cursorX = searchRect.minX + 24 + textSize.width + 1
+        if isFocused && !searchQuery.isEmpty {
+            let cursorX = searchRect.minX + 6 + CGFloat(searchQuery.count) * charWidth + 1
             colors.normalText.setFill()
-            context.fill(CGRect(x: cursorX, y: searchRect.midY - 5, width: 1, height: 10))
+            context.fill(CGRect(x: cursorX, y: textY, width: 1, height: charHeight))
         }
-        
-        context.restoreGState()
     }
     
-    private func drawNotLinkedState(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors) {
+    private func drawNotLinkedState(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         var listY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
         if browseMode == .search {
             listY += Layout.searchBarHeight
@@ -552,7 +562,7 @@ class PlexBrowserView: NSView {
         context.restoreGState()
     }
     
-    private func drawLoadingState(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors) {
+    private func drawLoadingState(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         var listY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
         if browseMode == .search {
             listY += Layout.searchBarHeight
@@ -592,7 +602,7 @@ class PlexBrowserView: NSView {
         startLoadingAnimation()
     }
     
-    private func drawErrorState(in context: CGContext, drawBounds: NSRect, message: String, colors: PlaylistColors) {
+    private func drawErrorState(in context: CGContext, drawBounds: NSRect, message: String, colors: PlaylistColors, renderer: SkinRenderer) {
         var listY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
         if browseMode == .search {
             listY += Layout.searchBarHeight
@@ -620,7 +630,7 @@ class PlexBrowserView: NSView {
         context.restoreGState()
     }
     
-    private func drawEmptyState(in context: CGContext, listRect: NSRect, colors: PlaylistColors) {
+    private func drawEmptyState(in context: CGContext, listRect: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         // Counter-flip for text
         context.saveGState()
         let centerY = listRect.midY
@@ -666,7 +676,7 @@ class PlexBrowserView: NSView {
         context.restoreGState()
     }
     
-    private func drawListArea(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors) {
+    private func drawListArea(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         var listY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
         if browseMode == .search {
             listY += Layout.searchBarHeight
@@ -681,7 +691,7 @@ class PlexBrowserView: NSView {
         
         // Show empty state message if no items
         if displayItems.isEmpty {
-            drawEmptyState(in: context, listRect: listRect, colors: colors)
+            drawEmptyState(in: context, listRect: listRect, colors: colors, renderer: renderer)
             return
         }
         
@@ -770,10 +780,10 @@ class PlexBrowserView: NSView {
         // Draw alphabet index
         let alphabetRect = NSRect(x: drawBounds.width - Layout.rightBorder - Layout.scrollbarWidth - alphabetWidth,
                                  y: listY, width: alphabetWidth, height: listHeight)
-        drawAlphabetIndex(in: context, rect: alphabetRect, colors: colors)
+        drawAlphabetIndex(in: context, rect: alphabetRect, colors: colors, renderer: renderer)
     }
     
-    private func drawAlphabetIndex(in context: CGContext, rect: NSRect, colors: PlaylistColors) {
+    private func drawAlphabetIndex(in context: CGContext, rect: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         // Background
         colors.normalBackground.withAlphaComponent(0.3).setFill()
         context.fill(rect)
@@ -826,7 +836,7 @@ class PlexBrowserView: NSView {
         }
     }
     
-    private func drawStatusBarText(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors) {
+    private func drawStatusBarText(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
         // Status info is now shown in the top server bar
         // This function is kept for potential future use but draws nothing
     }

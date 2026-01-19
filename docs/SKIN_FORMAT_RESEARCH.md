@@ -315,6 +315,13 @@ curl -s "https://raw.githubusercontent.com/captbaritone/webamp/master/packages/w
 
 ## Version History
 
+- **2026-01-19**: Plex Browser skin text font
+  - Updated all text in Plex Browser to use TEXT.BMP pixel font via `renderer.drawSkinText()`
+  - Replaced NSFont.systemFont() with skin sprite-based text for: server bar, tab bar, search bar, list items, alphabet index, empty/error/loading states
+  - Key insight: Sprite-based text doesn't need counter-flip transformation (sprites handle coordinate system)
+  - Text width calculation: `CGFloat(text.count) * SkinElements.TextFont.charWidth`
+  - All Plex Browser content now matches the low-res pixel aesthetic of other windows
+
 - **2026-01-18**: Plex Browser title bar color matching
   - Muted title text colors from 0.8 to 0.55 white (active) / 0.35 white (inactive)
   - Added window focus state support - title bar dims when window loses focus
