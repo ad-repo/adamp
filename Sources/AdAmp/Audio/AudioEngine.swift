@@ -1371,7 +1371,12 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
     
     func streamingPlayerDidFinishPlaying() {
         // Handle track completion - advance to next track
-        handlePlaybackComplete(generation: playbackGeneration)
+        // Note: We call trackDidFinish() directly instead of handlePlaybackComplete()
+        // because the streaming player's state change callback (.stopped) fires BEFORE
+        // this callback, so self.state is already .stopped by the time we get here.
+        // The generation check is also unnecessary since we know this is a natural EOF.
+        NSLog("AudioEngine: Streaming track finished, advancing playlist")
+        trackDidFinish()
     }
     
     func streamingPlayerDidUpdateSpectrum(_ levels: [Float]) {
