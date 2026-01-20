@@ -65,10 +65,7 @@ class WindowManager {
     /// Equalizer window controller
     private(set) var equalizerWindowController: EQWindowController?
     
-    /// Media library window controller
-    private var mediaLibraryWindowController: MediaLibraryWindowController?
-    
-    /// Plex browser window controller
+    /// Plex browser window controller (also handles local media library)
     private var plexBrowserWindowController: PlexBrowserWindowController?
     
     /// Video player window controller
@@ -254,24 +251,20 @@ class WindowManager {
         window.setFrame(newFrame, display: true)
     }
     
+    /// Show local media library (redirects to unified browser in local mode)
     func showMediaLibrary() {
-        if mediaLibraryWindowController == nil {
-            mediaLibraryWindowController = MediaLibraryWindowController()
-        }
-        mediaLibraryWindowController?.showWindow(nil)
-        applyAlwaysOnTopToWindow(mediaLibraryWindowController?.window)
+        // Redirect to unified browser - it handles both Plex and local files
+        showPlexBrowser()
     }
     
     var isMediaLibraryVisible: Bool {
-        mediaLibraryWindowController?.window?.isVisible == true
+        // Redirects to unified browser visibility
+        isPlexBrowserVisible
     }
     
     func toggleMediaLibrary() {
-        if let controller = mediaLibraryWindowController, controller.window?.isVisible == true {
-            controller.window?.orderOut(nil)
-        } else {
-            showMediaLibrary()
-        }
+        // Redirect to unified browser toggle
+        togglePlexBrowser()
     }
     
     // MARK: - Plex Browser Window
@@ -502,7 +495,6 @@ class WindowManager {
         mainWindowController?.skinDidChange()
         playlistWindowController?.skinDidChange()
         equalizerWindowController?.skinDidChange()
-        mediaLibraryWindowController?.skinDidChange()
         plexBrowserWindowController?.skinDidChange()
         milkdropWindowController?.skinDidChange()
     }
@@ -594,7 +586,7 @@ class WindowManager {
             playlistWindow.setFrame(playlistFrame, display: true, animate: true)
         }
         
-        // Plex browser - maintain relative position to main window (don't scale size)
+        // Plex browser (unified music browser) - maintain relative position to main window (don't scale size)
         if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
             var plexFrame = plexWindow.frame
             // Calculate offset from old main window
@@ -605,18 +597,6 @@ class WindowManager {
             plexFrame.origin.y = mainFrame.maxY + offsetY - plexFrame.height
             plexWindow.setFrame(plexFrame, display: true, animate: true)
         }
-        
-        // Media library - maintain relative position to main window (don't scale size)
-        if let libraryWindow = mediaLibraryWindowController?.window, libraryWindow.isVisible {
-            var libraryFrame = libraryWindow.frame
-            // Calculate offset from old main window
-            let offsetX = libraryFrame.minX - oldMainFrame.maxX
-            let offsetY = libraryFrame.maxY - oldMainFrame.maxY
-            // Apply same offset to new main window position
-            libraryFrame.origin.x = mainFrame.maxX + offsetX
-            libraryFrame.origin.y = mainFrame.maxY + offsetY - libraryFrame.height
-            libraryWindow.setFrame(libraryFrame, display: true, animate: true)
-        }
     }
     
     private func applyAlwaysOnTop() {
@@ -626,7 +606,6 @@ class WindowManager {
         mainWindowController?.window?.level = level
         equalizerWindowController?.window?.level = level
         playlistWindowController?.window?.level = level
-        mediaLibraryWindowController?.window?.level = level
         plexBrowserWindowController?.window?.level = level
         videoPlayerWindowController?.window?.level = level
         milkdropWindowController?.window?.level = level
@@ -644,7 +623,6 @@ class WindowManager {
         let windows: [NSWindow?] = [
             equalizerWindowController?.window,
             playlistWindowController?.window,
-            mediaLibraryWindowController?.window,
             plexBrowserWindowController?.window,
             videoPlayerWindowController?.window,
             milkdropWindowController?.window
@@ -664,7 +642,6 @@ class WindowManager {
         defaults.removeObject(forKey: "MainWindowFrame")
         defaults.removeObject(forKey: "PlaylistWindowFrame")
         defaults.removeObject(forKey: "EqualizerWindowFrame")
-        defaults.removeObject(forKey: "MediaLibraryWindowFrame")
         defaults.removeObject(forKey: "PlexBrowserWindowFrame")
         defaults.removeObject(forKey: "VideoPlayerWindowFrame")
         defaults.removeObject(forKey: "MilkdropWindowFrame")
@@ -701,7 +678,7 @@ class WindowManager {
             playlistWindow.setFrame(newFrame, display: true, animate: true)
         }
         
-        // Position Plex Browser to the right of main window if visible
+        // Position Plex Browser (unified music browser) to the right of main window if visible
         if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
             let newFrame = NSRect(
                 x: mainFrame.maxX,
@@ -710,24 +687,6 @@ class WindowManager {
                 height: plexWindow.frame.height
             )
             plexWindow.setFrame(newFrame, display: true, animate: true)
-        }
-        
-        // Position Media Library to the right of main, below Plex if visible
-        if let libraryWindow = mediaLibraryWindowController?.window, libraryWindow.isVisible {
-            var newY = mainFrame.maxY - libraryWindow.frame.height
-            
-            // Stack below Plex Browser if it's visible
-            if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
-                newY = plexWindow.frame.minY - libraryWindow.frame.height
-            }
-            
-            let newFrame = NSRect(
-                x: mainFrame.maxX,
-                y: newY,
-                width: libraryWindow.frame.width,
-                height: libraryWindow.frame.height
-            )
-            libraryWindow.setFrame(newFrame, display: true, animate: true)
         }
         
         // Position Milkdrop to the left of main window if visible
@@ -1026,7 +985,6 @@ class WindowManager {
         if let w = mainWindowController?.window, w.isVisible { windows.append(w) }
         if let w = playlistWindowController?.window, w.isVisible { windows.append(w) }
         if let w = equalizerWindowController?.window, w.isVisible { windows.append(w) }
-        if let w = mediaLibraryWindowController?.window, w.isVisible { windows.append(w) }
         if let w = plexBrowserWindowController?.window, w.isVisible { windows.append(w) }
         if let w = videoPlayerWindowController?.window, w.isVisible { windows.append(w) }
         if let w = milkdropWindowController?.window, w.isVisible { windows.append(w) }
@@ -1068,9 +1026,6 @@ class WindowManager {
         if let frame = equalizerWindowController?.window?.frame {
             defaults.set(NSStringFromRect(frame), forKey: "EqualizerWindowFrame")
         }
-        if let frame = mediaLibraryWindowController?.window?.frame {
-            defaults.set(NSStringFromRect(frame), forKey: "MediaLibraryWindowFrame")
-        }
         if let frame = plexBrowserWindowController?.window?.frame {
             defaults.set(NSStringFromRect(frame), forKey: "PlexBrowserWindowFrame")
         }
@@ -1097,11 +1052,6 @@ class WindowManager {
         }
         if let frameString = defaults.string(forKey: "EqualizerWindowFrame"),
            let window = equalizerWindowController?.window {
-            let frame = NSRectFromString(frameString)
-            window.setFrame(frame, display: true)
-        }
-        if let frameString = defaults.string(forKey: "MediaLibraryWindowFrame"),
-           let window = mediaLibraryWindowController?.window {
             let frame = NSRectFromString(frameString)
             window.setFrame(frame, display: true)
         }

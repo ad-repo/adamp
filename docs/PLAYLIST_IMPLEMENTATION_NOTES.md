@@ -451,9 +451,9 @@ When in doubt, check how MainWindowView or EQView handles the same situation.
 
 ---
 
-## Plex Browser Window Pattern
+## Music Browser Window Pattern
 
-The Plex browser window (`PlexBrowserView.swift`) follows the same pattern as the Playlist window, reusing playlist sprites for frame/chrome with custom content areas.
+The Music browser window (`PlexBrowserView.swift`) follows the same pattern as the Playlist window, reusing playlist sprites for frame/chrome with custom content areas. This unified browser supports both local files (from MediaLibrary) and Plex server content.
 
 ### Architecture Overview
 
