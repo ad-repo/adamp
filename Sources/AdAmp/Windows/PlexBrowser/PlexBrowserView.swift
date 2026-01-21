@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 
 /// Source for browsing content
 enum BrowserSource: Equatable, Codable {
@@ -226,6 +227,13 @@ class PlexBrowserView: NSView {
     /// Shade mode state
     private(set) var isShadeMode = false
     
+    /// Art-only mode - hides tabs and list, shows just album art (session only, not persisted)
+    private var isArtOnlyMode: Bool = false {
+        didSet {
+            needsDisplay = true
+        }
+    }
+    
     /// Button being pressed (for visual feedback)
     private var pressedButton: SkinRenderer.PlexBrowserButtonType?
     
@@ -243,6 +251,20 @@ class PlexBrowserView: NSView {
     
     /// Alphabet index for quick navigation
     private let alphabetLetters = ["#"] + (65...90).map { String(UnicodeScalar($0)) } // # A-Z
+    
+    // MARK: - Artwork Background State
+    
+    /// Current artwork image for background display
+    private var currentArtwork: NSImage?
+    
+    /// Track ID for the currently displayed artwork (to avoid reloading)
+    private var artworkTrackId: UUID?
+    
+    /// Async task for loading artwork (can be cancelled)
+    private var artworkLoadTask: Task<Void, Never>?
+    
+    /// Static image cache shared across all browser instances
+    private static let artworkCache = NSCache<NSString, NSImage>()
     
     // MARK: - Layout Constants (reference to SkinElements)
     
@@ -294,6 +316,9 @@ class PlexBrowserView: NSView {
         // Load saved sort option
         currentSort = BrowserSortOption.load()
         
+        // Art-only mode always starts disabled (don't persist across sessions)
+        isArtOnlyMode = false
+        
         // Observe Plex manager changes
         NotificationCenter.default.addObserver(
             self,
@@ -334,6 +359,14 @@ class PlexBrowserView: NSView {
             object: nil
         )
         
+        // Observe track changes for artwork background
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(trackDidChange),
+            name: .audioTrackDidChange,
+            object: nil
+        )
+        
         // Register for drag and drop (local files)
         registerForDraggedTypes([.fileURL])
         
@@ -342,6 +375,11 @@ class PlexBrowserView: NSView {
         
         // Start server name scroll animation
         startServerNameScroll()
+        
+        // Load artwork for currently playing track (if any)
+        if WindowManager.shared.showBrowserArtworkBackground {
+            loadArtwork(for: WindowManager.shared.audioEngine.currentTrack)
+        }
     }
     
     /// Called when source changes
@@ -513,27 +551,34 @@ class PlexBrowserView: NSView {
             // Draw server/library selector bar
             drawServerBar(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             
-            // Draw tab bar
-            drawTabBar(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
-            
-            // Draw search bar (only in search mode)
-            if browseMode == .search {
-                drawSearchBar(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
-            }
-            
-            // Draw list area or connection status
-            if !PlexManager.shared.isLinked {
-                drawNotLinkedState(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
-            } else if isLoading {
-                drawLoadingState(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
-            } else if let error = errorMessage {
-                drawErrorState(in: context, drawBounds: drawBounds, message: error, colors: colors, renderer: renderer)
+            if isArtOnlyMode {
+                // Art-only mode: skip tabs and list, draw album art large
+                drawArtOnlyArea(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             } else {
-                drawListArea(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
+                // Normal mode: draw tabs, search, and list
+                
+                // Draw tab bar
+                drawTabBar(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
+                
+                // Draw search bar (only in search mode)
+                if browseMode == .search {
+                    drawSearchBar(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
+                }
+                
+                // Draw list area or connection status
+                if !PlexManager.shared.isLinked {
+                    drawNotLinkedState(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
+                } else if isLoading {
+                    drawLoadingState(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
+                } else if let error = errorMessage {
+                    drawErrorState(in: context, drawBounds: drawBounds, message: error, colors: colors, renderer: renderer)
+                } else {
+                    drawListArea(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
+                }
+                
+                // Draw status bar text
+                drawStatusBarText(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
             }
-            
-            // Draw status bar text
-            drawStatusBarText(in: context, drawBounds: drawBounds, colors: colors, renderer: renderer)
         }
         
         context.restoreGState()
@@ -633,6 +678,15 @@ class PlexBrowserView: NSView {
             let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
             drawScaledSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
             
+            // ART toggle button (with separator spacing)
+            let artText = "[ART]"
+            let artX = labelX + CGFloat(countLabel.count) * scaledCharWidth + 12
+            if isArtOnlyMode {
+                drawScaledWhiteSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+            } else {
+                drawScaledSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+            }
+            
         case .plex(let serverId):
             let manager = PlexManager.shared
             
@@ -657,6 +711,15 @@ class PlexBrowserView: NSView {
                 drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
                 let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
                 drawScaledSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
+                
+                // ART toggle button (with separator spacing)
+                let artText = "[ART]"
+                let artX = labelX + CGFloat(countLabel.count) * scaledCharWidth + 12
+                if isArtOnlyMode {
+                    drawScaledWhiteSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+                } else {
+                    drawScaledSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+                }
                 
                 // Server name
                 let serverName = manager.servers.first(where: { $0.id == serverId })?.name ?? "Select Server"
@@ -981,6 +1044,29 @@ class PlexBrowserView: NSView {
         context.saveGState()
         context.clip(to: listRect)
         
+        // Draw album art background if enabled and available
+        if WindowManager.shared.showBrowserArtworkBackground, let artwork = currentArtwork,
+           let cgImage = artwork.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            context.saveGState()
+            
+            // Calculate centered fill rect (scale to fill, center, maintain aspect ratio)
+            let imageSize = NSSize(width: cgImage.width, height: cgImage.height)
+            let artworkRect = calculateCenterFillRect(imageSize: imageSize, in: listRect)
+            
+            // Set low opacity for subtle background
+            context.setAlpha(0.12)
+            
+            // Draw the image - CGContext draws with origin at bottom-left, but we're in flipped Winamp coords
+            // So we need to flip just for this image
+            context.saveGState()
+            context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+            context.scaleBy(x: 1, y: -1)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+            context.restoreGState()
+            
+            context.restoreGState()
+        }
+        
         // Draw items
         let visibleStart = Int(scrollOffset / itemHeight)
         let visibleEnd = min(displayItems.count, visibleStart + Int(listHeight / itemHeight) + 2)
@@ -1064,6 +1150,53 @@ class PlexBrowserView: NSView {
         let alphabetRect = NSRect(x: drawBounds.width - Layout.rightBorder - Layout.scrollbarWidth - alphabetWidth,
                                  y: listY, width: alphabetWidth, height: listHeight)
         drawAlphabetIndex(in: context, rect: alphabetRect, colors: colors, renderer: renderer)
+    }
+    
+    /// Draw art-only mode: full album art without tabs and list
+    private func drawArtOnlyArea(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
+        // Content area starts below server bar
+        let contentY = Layout.titleBarHeight + Layout.serverBarHeight
+        let contentHeight = drawBounds.height - contentY - Layout.statusBarHeight
+        let contentRect = NSRect(x: Layout.leftBorder, y: contentY,
+                                 width: drawBounds.width - Layout.leftBorder - Layout.rightBorder - Layout.scrollbarWidth,
+                                 height: contentHeight)
+        
+        // Fill background
+        colors.normalBackground.setFill()
+        context.fill(contentRect)
+        
+        // Draw album art if available
+        if let artwork = currentArtwork,
+           let cgImage = artwork.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            context.saveGState()
+            context.clip(to: contentRect)
+            
+            // Calculate centered fit rect
+            let imageSize = NSSize(width: cgImage.width, height: cgImage.height)
+            let artworkRect = calculateCenterFillRect(imageSize: imageSize, in: contentRect)
+            
+            // Draw with full opacity in art-only mode
+            context.saveGState()
+            context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+            context.scaleBy(x: 1, y: -1)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+            context.restoreGState()
+            
+            context.restoreGState()
+        } else {
+            // No artwork - show placeholder text
+            let message = "No album art"
+            let charWidth = SkinElements.TextFont.charWidth
+            let charHeight = SkinElements.TextFont.charHeight
+            let textScale: CGFloat = 2.0
+            let scaledCharWidth = charWidth * textScale
+            let scaledCharHeight = charHeight * textScale
+            let textWidth = CGFloat(message.count) * scaledCharWidth
+            let textX = contentRect.midX - textWidth / 2
+            let textY = contentRect.midY - scaledCharHeight / 2
+            
+            drawScaledSkinText(message, at: NSPoint(x: textX, y: textY), scale: textScale, renderer: renderer, in: context)
+        }
     }
     
     private func drawAlphabetIndex(in context: CGContext, rect: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
@@ -1413,6 +1546,241 @@ class PlexBrowserView: NSView {
         searchResults = nil
     }
     
+    // MARK: - Artwork Background
+    
+    @objc private func trackDidChange(_ notification: Notification) {
+        guard WindowManager.shared.showBrowserArtworkBackground else {
+            // Clear artwork if feature is disabled
+            if currentArtwork != nil {
+                currentArtwork = nil
+                artworkTrackId = nil
+                needsDisplay = true
+            }
+            return
+        }
+        
+        let track = notification.userInfo?["track"] as? Track
+        loadArtwork(for: track)
+    }
+    
+    /// Load artwork for a track (Plex or local)
+    private func loadArtwork(for track: Track?) {
+        // Cancel any pending load
+        artworkLoadTask?.cancel()
+        artworkLoadTask = nil
+        
+        guard let track = track else {
+            // Clear artwork when no track
+            currentArtwork = nil
+            artworkTrackId = nil
+            needsDisplay = true
+            return
+        }
+        
+        // Skip if same track
+        guard track.id != artworkTrackId else { return }
+        
+        artworkLoadTask = Task { [weak self] in
+            guard let self = self else { return }
+            
+            var image: NSImage?
+            
+            if let plexRatingKey = track.plexRatingKey {
+                // Plex track - load from server
+                image = await self.loadPlexArtwork(ratingKey: plexRatingKey, albumName: track.album)
+            } else if track.url.isFileURL {
+                // Local file - extract embedded artwork
+                image = await self.loadLocalArtwork(url: track.url)
+            }
+            
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+            
+            await MainActor.run {
+                self.currentArtwork = image
+                self.artworkTrackId = track.id
+                self.needsDisplay = true
+            }
+        }
+    }
+    
+    /// Load artwork for a Plex track using its rating key
+    private func loadPlexArtwork(ratingKey: String, albumName: String? = nil) async -> NSImage? {
+        // Check cache first
+        let cacheKey = NSString(string: "plex:\(ratingKey)")
+        if let cached = Self.artworkCache.object(forKey: cacheKey) {
+            return cached
+        }
+        
+        // Find the thumb path from cached data
+        var thumbPath: String?
+        
+        // Check cached tracks
+        if let plexTrack = cachedTracks.first(where: { $0.id == ratingKey }) {
+            thumbPath = plexTrack.thumb
+        }
+        
+        // Check album tracks cache
+        if thumbPath == nil {
+            for (_, tracks) in albumTracks {
+                if let plexTrack = tracks.first(where: { $0.id == ratingKey }) {
+                    thumbPath = plexTrack.thumb
+                    break
+                }
+            }
+        }
+        
+        // Check cached albums by ID
+        if thumbPath == nil {
+            if let album = cachedAlbums.first(where: { $0.id == ratingKey }) {
+                thumbPath = album.thumb
+            }
+        }
+        
+        // Try to find album by name (fallback when track not in cache)
+        if thumbPath == nil, let albumName = albumName, !albumName.isEmpty {
+            if let album = cachedAlbums.first(where: { $0.title.lowercased() == albumName.lowercased() }) {
+                thumbPath = album.thumb
+                NSLog("PlexBrowserView: Found album art by name match: %@", albumName)
+            }
+        }
+        
+        // If still not found, construct the thumb path directly from the rating key
+        // Plex allows fetching artwork using /library/metadata/{ratingKey}/thumb
+        if thumbPath == nil {
+            thumbPath = "/library/metadata/\(ratingKey)/thumb"
+            NSLog("PlexBrowserView: Using direct rating key path for artwork: %@", ratingKey)
+        }
+        
+        guard let thumb = thumbPath,
+              let artworkURL = PlexManager.shared.artworkURL(thumb: thumb, size: 400) else {
+            NSLog("PlexBrowserView: Could not construct artwork URL for rating key: %@", ratingKey)
+            return nil
+        }
+        
+        NSLog("PlexBrowserView: Loading artwork from: %@", artworkURL.absoluteString)
+        
+        // Download the image
+        do {
+            var request = URLRequest(url: artworkURL)
+            // Add Plex headers if needed
+            if let headers = PlexManager.shared.streamingHeaders {
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                NSLog("PlexBrowserView: Non-HTTP response for artwork")
+                return nil
+            }
+            
+            guard httpResponse.statusCode == 200 else {
+                NSLog("PlexBrowserView: Artwork request failed with status: %d", httpResponse.statusCode)
+                return nil
+            }
+            
+            guard let image = NSImage(data: data) else {
+                NSLog("PlexBrowserView: Could not create image from data (%d bytes)", data.count)
+                return nil
+            }
+            
+            // Cache the image
+            Self.artworkCache.setObject(image, forKey: cacheKey)
+            NSLog("PlexBrowserView: Successfully loaded artwork for rating key: %@", ratingKey)
+            
+            return image
+        } catch {
+            NSLog("PlexBrowserView: Failed to load Plex artwork: %@", error.localizedDescription)
+            return nil
+        }
+    }
+    
+    /// Load embedded artwork from a local audio file
+    private func loadLocalArtwork(url: URL) async -> NSImage? {
+        // Check cache first
+        let cacheKey = NSString(string: "local:\(url.path)")
+        if let cached = Self.artworkCache.object(forKey: cacheKey) {
+            return cached
+        }
+        
+        // Extract artwork using AVFoundation
+        let asset = AVURLAsset(url: url)
+        
+        do {
+            let metadata = try await asset.load(.metadata)
+            
+            for item in metadata {
+                // Check for artwork in common metadata
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        // Cache the image
+                        Self.artworkCache.setObject(image, forKey: cacheKey)
+                        return image
+                    }
+                }
+            }
+            
+            // Also check ID3 metadata format
+            let id3Metadata = try await asset.loadMetadata(for: .id3Metadata)
+            for item in id3Metadata {
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        Self.artworkCache.setObject(image, forKey: cacheKey)
+                        return image
+                    }
+                }
+            }
+            
+            // Check iTunes metadata format
+            let itunesMetadata = try await asset.loadMetadata(for: .iTunesMetadata)
+            for item in itunesMetadata {
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        Self.artworkCache.setObject(image, forKey: cacheKey)
+                        return image
+                    }
+                }
+            }
+        } catch {
+            NSLog("PlexBrowserView: Failed to load local artwork: %@", error.localizedDescription)
+        }
+        
+        return nil
+    }
+    
+    /// Calculate a centered fit rect for artwork - scales to fit entirely within bounds, centered
+    private func calculateCenterFillRect(imageSize: NSSize, in targetRect: NSRect) -> NSRect {
+        guard imageSize.width > 0, imageSize.height > 0 else { return targetRect }
+        
+        let imageAspect = imageSize.width / imageSize.height
+        let targetAspect = targetRect.width / targetRect.height
+        
+        var width: CGFloat
+        var height: CGFloat
+        
+        if imageAspect > targetAspect {
+            // Image is wider than target - fit to width, scale height proportionally
+            width = targetRect.width
+            height = width / imageAspect
+        } else {
+            // Image is taller than target - fit to height, scale width proportionally
+            height = targetRect.height
+            width = height * imageAspect
+        }
+        
+        // Center the rect within the target
+        let x = targetRect.minX + (targetRect.width - width) / 2
+        let y = targetRect.minY + (targetRect.height - height) / 2
+        
+        return NSRect(x: x, y: y, width: width, height: height)
+    }
+    
     // MARK: - Hit Testing
     
     /// Check if point hits title bar (for dragging)
@@ -1677,19 +2045,27 @@ class PlexBrowserView: NSView {
         let originalSize = originalWindowSize
         let barWidth = originalSize.width - Layout.leftBorder - Layout.rightBorder
         
-        // Layout depends on source:
-        // Local: [Local Files ▼] ... [item count] ... [+ADD] [↻]
-        // Plex:  [Plex: Server ▼] ... [item count] ... [Library ▼] [↻]
+        // Layout:
+        // Local: [Source ▼] ... [N items ART] ... [+ADD] [↻]
+        // Plex:  [Source ▼] ... [N items ART] ... [Library ▼] [↻]
         
         let refreshZone: CGFloat = 25  // Far right area for refresh
         let addZone: CGFloat = 70  // +ADD button area (to the left of refresh)
         let relativeX = winampPoint.x - Layout.leftBorder
         
+        // Calculate ART button zone (around center, after "N items" with spacing)
+        let centerX = barWidth / 2
+        let artZoneStart = centerX + 30  // Start of [ART] after "items" + spacing
+        let artZoneEnd = centerX + 90    // End of [ART] button zone
+        
         if relativeX > barWidth - refreshZone {
             // Refresh icon click
             handleRefreshClick()
+        } else if relativeX >= artZoneStart && relativeX <= artZoneEnd {
+            // ART toggle click (same position for both modes)
+            isArtOnlyMode.toggle()
         } else if case .local = currentSource {
-            // Local mode - check for +ADD button
+            // Local mode - check buttons from right to left
             if relativeX > barWidth - addZone {
                 // +ADD button click
                 showAddFilesMenu(at: event)

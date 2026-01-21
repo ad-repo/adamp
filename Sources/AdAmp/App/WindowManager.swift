@@ -487,6 +487,22 @@ class WindowManager {
         }
     }
     
+    /// When true, shows album art as transparent background in browser window (default: true)
+    var showBrowserArtworkBackground: Bool {
+        get {
+            // Default to true (enabled) if not set
+            if UserDefaults.standard.object(forKey: "showBrowserArtworkBackground") == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: "showBrowserArtworkBackground")
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "showBrowserArtworkBackground")
+            // Trigger browser redraw
+            plexBrowserWindowController?.window?.contentView?.needsDisplay = true
+        }
+    }
+    
     func loadSkin(from url: URL) {
         do {
             let skin = try SkinLoader.shared.load(from: url)

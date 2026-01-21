@@ -187,6 +187,14 @@ class ContextMenuBuilder {
         normalizeItem.state = engine.volumeNormalizationEnabled ? .on : .off
         optionsMenu.addItem(normalizeItem)
         
+        optionsMenu.addItem(NSMenuItem.separator())
+        
+        // Visual Options
+        let artworkBgItem = NSMenuItem(title: "Browser Album Art Background", action: #selector(MenuActions.toggleBrowserArtworkBackground), keyEquivalent: "")
+        artworkBgItem.target = MenuActions.shared
+        artworkBgItem.state = wm.showBrowserArtworkBackground ? .on : .off
+        optionsMenu.addItem(artworkBgItem)
+        
         optionsItem.submenu = optionsMenu
         return optionsItem
     }
@@ -580,6 +588,10 @@ class MenuActions: NSObject {
     
     @objc func toggleVolumeNormalization() {
         WindowManager.shared.audioEngine.volumeNormalizationEnabled.toggle()
+    }
+    
+    @objc func toggleBrowserArtworkBackground() {
+        WindowManager.shared.showBrowserArtworkBackground.toggle()
     }
     
     @objc func toggleAlwaysOnTop() {
