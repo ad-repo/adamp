@@ -1378,15 +1378,26 @@ class SkinRenderer {
             let yOffset = (titleHeight - scaledHeight) / 2
             context.draw(cgImage, in: CGRect(x: 0, y: yOffset, width: bounds.width, height: scaledHeight))
             context.restoreGState()
+            
+            // Brighten the title bar when active, dim when inactive
+            if isActive {
+                // Subtle brightening overlay when focused
+                NSColor(calibratedWhite: 1.0, alpha: 0.15).setFill()
+                context.fill(NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight))
+            } else {
+                // Dim overlay when not focused
+                NSColor(calibratedWhite: 0.0, alpha: 0.3).setFill()
+                context.fill(NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight))
+            }
         } else {
             drawFallbackMilkdropTitleBar(in: context, bounds: bounds, isActive: isActive)
         }
         
         // Draw close button highlight when pressed
         if pressedButton == .close {
-            let closeX = bounds.width - 14
-            let closeY: CGFloat = 5
-            let closeRect = NSRect(x: closeX, y: closeY, width: 10, height: 10)
+            // Highlight the close button area in the top-right corner
+            let titleHeight = SkinElements.Milkdrop.titleBarHeight
+            let closeRect = NSRect(x: bounds.width - 25, y: 0, width: 25, height: titleHeight)
             NSColor(calibratedWhite: 1.0, alpha: 0.3).setFill()
             context.fill(closeRect)
         }
@@ -1414,8 +1425,8 @@ class SkinRenderer {
         // Draw "MILKDROP" text
         drawMilkdropTitleText(centeredIn: titleRect, isActive: isActive, in: context)
         
-        // Draw close button (X)
-        let closeX = bounds.width - 12
+        // Draw close button (X) in the top-right corner
+        let closeX = bounds.width - 15
         let closeY: CGFloat = 3
         let closeColor = isActive ? NSColor(calibratedRed: 0.7, green: 0.6, blue: 0.3, alpha: 1.0) : NSColor(calibratedWhite: 0.4, alpha: 1.0)
         closeColor.setStroke()
