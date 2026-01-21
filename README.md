@@ -17,7 +17,6 @@ A faithful recreation of the classic Winamp 2.x music player for macOS.
 - Casting to Chromecast, Sonos, and DLNA devices
 - Real-time spectrum analyzer visualization
 - MilkDrop-style visualizations (projectM)
-- Double size (2x) scaling mode
 
 ## Requirements
 
@@ -36,7 +35,7 @@ cd adamp
 ./scripts/bootstrap.sh
 
 # Build and run
-./scripts/run.sh
+./scripts/kill_build_run.sh
 ```
 
 The bootstrap script downloads VLCKit and libprojectM from GitHub Releases with checksum verification.

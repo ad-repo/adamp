@@ -174,13 +174,6 @@ class PlexBrowserWindowController: NSWindowController {
             }
         }
     }
-    
-    // MARK: - Access to Media Library Window Controller
-    
-    var mediaLibraryWindowController: MediaLibraryWindowController? {
-        // This is a workaround - in real impl we'd get this from WindowManager
-        return nil
-    }
 }
 
 // MARK: - NSWindowDelegate
