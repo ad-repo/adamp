@@ -1395,7 +1395,7 @@ class SkinRenderer {
         let text = "MILKDROP"
         let scale = Skin.scaleFactor  // 1.25 - match other windows
         let charHeight = SkinElements.GenFont.charHeight * scale  // 6px * 1.25 = 7.5px
-        let charSpacing: CGFloat = 1  // Tight spacing to match other windows
+        let charSpacing: CGFloat = 0  // No extra spacing between letters
         
         // Calculate total text width (scaled width, tight spacing)
         var totalWidth: CGFloat = 0
@@ -1410,7 +1410,8 @@ class SkinRenderer {
         
         // Add padding around text for the background gap
         let padding: CGFloat = 10
-        let gapWidth = totalWidth + padding * 2
+        let capWidth: CGFloat = 4  // Width of rounded end caps
+        let gapWidth = totalWidth + padding * 2 + capWidth * 2
         let gapHeight: CGFloat = 14
         
         // Center the gap in the title bar
@@ -1422,10 +1423,31 @@ class SkinRenderer {
             ? NSColor(calibratedRed: 0.10, green: 0.10, blue: 0.18, alpha: 1.0)
             : NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.12, alpha: 1.0)
         gapColor.setFill()
-        context.fill(NSRect(x: gapX, y: gapY, width: gapWidth, height: gapHeight))
+        context.fill(NSRect(x: gapX + capWidth, y: gapY, width: gapWidth - capWidth * 2, height: gapHeight))
         
-        // Draw text centered in the gap
-        var xPos = gapX + padding
+        // Draw rounded end caps (tapered edges like library window)
+        let capColor = isActive
+            ? NSColor(calibratedRed: 0.16, green: 0.16, blue: 0.24, alpha: 1.0)
+            : NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0)
+        
+        // Left cap - tapered inward
+        for i in 0..<Int(capWidth) {
+            let inset = CGFloat(Int(capWidth) - 1 - i)
+            let capX = gapX + CGFloat(i)
+            capColor.withAlphaComponent(CGFloat(i + 1) / capWidth).setFill()
+            context.fill(NSRect(x: capX, y: gapY + inset, width: 1, height: gapHeight - inset * 2))
+        }
+        
+        // Right cap - tapered inward
+        for i in 0..<Int(capWidth) {
+            let inset = CGFloat(i)
+            let capX = gapX + gapWidth - capWidth + CGFloat(i)
+            capColor.withAlphaComponent(CGFloat(Int(capWidth) - i) / capWidth).setFill()
+            context.fill(NSRect(x: capX, y: gapY + inset, width: 1, height: gapHeight - inset * 2))
+        }
+        
+        // Draw text centered in the gap (account for caps)
+        var xPos = gapX + capWidth + padding
         let textY = gapY + (gapHeight - charHeight) / 2
         
         let chars = Array(text)
@@ -1450,6 +1472,113 @@ class SkinRenderer {
                 
                 xPos += scaledWidth
                 if i < chars.count - 1 {
+                    xPos += charSpacing
+                }
+            }
+        }
+    }
+    
+    /// Draw "WINAMP LIBRARY" text using GenFont from gen.png
+    /// Creates a solid background gap in the title bar decorations for the text
+    private func drawLibraryTitleText(in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
+        // Load gen.png from skin or bundle
+        let genImage = skin.gen ?? Skin.genWindowImage
+        guard let genImage = genImage,
+              let cgImage = genImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return  // GenFont required - no fallback
+        }
+        
+        let text = "WINAMP LIBRARY"
+        let scale: CGFloat = 1.15  // Slightly smaller than other windows
+        let charHeight = SkinElements.GenFont.charHeight * scale
+        let charSpacing: CGFloat = 0  // No extra spacing between letters
+        let spaceWidth: CGFloat = 4  // Space between words
+        
+        // Calculate total text width (scaled width, tight spacing)
+        var totalWidth: CGFloat = 0
+        for (i, char) in text.enumerated() {
+            if char == " " {
+                totalWidth += spaceWidth
+            } else if let charInfo = SkinElements.GenFont.character(char, active: true) {
+                totalWidth += charInfo.width * scale
+                if i < text.count - 1 {
+                    let nextChar = text[text.index(text.startIndex, offsetBy: i + 1)]
+                    if nextChar != " " {
+                        totalWidth += charSpacing
+                    }
+                }
+            }
+        }
+        
+        // Add padding around text for the background gap
+        let padding: CGFloat = 10
+        let capWidth: CGFloat = 4  // Width of rounded end caps
+        let gapWidth = totalWidth + padding * 2 + capWidth * 2
+        let gapHeight: CGFloat = 14
+        
+        // Center the gap in the title bar
+        let gapX = (bounds.width - gapWidth) / 2
+        let gapY = (titleHeight - gapHeight) / 2
+        
+        // Draw solid dark background (the "gap" in decorative lines)
+        let gapColor = isActive 
+            ? NSColor(calibratedRed: 0.10, green: 0.10, blue: 0.18, alpha: 1.0)
+            : NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.12, alpha: 1.0)
+        gapColor.setFill()
+        context.fill(NSRect(x: gapX + capWidth, y: gapY, width: gapWidth - capWidth * 2, height: gapHeight))
+        
+        // Draw rounded end caps (tapered edges)
+        let capColor = isActive
+            ? NSColor(calibratedRed: 0.16, green: 0.16, blue: 0.24, alpha: 1.0)
+            : NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0)
+        
+        // Left cap - tapered inward
+        for i in 0..<Int(capWidth) {
+            let inset = CGFloat(Int(capWidth) - 1 - i)
+            let capX = gapX + CGFloat(i)
+            capColor.withAlphaComponent(CGFloat(i + 1) / capWidth).setFill()
+            context.fill(NSRect(x: capX, y: gapY + inset, width: 1, height: gapHeight - inset * 2))
+        }
+        
+        // Right cap - tapered inward
+        for i in 0..<Int(capWidth) {
+            let inset = CGFloat(i)
+            let capX = gapX + gapWidth - capWidth + CGFloat(i)
+            capColor.withAlphaComponent(CGFloat(Int(capWidth) - i) / capWidth).setFill()
+            context.fill(NSRect(x: capX, y: gapY + inset, width: 1, height: gapHeight - inset * 2))
+        }
+        
+        // Draw text centered in the gap (account for caps)
+        var xPos = gapX + capWidth + padding
+        let textY = gapY + (gapHeight - charHeight) / 2
+        
+        let chars = Array(text)
+        for (i, char) in chars.enumerated() {
+            if char == " " {
+                xPos += spaceWidth
+                continue
+            }
+            
+            if let charInfo = SkinElements.GenFont.character(char, active: isActive) {
+                let sourceRect = charInfo.rect
+                let scaledWidth = charInfo.width * scale
+                
+                // CGImage uses top-left origin - use source coordinates directly (no flip needed)
+                let cropRect = CGRect(x: sourceRect.origin.x, y: sourceRect.origin.y,
+                                     width: sourceRect.width, height: sourceRect.height)
+                
+                if let croppedChar = cgImage.cropping(to: cropRect) {
+                    // Draw scaled with vertical flip for NSView (bottom-left origin)
+                    context.saveGState()
+                    context.translateBy(x: xPos, y: textY + charHeight)
+                    context.scaleBy(x: 1, y: -1)
+                    context.interpolationQuality = .none  // Keep pixel-perfect look
+                    context.draw(croppedChar, in: CGRect(x: 0, y: 0, width: scaledWidth, height: charHeight))
+                    context.restoreGState()
+                }
+                
+                xPos += scaledWidth
+                if i < chars.count - 1 && chars[i + 1] != " " {
                     xPos += charSpacing
                 }
             }
@@ -2259,17 +2388,8 @@ class SkinRenderer {
         NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0).setFill()
         context.fill(NSRect(x: tileEnd, y: 0, width: buttonAreaWidth, height: titleHeight))
         
-        // Draw the actual title sprite from the image (contains "WINAMP LIBRARY" text)
-        let titleSprite = layout.titleSprite
-        let titleX = (bounds.width - titleSprite.width) / 2
-        drawSprite(from: image, sourceRect: titleSprite,
-                  to: NSRect(x: titleX, y: 0, width: titleSprite.width, height: titleHeight), in: context)
-        
-        // Dim the title area when window is inactive to match main window behavior
-        if !isActive {
-            NSColor(calibratedWhite: 0.0, alpha: 0.4).setFill()
-            context.fill(NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight))
-        }
+        // Draw "WINAMP LIBRARY" text using GenFont with proper active/inactive colors
+        drawLibraryTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw window control buttons using skin titlebar sprites (same style as main window)
         let closeRect = NSRect(x: bounds.width - SkinElements.LibraryWindow.TitleBarButtons.closeOffset - 9, 
