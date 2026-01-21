@@ -1393,16 +1393,25 @@ class SkinRenderer {
         }
         
         let text = "MILKDROP"
-        let charHeight = SkinElements.GenFont.charHeight  // 6px
-        let charSpacing = SkinElements.GenFont.charSpacing
+        let scale = Skin.scaleFactor  // 1.25 - match other windows
+        let charHeight = SkinElements.GenFont.charHeight * scale  // 6px * 1.25 = 7.5px
+        let charSpacing: CGFloat = 1  // Tight spacing to match other windows
         
-        // Calculate total text width
-        let totalWidth = SkinElements.GenFont.textWidth(text)
+        // Calculate total text width (scaled width, tight spacing)
+        var totalWidth: CGFloat = 0
+        for (i, char) in text.enumerated() {
+            if let charInfo = SkinElements.GenFont.character(char, active: true) {
+                totalWidth += charInfo.width * scale
+                if i < text.count - 1 {
+                    totalWidth += charSpacing
+                }
+            }
+        }
         
         // Add padding around text for the background gap
-        let padding: CGFloat = 8
+        let padding: CGFloat = 10
         let gapWidth = totalWidth + padding * 2
-        let gapHeight: CGFloat = 12
+        let gapHeight: CGFloat = 14
         
         // Center the gap in the title bar
         let gapX = (bounds.width - gapWidth) / 2
@@ -1423,23 +1432,23 @@ class SkinRenderer {
         for (i, char) in chars.enumerated() {
             if let charInfo = SkinElements.GenFont.character(char, active: isActive) {
                 let sourceRect = charInfo.rect
-                let charWidth = charInfo.width
+                let scaledWidth = charInfo.width * scale
                 
                 // CGImage uses top-left origin - use source coordinates directly (no flip needed)
                 let cropRect = CGRect(x: sourceRect.origin.x, y: sourceRect.origin.y,
                                      width: sourceRect.width, height: sourceRect.height)
                 
                 if let croppedChar = cgImage.cropping(to: cropRect) {
-                    // Draw with vertical flip for NSView (bottom-left origin)
+                    // Draw scaled with vertical flip for NSView (bottom-left origin)
                     context.saveGState()
                     context.translateBy(x: xPos, y: textY + charHeight)
                     context.scaleBy(x: 1, y: -1)
-                    context.interpolationQuality = .none
-                    context.draw(croppedChar, in: CGRect(x: 0, y: 0, width: charWidth, height: charHeight))
+                    context.interpolationQuality = .none  // Keep pixel-perfect look
+                    context.draw(croppedChar, in: CGRect(x: 0, y: 0, width: scaledWidth, height: charHeight))
                     context.restoreGState()
                 }
                 
-                xPos += charWidth
+                xPos += scaledWidth
                 if i < chars.count - 1 {
                     xPos += charSpacing
                 }
