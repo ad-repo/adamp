@@ -2280,19 +2280,26 @@ class SkinRenderer {
     }
     
     /// Draw Plex browser title bar with skin sprites
-    /// Uses library-window.png for the window chrome
+    /// Uses PLEDIT.BMP from loaded skin to follow skin changes, falls back to library-window.png
     func drawPlexBrowserTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlexBrowserButtonType?) {
-        // Try to use library-window.png first
+        // Use pledit sprites from the loaded skin (allows library browser to follow skin changes)
+        if let pleditImage = skin.pledit {
+            drawPlexBrowserTitleBarFromPledit(pleditImage, in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
+            return
+        }
+        
+        // Fall back to library-window.png if no pledit in skin
         if let libraryImage = Skin.libraryWindowImage {
             drawLibraryWindowTitleBar(from: libraryImage, in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
             return
         }
         
-        // Fall back to pledit sprites if library-window.png not available
-        guard let pleditImage = skin.pledit else {
-            drawFallbackPlexBrowserTitleBar(in: context, bounds: bounds, isActive: isActive)
-            return
-        }
+        // Final fallback
+        drawFallbackPlexBrowserTitleBar(in: context, bounds: bounds, isActive: isActive)
+    }
+    
+    /// Draw Plex browser title bar using PLEDIT.BMP sprites
+    private func drawPlexBrowserTitleBarFromPledit(_ pleditImage: NSImage, in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlexBrowserButtonType?) {
         
         let titleHeight = SkinElements.Playlist.titleHeight
         let leftCornerWidth: CGFloat = 25
@@ -2342,24 +2349,20 @@ class SkinRenderer {
             context.fill(NSRect(x: titleX, y: 0, width: titleSpriteWidth, height: 1))
         }
         
-        // Draw "WINAMP LIBRARY" text centered on the solid background
-        drawPlexTitleText(centeredIn: NSRect(x: titleX, y: 0, width: titleSpriteWidth, height: titleHeight),
-                          isActive: isActive, in: context)
+        // Draw "WINAMP LIBRARY" text using the same GenFont as library-window.png version
+        drawLibraryTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
-        // Draw window control button pressed states if needed
-        if pressedButton == .close {
-            let closeRect = NSRect(x: bounds.width - SkinElements.PlexBrowser.TitleBarButtons.closeOffset - 9, 
-                                   y: 3, width: 9, height: 9)
-            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
-            context.fill(closeRect)
-        }
+        // Draw window control buttons using skin titlebar sprites (same style as main window)
+        let closeRect = NSRect(x: bounds.width - SkinElements.LibraryWindow.TitleBarButtons.closeOffset - 9, 
+                               y: 4, width: 9, height: 9)
+        let shadeRect = NSRect(x: bounds.width - SkinElements.LibraryWindow.TitleBarButtons.shadeOffset - 9, 
+                               y: 4, width: 9, height: 9)
         
-        if pressedButton == .shade {
-            let shadeRect = NSRect(x: bounds.width - SkinElements.PlexBrowser.TitleBarButtons.shadeOffset - 9, 
-                                   y: 3, width: 9, height: 9)
-            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
-            context.fill(shadeRect)
-        }
+        let closeState: ButtonState = (pressedButton == .close) ? .pressed : .normal
+        let shadeState: ButtonState = (pressedButton == .shade) ? .pressed : .normal
+        
+        drawButton(.close, state: closeState, at: closeRect, in: context)
+        drawButton(.shade, state: shadeState, at: shadeRect, in: context)
     }
     
     /// Draw title bar using library-window.png sprites

@@ -32,7 +32,7 @@ class SkinLoader {
         return try loadSkin(from: tempDir)
     }
     
-    /// Load the default/built-in skin from the app bundle
+    /// Load the default/built-in skin from the app bundle (Base Skin 1)
     func loadDefault() -> Skin {
         // Try to load the bundled base-2.91.wsz skin
         // Swift Package Manager puts resources in a bundle named after the target
@@ -71,6 +71,24 @@ class SkinLoader {
             regions: nil,
             cursors: [:]
         )
+    }
+    
+    /// Load the second built-in skin from the app bundle (Base Skin 2)
+    func loadBaseSkin2() -> Skin {
+        let bundle = Bundle.module
+        
+        if let bundledSkinURL = bundle.url(forResource: "base-skin-2", withExtension: "wsz") {
+            do {
+                return try load(from: bundledSkinURL)
+            } catch {
+                print("Failed to load Base Skin 2: \(error)")
+            }
+        } else {
+            print("Could not find Base Skin 2 in bundle: \(bundle.bundlePath)")
+        }
+        
+        // Fallback to default skin
+        return loadDefault()
     }
     
     // MARK: - Private Methods

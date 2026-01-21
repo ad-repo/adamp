@@ -470,12 +470,12 @@ class WindowManager {
     
     // MARK: - Skin Management
     
-    /// When true, Browser and Milkdrop windows always use default skin (default: true)
+    /// When true, Browser and Milkdrop windows always use default skin (default: false - follow skin changes)
     var lockBrowserMilkdropSkin: Bool {
         get {
-            // Default to true (locked) if not set
+            // Default to false (unlocked) - windows follow skin changes by default
             if UserDefaults.standard.object(forKey: "lockBrowserMilkdropSkin") == nil {
-                return true
+                return false
             }
             return UserDefaults.standard.bool(forKey: "lockBrowserMilkdropSkin")
         }
@@ -517,9 +517,15 @@ class WindowManager {
         currentSkin = SkinLoader.shared.loadDefault()
     }
     
-    /// Load the base/default skin
+    /// Load the base/default skin (Base Skin 1)
     func loadBaseSkin() {
         currentSkin = SkinLoader.shared.loadDefault()
+        notifySkinChanged()
+    }
+    
+    /// Load the second built-in skin (Base Skin 2)
+    func loadBaseSkin2() {
+        currentSkin = SkinLoader.shared.loadBaseSkin2()
         notifySkinChanged()
     }
     
