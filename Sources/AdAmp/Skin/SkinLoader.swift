@@ -91,6 +91,24 @@ class SkinLoader {
         return loadDefault()
     }
     
+    /// Load the third built-in skin from the app bundle (Base Skin 3)
+    func loadBaseSkin3() -> Skin {
+        let bundle = Bundle.module
+        
+        if let bundledSkinURL = bundle.url(forResource: "base-skin-3", withExtension: "wsz") {
+            do {
+                return try load(from: bundledSkinURL)
+            } catch {
+                print("Failed to load Base Skin 3: \(error)")
+            }
+        } else {
+            print("Could not find Base Skin 3 in bundle: \(bundle.bundlePath)")
+        }
+        
+        // Fallback to default skin
+        return loadDefault()
+    }
+    
     // MARK: - Private Methods
     
     private func loadSkin(from directory: URL) throws -> Skin {

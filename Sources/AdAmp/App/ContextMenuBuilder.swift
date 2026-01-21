@@ -121,6 +121,11 @@ class ContextMenuBuilder {
         baseSkin2.target = MenuActions.shared
         menu.addItem(baseSkin2)
         
+        // Base Skin 3
+        let baseSkin3 = NSMenuItem(title: "<Base Skin 3>", action: #selector(MenuActions.loadBaseSkin3), keyEquivalent: "")
+        baseSkin3.target = MenuActions.shared
+        menu.addItem(baseSkin3)
+        
         menu.addItem(NSMenuItem.separator())
         
         // Lock Browser/Milkdrop toggle
@@ -643,6 +648,10 @@ class MenuActions: NSObject {
     
     @objc func loadBaseSkin2() {
         WindowManager.shared.loadBaseSkin2()
+    }
+    
+    @objc func loadBaseSkin3() {
+        WindowManager.shared.loadBaseSkin3()
     }
     
     @objc func loadSkin(_ sender: NSMenuItem) {

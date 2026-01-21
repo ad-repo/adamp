@@ -529,6 +529,12 @@ class WindowManager {
         notifySkinChanged()
     }
     
+    /// Load the third built-in skin (Base Skin 3)
+    func loadBaseSkin3() {
+        currentSkin = SkinLoader.shared.loadBaseSkin3()
+        notifySkinChanged()
+    }
+    
     private func notifySkinChanged() {
         // Notify all windows to redraw with new skin
         mainWindowController?.skinDidChange()
