@@ -2203,6 +2203,23 @@ class PlexBrowserView: NSView {
             tagsItem.representedObject = track
             menu.addItem(tagsItem)
             
+            let finderItem = NSMenuItem(title: "Show in Finder", action: #selector(contextMenuShowInFinder(_:)), keyEquivalent: "")
+            finderItem.target = self
+            finderItem.representedObject = track
+            menu.addItem(finderItem)
+            
+            menu.addItem(NSMenuItem.separator())
+            
+            let removeItem = NSMenuItem(title: "Remove from Library", action: #selector(contextMenuRemoveLocalTrack(_:)), keyEquivalent: "")
+            removeItem.target = self
+            removeItem.representedObject = track
+            menu.addItem(removeItem)
+            
+            let deleteItem = NSMenuItem(title: "Delete File from Disk...", action: #selector(contextMenuDeleteLocalTrack(_:)), keyEquivalent: "")
+            deleteItem.target = self
+            deleteItem.representedObject = track
+            menu.addItem(deleteItem)
+            
         case .localAlbum(let album):
             let playItem = NSMenuItem(title: "Play Album", action: #selector(contextMenuPlayLocalAlbum(_:)), keyEquivalent: "")
             playItem.target = self
@@ -2214,6 +2231,18 @@ class PlexBrowserView: NSView {
             addItem.representedObject = album
             menu.addItem(addItem)
             
+            menu.addItem(NSMenuItem.separator())
+            
+            let removeItem = NSMenuItem(title: "Remove Album from Library", action: #selector(contextMenuRemoveLocalAlbum(_:)), keyEquivalent: "")
+            removeItem.target = self
+            removeItem.representedObject = album
+            menu.addItem(removeItem)
+            
+            let deleteItem = NSMenuItem(title: "Delete Album from Disk...", action: #selector(contextMenuDeleteLocalAlbum(_:)), keyEquivalent: "")
+            deleteItem.target = self
+            deleteItem.representedObject = album
+            menu.addItem(deleteItem)
+            
         case .localArtist(let artist):
             let playItem = NSMenuItem(title: "Play All by Artist", action: #selector(contextMenuPlayLocalArtist(_:)), keyEquivalent: "")
             playItem.target = self
@@ -2224,6 +2253,18 @@ class PlexBrowserView: NSView {
             expandItem.target = self
             expandItem.representedObject = item
             menu.addItem(expandItem)
+            
+            menu.addItem(NSMenuItem.separator())
+            
+            let removeItem = NSMenuItem(title: "Remove Artist from Library", action: #selector(contextMenuRemoveLocalArtist(_:)), keyEquivalent: "")
+            removeItem.target = self
+            removeItem.representedObject = artist
+            menu.addItem(removeItem)
+            
+            let deleteItem = NSMenuItem(title: "Delete Artist from Disk...", action: #selector(contextMenuDeleteLocalArtist(_:)), keyEquivalent: "")
+            deleteItem.target = self
+            deleteItem.representedObject = artist
+            menu.addItem(deleteItem)
             
         case .header:
             return
@@ -2278,6 +2319,124 @@ class PlexBrowserView: NSView {
     @objc private func contextMenuPlayLocalArtist(_ sender: NSMenuItem) {
         guard let artist = sender.representedObject as? Artist else { return }
         playLocalArtist(artist)
+    }
+    
+    @objc private func contextMenuShowInFinder(_ sender: NSMenuItem) {
+        guard let track = sender.representedObject as? LibraryTrack else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([track.url])
+    }
+    
+    @objc private func contextMenuRemoveLocalTrack(_ sender: NSMenuItem) {
+        guard let track = sender.representedObject as? LibraryTrack else { return }
+        MediaLibrary.shared.removeTrack(track)
+    }
+    
+    @objc private func contextMenuDeleteLocalTrack(_ sender: NSMenuItem) {
+        guard let track = sender.representedObject as? LibraryTrack else { return }
+        deleteTracksFromDisk([track])
+    }
+    
+    @objc private func contextMenuRemoveLocalAlbum(_ sender: NSMenuItem) {
+        guard let album = sender.representedObject as? Album else { return }
+        
+        let alert = NSAlert()
+        alert.messageText = "Remove album from library?"
+        alert.informativeText = "This will remove \(album.tracks.count) tracks from your library. The files will not be deleted from disk."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            for track in album.tracks {
+                MediaLibrary.shared.removeTrack(track)
+            }
+        }
+    }
+    
+    @objc private func contextMenuDeleteLocalAlbum(_ sender: NSMenuItem) {
+        guard let album = sender.representedObject as? Album else { return }
+        deleteTracksFromDisk(album.tracks)
+    }
+    
+    @objc private func contextMenuRemoveLocalArtist(_ sender: NSMenuItem) {
+        guard let artist = sender.representedObject as? Artist else { return }
+        
+        var allTracks: [LibraryTrack] = []
+        for album in artist.albums {
+            allTracks.append(contentsOf: album.tracks)
+        }
+        
+        let alert = NSAlert()
+        alert.messageText = "Remove artist from library?"
+        alert.informativeText = "This will remove \(allTracks.count) tracks from your library. The files will not be deleted from disk."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            for track in allTracks {
+                MediaLibrary.shared.removeTrack(track)
+            }
+        }
+    }
+    
+    @objc private func contextMenuDeleteLocalArtist(_ sender: NSMenuItem) {
+        guard let artist = sender.representedObject as? Artist else { return }
+        
+        var allTracks: [LibraryTrack] = []
+        for album in artist.albums {
+            allTracks.append(contentsOf: album.tracks)
+        }
+        deleteTracksFromDisk(allTracks)
+    }
+    
+    /// Helper to delete tracks from disk with confirmation
+    private func deleteTracksFromDisk(_ tracks: [LibraryTrack]) {
+        guard !tracks.isEmpty else { return }
+        
+        let alert = NSAlert()
+        alert.messageText = tracks.count == 1
+            ? "Delete file from disk?"
+            : "Delete \(tracks.count) files from disk?"
+        alert.informativeText = "This will permanently delete the file(s) from your computer. This action cannot be undone."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        
+        let moveToTrashCheckbox = NSButton(checkboxWithTitle: "Move to Trash instead of deleting permanently", target: nil, action: nil)
+        moveToTrashCheckbox.state = .on
+        alert.accessoryView = moveToTrashCheckbox
+        
+        if alert.runModal() != .alertFirstButtonReturn {
+            return
+        }
+        
+        let useTrash = moveToTrashCheckbox.state == .on
+        var failedFiles: [String] = []
+        
+        for track in tracks {
+            do {
+                if useTrash {
+                    try FileManager.default.trashItem(at: track.url, resultingItemURL: nil)
+                } else {
+                    try FileManager.default.removeItem(at: track.url)
+                }
+                MediaLibrary.shared.removeTrack(track)
+            } catch {
+                failedFiles.append(track.url.lastPathComponent)
+            }
+        }
+        
+        if !failedFiles.isEmpty {
+            let errorAlert = NSAlert()
+            errorAlert.messageText = "Some files could not be deleted"
+            errorAlert.informativeText = "Failed to delete:\n" + failedFiles.prefix(5).joined(separator: "\n")
+            if failedFiles.count > 5 {
+                errorAlert.informativeText += "\n...and \(failedFiles.count - 5) more"
+            }
+            errorAlert.alertStyle = .warning
+            errorAlert.runModal()
+        }
     }
     
     @objc private func contextMenuPlayAlbum(_ sender: NSMenuItem) {
