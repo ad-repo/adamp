@@ -7,26 +7,12 @@ import os
 // Silence OpenGL deprecation warnings (macOS still supports OpenGL 4.1)
 // We use OpenGL for visualization as Metal doesn't have the same ecosystem of presets
 
-/// Protocol for receiving audio data for visualization
-protocol VisualizationDataSource: AnyObject {
-    /// Get current spectrum data (75 bands, normalized 0-1)
-    var spectrumData: [Float] { get }
-    
-    /// Get current PCM audio samples (mono, -1 to 1)
-    var pcmData: [Float] { get }
-    
-    /// Sample rate of PCM data
-    var sampleRate: Double { get }
-}
-
 /// OpenGL view for real-time audio visualization
 /// Uses CVDisplayLink for 60fps updates
 /// Supports projectM for Milkdrop preset rendering with fallback to built-in visualizations
 class VisualizationGLView: NSOpenGLView {
     
     // MARK: - Properties
-    
-    weak var dataSource: VisualizationDataSource?
 
     /// CVDisplayLink for vsync'd rendering
     private var displayLink: CVDisplayLink?
@@ -59,6 +45,11 @@ class VisualizationGLView: NSOpenGLView {
     /// Local copy of PCM data for thread-safe access
     /// Using nonisolated(unsafe) because we manually manage thread safety via dataLock
     private nonisolated(unsafe) var localPCM: [Float] = Array(repeating: 0, count: 512)
+
+    /// Local copy of spectrum data for thread-safe access (75 bands)
+    /// Using nonisolated(unsafe) because we manually manage thread safety via dataLock
+    private nonisolated(unsafe) var localSpectrum: [Float] = Array(repeating: 0, count: 75)
+
     private let dataLock = OSAllocatedUnfairLock()  // Faster than NSLock for short critical sections
     
     // MARK: - Initialization
@@ -300,7 +291,16 @@ class VisualizationGLView: NSOpenGLView {
             }
         }
     }
-    
+
+    /// Update spectrum data (called from audio thread for low latency)
+    func updateSpectrum(_ data: [Float]) {
+        dataLock.withLock {
+            for i in 0..<min(data.count, localSpectrum.count) {
+                localSpectrum[i] = data[i]
+            }
+        }
+    }
+
     /// Set whether audio is actively playing
     /// When false, visualization becomes calmer with reduced beat sensitivity
     func setAudioActive(_ active: Bool) {
@@ -339,8 +339,8 @@ class VisualizationGLView: NSOpenGLView {
             initializeEngineOnRenderThread()
         }
 
-        // Get PCM data snapshot
-        let pcm = dataLock.withLock { localPCM }
+        // Get data snapshots (thread-safe)
+        let (pcm, spectrum) = dataLock.withLock { (localPCM, localSpectrum) }
 
         // Get viewport dimensions
         let backingBounds = convertToBacking(bounds)
@@ -349,7 +349,7 @@ class VisualizationGLView: NSOpenGLView {
 
         // Render with the current engine
         if let eng = engine, eng.isAvailable {
-            renderEngine(engine: eng, pcm: pcm, width: viewportWidth, height: viewportHeight)
+            renderEngine(engine: eng, pcm: pcm, spectrum: spectrum, width: viewportWidth, height: viewportHeight)
         } else {
             // Engine not available - just clear to black
             glViewport(0, 0, GLsizei(viewportWidth), GLsizei(viewportHeight))
@@ -362,7 +362,7 @@ class VisualizationGLView: NSOpenGLView {
     }
 
     /// Render a frame using the current visualization engine
-    private func renderEngine(engine: VisualizationEngine, pcm: [Float], width: Int, height: Int) {
+    private func renderEngine(engine: VisualizationEngine, pcm: [Float], spectrum: [Float], width: Int, height: Int) {
         // Update viewport size if changed
         engine.setViewportSize(width: width, height: height)
 
@@ -370,9 +370,8 @@ class VisualizationGLView: NSOpenGLView {
         engine.addPCMMono(pcm)
 
         // For TOC Spectrum, also provide spectrum data
-        if let tocRenderer = engine as? TOCSpectrumRenderer,
-           let source = dataSource {
-            tocRenderer.updateSpectrum(source.spectrumData)
+        if let tocRenderer = engine as? TOCSpectrumRenderer {
+            tocRenderer.updateSpectrum(spectrum)
         }
 
         // Render the frame

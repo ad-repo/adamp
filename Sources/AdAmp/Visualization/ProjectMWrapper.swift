@@ -161,7 +161,7 @@ class ProjectMWrapper: VisualizationEngine {
     /// - Parameters:
     ///   - width: Initial viewport width
     ///   - height: Initial viewport height
-    init(width: Int = 512, height: Int = 512) {
+    required init(width: Int = 512, height: Int = 512) {
         viewportWidth = width
         viewportHeight = height
         

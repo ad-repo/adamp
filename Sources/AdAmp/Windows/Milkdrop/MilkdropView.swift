@@ -34,7 +34,10 @@ class MilkdropView: NSView {
     
     /// Observer for PCM data notifications
     private var pcmObserver: NSObjectProtocol?
-    
+
+    /// Observer for spectrum data notifications
+    private var spectrumObserver: NSObjectProtocol?
+
     /// Observer for playback state changes
     private var playbackStateObserver: NSObjectProtocol?
     
@@ -87,7 +90,16 @@ class MilkdropView: NSView {
         ) { [weak self] notification in
             self?.handlePCMUpdate(notification)
         }
-        
+
+        // Subscribe to spectrum data notifications (for TOC Spectrum renderer)
+        spectrumObserver = NotificationCenter.default.addObserver(
+            forName: .audioSpectrumDataUpdated,
+            object: nil,
+            queue: nil  // Receive on posting thread for lowest latency
+        ) { [weak self] notification in
+            self?.handleSpectrumUpdate(notification)
+        }
+
         // Subscribe to playback state changes (for idle/active visualization mode)
         playbackStateObserver = NotificationCenter.default.addObserver(
             forName: .audioPlaybackStateChanged,
@@ -139,6 +151,9 @@ class MilkdropView: NSView {
     
     deinit {
         if let observer = pcmObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = spectrumObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = playbackStateObserver {
@@ -195,15 +210,26 @@ class MilkdropView: NSView {
     /// Handle PCM data notification from audio tap (called on audio thread for low latency)
     private func handlePCMUpdate(_ notification: Notification) {
         guard !isShadeMode else { return }
-        
+
         guard let userInfo = notification.userInfo,
               let pcm = userInfo["pcm"] as? [Float] else { return }
-        
+
         // Forward PCM data directly to visualization view (thread-safe via dataLock)
         // No main thread dispatch needed - updatePCM handles thread safety internally
         visualizationGLView?.updatePCM(pcm)
     }
-    
+
+    /// Handle spectrum data notification from audio engine (called on audio thread for low latency)
+    private func handleSpectrumUpdate(_ notification: Notification) {
+        guard !isShadeMode else { return }
+
+        guard let userInfo = notification.userInfo,
+              let spectrum = userInfo["spectrum"] as? [Float] else { return }
+
+        // Forward spectrum data directly to visualization view (thread-safe)
+        visualizationGLView?.updateSpectrum(spectrum)
+    }
+
     /// Handle playback state changes to update audio active state
     private func handlePlaybackStateChange(_ notification: Notification) {
         updateAudioActiveState()
@@ -653,6 +679,20 @@ class MilkdropView: NSView {
             barCountMenuItem.submenu = barCountMenu
             tocSettingsMenu.addItem(barCountMenuItem)
 
+            // Visualization mode submenu
+            let vizModeMenu = NSMenu()
+            let currentVizMode = TOCSpectrumSettings.shared.visualizationMode
+            for mode in TOCSpectrumSettings.availableVisualizationModes {
+                let item = NSMenuItem(title: mode.rawValue, action: #selector(setTOCVisualizationMode(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = mode
+                item.state = (mode == currentVizMode) ? .on : .off
+                vizModeMenu.addItem(item)
+            }
+            let vizModeMenuItem = NSMenuItem(title: "Visualization Mode", action: nil, keyEquivalent: "")
+            vizModeMenuItem.submenu = vizModeMenu
+            tocSettingsMenu.addItem(vizModeMenuItem)
+
             // Reflection toggle
             tocSettingsMenu.addItem(NSMenuItem.separator())
             let reflectionItem = NSMenuItem(title: "Reflection", action: #selector(toggleTOCReflection(_:)), keyEquivalent: "")
@@ -768,6 +808,11 @@ class MilkdropView: NSView {
             // Force recreation by switching away and back
             visualizationGLView?.switchEngine(to: .tocSpectrum)
         }
+    }
+
+    @objc private func setTOCVisualizationMode(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? TOCSpectrumRenderer.VisualizationMode else { return }
+        TOCSpectrumSettings.shared.visualizationMode = mode
     }
 
     @objc private func toggleTOCReflection(_ sender: Any?) {

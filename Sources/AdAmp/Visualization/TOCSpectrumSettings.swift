@@ -14,6 +14,7 @@ class TOCSpectrumSettings {
     private static let smoothingKey = "tocSpectrumSmoothing"
     private static let reflectionKey = "tocSpectrumReflection"
     private static let wireframeKey = "tocSpectrumWireframe"
+    private static let visualizationModeKey = "tocSpectrumVisualizationMode"
 
     // MARK: - Shared Instance
 
@@ -104,6 +105,21 @@ class TOCSpectrumSettings {
         }
     }
 
+    /// Visualization mode
+    var visualizationMode: TOCSpectrumRenderer.VisualizationMode {
+        get {
+            if let str = UserDefaults.standard.string(forKey: Self.visualizationModeKey),
+               let mode = TOCSpectrumRenderer.VisualizationMode(rawValue: str) {
+                return mode
+            }
+            return .circularLayers  // Default
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: Self.visualizationModeKey)
+            postSettingsChangedNotification()
+        }
+    }
+
     // MARK: - Reset to Defaults
 
     /// Reset all settings to their default values
@@ -114,6 +130,7 @@ class TOCSpectrumSettings {
         UserDefaults.standard.removeObject(forKey: Self.smoothingKey)
         UserDefaults.standard.removeObject(forKey: Self.reflectionKey)
         UserDefaults.standard.removeObject(forKey: Self.wireframeKey)
+        UserDefaults.standard.removeObject(forKey: Self.visualizationModeKey)
 
         postSettingsChangedNotification()
     }
@@ -137,4 +154,7 @@ class TOCSpectrumSettings {
 
     /// Available scale modes
     static let availableScaleModes: [TOCSpectrumRenderer.ScaleMode] = [.linear, .logarithmic]
+
+    /// Available visualization modes
+    static let availableVisualizationModes = TOCSpectrumRenderer.VisualizationMode.allCases
 }
