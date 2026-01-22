@@ -233,8 +233,106 @@ class PlexBrowserView: NSView {
     private var isArtOnlyMode: Bool = false {
         didSet {
             needsDisplay = true
+            // Stop visualization when exiting art-only mode
+            if !isArtOnlyMode {
+                isVisualizingArt = false
+            }
         }
     }
+    
+    /// Visualization mode - applies audio-reactive effects to album art
+    private var isVisualizingArt: Bool = false {
+        didSet {
+            if isVisualizingArt {
+                startVisualizerTimer()
+            } else {
+                stopVisualizerTimer()
+            }
+            needsDisplay = true
+        }
+    }
+    
+    /// Current visualization effect (30 effects - all transform the image)
+    enum VisEffect: String, CaseIterable {
+        // Rotation & Scaling
+        case psychedelic = "Psychedelic"
+        case kaleidoscope = "Kaleidoscope"
+        case vortex = "Vortex"
+        case spin = "Endless Spin"
+        case fractal = "Fractal Zoom"
+        case tunnel = "Time Tunnel"
+        // Distortion
+        case melt = "Acid Melt"
+        case wave = "Ocean Wave"
+        case glitch = "Glitch"
+        case rgbSplit = "RGB Split"
+        case twist = "Twist"
+        case fisheye = "Fisheye"
+        case shatter = "Shatter"
+        case stretch = "Rubber Band"
+        // Motion
+        case zoom = "Zoom Pulse"
+        case shake = "Earthquake"
+        case bounce = "Bounce"
+        case feedback = "Feedback Loop"
+        case strobe = "Strobe"
+        case jitter = "Jitter"
+        // Copies & Mirrors
+        case mirror = "Infinite Mirror"
+        case tile = "Tile Grid"
+        case prism = "Prism Split"
+        case doubleVision = "Double Vision"
+        case flipbook = "Flipbook"
+        case mosaic = "Mosaic"
+        // Pixel effects
+        case pixelate = "Pixelate"
+        case scanlines = "Scanlines"
+        case datamosh = "Datamosh"
+        case blocky = "Blocky"
+    }
+    
+    /// Visualization mode
+    enum VisMode {
+        case single      // Single selected effect
+        case random      // Random effect each beat
+        case cycle       // Cycle through all effects
+    }
+    
+    /// Current effect selection
+    private var currentVisEffect: VisEffect = .psychedelic
+    
+    /// Current visualization mode
+    private var visMode: VisMode = .single
+    
+    /// Timer for cycle mode
+    private var cycleTimer: Timer?
+    
+    /// Cycle interval in seconds
+    private var cycleInterval: TimeInterval = 10.0
+    
+    /// Last beat time for random mode
+    private var lastBeatTime: TimeInterval = 0
+    
+    /// Effect intensity (0.5 to 2.0)
+    private var visEffectIntensity: CGFloat = 1.0
+    
+    /// Timer for visualization animation
+    private var visualizerTimer: Timer?
+    
+    /// Current visualization time
+    private var visualizerTime: TimeInterval = 0
+    
+    /// Whether audio is currently active (for stopping effects when silent)
+    private var lastAudioLevel: Float = 0
+    private var silenceFrames: Int = 0
+    
+    /// Core Image context for GPU-accelerated effects
+    private lazy var ciContext: CIContext = {
+        if let mtlDevice = MTLCreateSystemDefaultDevice() {
+            return CIContext(mtlDevice: mtlDevice, options: [.cacheIntermediates: false])
+        }
+        return CIContext(options: [.useSoftwareRenderer: false])
+    }()
     
     /// Button being pressed (for visual feedback)
     private var pressedButton: SkinRenderer.PlexBrowserButtonType?
@@ -321,6 +419,15 @@ class PlexBrowserView: NSView {
         // Art-only mode always starts disabled (don't persist across sessions)
         isArtOnlyMode = false
         
+        // Load saved visualizer preferences
+        if let savedEffect = UserDefaults.standard.string(forKey: "browserVisEffect"),
+           let effect = VisEffect(rawValue: savedEffect) {
+            currentVisEffect = effect
+        }
+        if UserDefaults.standard.object(forKey: "browserVisIntensity") != nil {
+            visEffectIntensity = CGFloat(UserDefaults.standard.double(forKey: "browserVisIntensity"))
+        }
+        
         // Observe Plex manager changes
         NotificationCenter.default.addObserver(
             self,
@@ -382,6 +489,83 @@ class PlexBrowserView: NSView {
         if WindowManager.shared.showBrowserArtworkBackground {
             loadArtwork(for: WindowManager.shared.audioEngine.currentTrack)
         }
+    }
+    
+    // MARK: - Visualizer Animation
+    
+    /// Start the visualizer animation timer
+    private func startVisualizerTimer() {
+        visualizerTime = 0
+        silenceFrames = 0
+        visualizerTimer?.invalidate()
+        // 60fps for smooth trippy effects
+        visualizerTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.visualizerTime += 1.0/60.0
+            
+            // Check audio level - only animate when music is playing
+            let spectrumData = WindowManager.shared.audioEngine.spectrumData
+            let currentLevel = spectrumData.reduce(0, +) / Float(spectrumData.count)
+            
+            // Detect silence (very low audio level)
+            if currentLevel < 0.001 {
+                self.silenceFrames += 1
+                // After ~0.5 seconds of silence, stop animating
+                if self.silenceFrames > 30 {
+                    return // Don't redraw during silence
+                }
+            } else {
+                self.silenceFrames = 0
+                
+                // Handle random mode - change on beats
+                if self.visMode == .random {
+                    let bass = spectrumData.prefix(10).reduce(0, +) / 10.0
+                    if bass > 0.5 && self.visualizerTime - self.lastBeatTime > 0.3 {
+                        self.lastBeatTime = self.visualizerTime
+                        // Random chance to change effect on beat
+                        if Double.random(in: 0...1) < 0.3 {
+                            let effects = VisEffect.allCases
+                            self.currentVisEffect = effects.randomElement() ?? .psychedelic
+                        }
+                    }
+                }
+            }
+            
+            self.lastAudioLevel = currentLevel
+            self.needsDisplay = true
+        }
+        
+        // Start cycle timer if in cycle mode
+        if visMode == .cycle {
+            startCycleTimer()
+        }
+    }
+    
+    /// Stop the visualizer animation timer
+    private func stopVisualizerTimer() {
+        visualizerTimer?.invalidate()
+        visualizerTimer = nil
+        cycleTimer?.invalidate()
+        cycleTimer = nil
+    }
+    
+    /// Start cycle mode timer
+    private func startCycleTimer() {
+        cycleTimer?.invalidate()
+        cycleTimer = Timer.scheduledTimer(withTimeInterval: cycleInterval, repeats: true) { [weak self] _ in
+            guard let self = self, self.visMode == .cycle else { return }
+            let effects = VisEffect.allCases
+            if let currentIndex = effects.firstIndex(of: self.currentVisEffect) {
+                let nextIndex = (currentIndex + 1) % effects.count
+                self.currentVisEffect = effects[nextIndex]
+            }
+        }
+    }
+    
+    /// Toggle visualization mode
+    func toggleVisualization() {
+        guard isArtOnlyMode && currentArtwork != nil else { return }
+        isVisualizingArt.toggle()
     }
     
     /// Called when source changes
@@ -677,22 +861,35 @@ class PlexBrowserView: NSView {
             let artWidth = CGFloat(artText.count) * scaledCharWidth
             var artX = refreshX - artWidth - 24
             
+            // VIS button - only show in art-only mode
+            let visText = "VIS"
+            let visWidth = CGFloat(visText.count) * scaledCharWidth
+            var visX = artX - visWidth - 16
+            
             if currentArtwork != nil {
                 if isArtOnlyMode {
                     drawScaledWhiteSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+                    // Show VIS button in art-only mode (white when active, green when inactive)
+                    if isVisualizingArt {
+                        drawScaledWhiteSkinText(visText, at: NSPoint(x: visX, y: textY), scale: textScale, renderer: renderer, in: context)
+                    } else {
+                        drawScaledSkinText(visText, at: NSPoint(x: visX, y: textY), scale: textScale, renderer: renderer, in: context)
+                    }
                 } else {
                     drawScaledSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+                    visX = artX  // No VIS button, shift items
                 }
             } else {
                 // No artwork - shift items over to where ART would be
                 artX = refreshX
+                visX = artX  // No VIS button
             }
             
-            // Item count (before ART or before F5 if no artwork)
+            // Item count (before VIS or before ART if no art-only mode)
             let countNumber = "\(displayItems.count)"
             let countLabel = " items"
             let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
-            let countX = artX - countWidth - 24
+            let countX = visX - countWidth - 24
             drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
             let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
             drawScaledSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
@@ -748,22 +945,35 @@ class PlexBrowserView: NSView {
                 let artWidth = CGFloat(artText.count) * scaledCharWidth
                 var artX = refreshX - artWidth - 24
                 
+                // VIS button - only show in art-only mode
+                let visText = "VIS"
+                let visWidth = CGFloat(visText.count) * scaledCharWidth
+                var visX = artX - visWidth - 16
+                
                 if currentArtwork != nil {
                     if isArtOnlyMode {
                         drawScaledWhiteSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+                        // Show VIS button in art-only mode (white when active, green when inactive)
+                        if isVisualizingArt {
+                            drawScaledWhiteSkinText(visText, at: NSPoint(x: visX, y: textY), scale: textScale, renderer: renderer, in: context)
+                        } else {
+                            drawScaledSkinText(visText, at: NSPoint(x: visX, y: textY), scale: textScale, renderer: renderer, in: context)
+                        }
                     } else {
                         drawScaledSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+                        visX = artX  // No VIS button, shift items
                     }
                 } else {
                     // No artwork - shift items over to where ART would be
                     artX = refreshX
+                    visX = artX  // No VIS button
                 }
                 
-                // Item count (before ART or before F5 if no artwork)
+                // Item count (before VIS or before ART if no art-only mode)
                 let countNumber = "\(displayItems.count)"
                 let countLabel = " items"
                 let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
-                let countX = artX - countWidth - 24
+                let countX = visX - countWidth - 24
                 drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
                 let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
                 drawScaledSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
@@ -1197,7 +1407,11 @@ class PlexBrowserView: NSView {
                                  height: contentHeight)
         
         // Fill background
-        colors.normalBackground.setFill()
+        if isVisualizingArt {
+            NSColor.black.setFill()
+        } else {
+            colors.normalBackground.setFill()
+        }
         context.fill(contentRect)
         
         // Draw album art if available
@@ -1210,12 +1424,17 @@ class PlexBrowserView: NSView {
             let imageSize = NSSize(width: cgImage.width, height: cgImage.height)
             let artworkRect = calculateCenterFillRect(imageSize: imageSize, in: contentRect)
             
-            // Draw with full opacity in art-only mode
-            context.saveGState()
-            context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
-            context.scaleBy(x: 1, y: -1)
-            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
-            context.restoreGState()
+            // Apply visualization effects if enabled
+            if isVisualizingArt {
+                drawVisualizationEffect(context: context, cgImage: cgImage, artworkRect: artworkRect, contentRect: contentRect)
+            } else {
+                // Draw with full opacity in art-only mode (no effects)
+                context.saveGState()
+                context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+                context.scaleBy(x: 1, y: -1)
+                context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+                context.restoreGState()
+            }
             
             context.restoreGState()
         } else {
@@ -1232,6 +1451,1688 @@ class PlexBrowserView: NSView {
             
             drawScaledSkinText(message, at: NSPoint(x: textX, y: textY), scale: textScale, renderer: renderer, in: context)
         }
+    }
+    
+    /// Draw visualization effect using GPU-accelerated Core Image filters
+    private func drawVisualizationEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect) {
+        // Get audio levels for effects
+        let spectrumData = WindowManager.shared.audioEngine.spectrumData
+        let bass = CGFloat(spectrumData.prefix(10).reduce(0, +) / 10.0)
+        let mid = CGFloat(spectrumData.dropFirst(10).prefix(30).reduce(0, +) / 30.0)
+        let treble = CGFloat(spectrumData.dropFirst(40).prefix(35).reduce(0, +) / 35.0)
+        let level = (bass + mid + treble) / 3.0
+        let t = CGFloat(visualizerTime)
+        let intensity = visEffectIntensity
+        
+        // Create CIImage from CGImage
+        var ciImage = CIImage(cgImage: cgImage)
+        let imageSize = ciImage.extent.size
+        let center = CIVector(x: imageSize.width / 2, y: imageSize.height / 2)
+        
+        // Apply GPU filter based on effect
+        switch currentVisEffect {
+        case .psychedelic:
+            // Twirl + hue rotation + bloom
+            let twirl = CIFilter(name: "CITwirlDistortion")!
+            twirl.setValue(ciImage, forKey: kCIInputImageKey)
+            twirl.setValue(center, forKey: kCIInputCenterKey)
+            twirl.setValue(min(imageSize.width, imageSize.height) * 0.4, forKey: kCIInputRadiusKey)
+            twirl.setValue(bass * 3 * intensity * sin(t * 2), forKey: kCIInputAngleKey)
+            ciImage = twirl.outputImage ?? ciImage
+            
+            let hue = CIFilter(name: "CIHueAdjust")!
+            hue.setValue(ciImage, forKey: kCIInputImageKey)
+            hue.setValue(t * 0.5 + bass, forKey: kCIInputAngleKey)
+            ciImage = hue.outputImage ?? ciImage
+            
+            let bloom = CIFilter(name: "CIBloom")!
+            bloom.setValue(ciImage, forKey: kCIInputImageKey)
+            bloom.setValue(10 * level * intensity, forKey: kCIInputRadiusKey)
+            bloom.setValue(1.0 + bass * intensity, forKey: kCIInputIntensityKey)
+            ciImage = bloom.outputImage ?? ciImage
+            
+        case .kaleidoscope:
+            let kaleido = CIFilter(name: "CIKaleidoscope")!
+            kaleido.setValue(ciImage, forKey: kCIInputImageKey)
+            kaleido.setValue(center, forKey: kCIInputCenterKey)
+            kaleido.setValue(Int(6 + bass * 6 * intensity), forKey: "inputCount")
+            kaleido.setValue(t * 0.3 * intensity, forKey: kCIInputAngleKey)
+            ciImage = kaleido.outputImage ?? ciImage
+            
+        case .vortex:
+            let vortex = CIFilter(name: "CIVortexDistortion")!
+            vortex.setValue(ciImage, forKey: kCIInputImageKey)
+            vortex.setValue(center, forKey: kCIInputCenterKey)
+            vortex.setValue(min(imageSize.width, imageSize.height) * 0.5, forKey: kCIInputRadiusKey)
+            vortex.setValue(bass * 10 * intensity * sin(t), forKey: kCIInputAngleKey)
+            ciImage = vortex.outputImage ?? ciImage
+            
+        case .spin:
+            // Zoom blur + rotation
+            let zoomBlur = CIFilter(name: "CIZoomBlur")!
+            zoomBlur.setValue(ciImage, forKey: kCIInputImageKey)
+            zoomBlur.setValue(center, forKey: kCIInputCenterKey)
+            zoomBlur.setValue(bass * 20 * intensity, forKey: kCIInputAmountKey)
+            ciImage = zoomBlur.outputImage ?? ciImage
+            
+            let transform = CIFilter(name: "CIAffineTransform")!
+            var affine = CGAffineTransform(translationX: imageSize.width/2, y: imageSize.height/2)
+            affine = affine.rotated(by: t * 2 * intensity)
+            affine = affine.translatedBy(x: -imageSize.width/2, y: -imageSize.height/2)
+            transform.setValue(ciImage, forKey: kCIInputImageKey)
+            transform.setValue(affine, forKey: kCIInputTransformKey)
+            ciImage = transform.outputImage ?? ciImage
+            
+        case .fractal:
+            // Multiple zoom levels
+            let scale = 1.0 + sin(t * intensity) * 0.3 * bass
+            let transform = CIFilter(name: "CIAffineTransform")!
+            var affine = CGAffineTransform(translationX: imageSize.width/2, y: imageSize.height/2)
+            affine = affine.scaledBy(x: scale, y: scale)
+            affine = affine.rotated(by: t * 0.2 * intensity)
+            affine = affine.translatedBy(x: -imageSize.width/2, y: -imageSize.height/2)
+            transform.setValue(ciImage, forKey: kCIInputImageKey)
+            transform.setValue(affine, forKey: kCIInputTransformKey)
+            ciImage = transform.outputImage ?? ciImage
+            
+            let bloom = CIFilter(name: "CIBloom")!
+            bloom.setValue(ciImage, forKey: kCIInputImageKey)
+            bloom.setValue(20 * bass * intensity, forKey: kCIInputRadiusKey)
+            bloom.setValue(0.5 + level, forKey: kCIInputIntensityKey)
+            ciImage = bloom.outputImage ?? ciImage
+            
+        case .tunnel:
+            let hole = CIFilter(name: "CIHoleDistortion")!
+            hole.setValue(ciImage, forKey: kCIInputImageKey)
+            hole.setValue(center, forKey: kCIInputCenterKey)
+            hole.setValue(50 + bass * 100 * intensity * abs(sin(t)), forKey: kCIInputRadiusKey)
+            ciImage = hole.outputImage ?? ciImage
+            
+        case .melt:
+            // Glass distortion for melting effect
+            let glass = CIFilter(name: "CIGlassDistortion")!
+            glass.setValue(ciImage, forKey: kCIInputImageKey)
+            // Create a simple texture
+            let noiseFilter = CIFilter(name: "CIRandomGenerator")!
+            if let noise = noiseFilter.outputImage?.cropped(to: ciImage.extent) {
+                glass.setValue(noise, forKey: "inputTexture")
+                glass.setValue(center, forKey: kCIInputCenterKey)
+                glass.setValue(50 * bass * intensity, forKey: kCIInputScaleKey)
+                ciImage = glass.outputImage ?? ciImage
+            }
+            
+        case .wave:
+            // Bump distortion moving across
+            let bump = CIFilter(name: "CIBumpDistortion")!
+            let waveX = imageSize.width * (0.5 + 0.4 * sin(t * 2))
+            let waveY = imageSize.height * (0.5 + 0.3 * cos(t * 1.5))
+            bump.setValue(ciImage, forKey: kCIInputImageKey)
+            bump.setValue(CIVector(x: waveX, y: waveY), forKey: kCIInputCenterKey)
+            bump.setValue(min(imageSize.width, imageSize.height) * 0.4, forKey: kCIInputRadiusKey)
+            bump.setValue(bass * 2 * intensity * sin(t * 3), forKey: kCIInputScaleKey)
+            ciImage = bump.outputImage ?? ciImage
+            
+        case .glitch:
+            // RGB offset + posterize
+            if bass > 0.3 {
+                let offset = bass * 30 * intensity
+                
+                // Separate and offset RGB channels
+                let rOffset = CIFilter(name: "CIAffineTransform")!
+                rOffset.setValue(ciImage, forKey: kCIInputImageKey)
+                rOffset.setValue(CGAffineTransform(translationX: offset, y: 0), forKey: kCIInputTransformKey)
+                
+                let colorMatrix = CIFilter(name: "CIColorMatrix")!
+                colorMatrix.setValue(ciImage, forKey: kCIInputImageKey)
+                colorMatrix.setValue(CIVector(x: 1, y: 0, z: 0, w: 0), forKey: "inputRVector")
+                colorMatrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
+                colorMatrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
+                ciImage = colorMatrix.outputImage ?? ciImage
+            }
+            
+            let posterize = CIFilter(name: "CIColorPosterize")!
+            posterize.setValue(ciImage, forKey: kCIInputImageKey)
+            posterize.setValue(4 + (1 - bass) * 10, forKey: "inputLevels")
+            ciImage = posterize.outputImage ?? ciImage
+            
+        case .rgbSplit:
+            let offset = (10 + bass * 40) * intensity
+            
+            // Create offset versions
+            let rFilter = CIFilter(name: "CIColorMatrix")!
+            rFilter.setValue(ciImage, forKey: kCIInputImageKey)
+            rFilter.setValue(CIVector(x: 1, y: 0, z: 0, w: 0), forKey: "inputRVector")
+            rFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
+            rFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
+            let rImage = rFilter.outputImage ?? ciImage
+            
+            let gFilter = CIFilter(name: "CIColorMatrix")!
+            gFilter.setValue(ciImage, forKey: kCIInputImageKey)
+            gFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputRVector")
+            gFilter.setValue(CIVector(x: 0, y: 1, z: 0, w: 0), forKey: "inputGVector")
+            gFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
+            let gImage = gFilter.outputImage ?? ciImage
+            
+            let bFilter = CIFilter(name: "CIColorMatrix")!
+            bFilter.setValue(ciImage, forKey: kCIInputImageKey)
+            bFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputRVector")
+            bFilter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
+            bFilter.setValue(CIVector(x: 0, y: 0, z: 1, w: 0), forKey: "inputBVector")
+            let bImage = bFilter.outputImage ?? ciImage
+            
+            // Offset red
+            let rTransform = CIFilter(name: "CIAffineTransform")!
+            rTransform.setValue(rImage, forKey: kCIInputImageKey)
+            rTransform.setValue(CGAffineTransform(translationX: -offset, y: 0), forKey: kCIInputTransformKey)
+            let rOffset = rTransform.outputImage ?? rImage
+            
+            // Offset blue
+            let bTransform = CIFilter(name: "CIAffineTransform")!
+            bTransform.setValue(bImage, forKey: kCIInputImageKey)
+            bTransform.setValue(CGAffineTransform(translationX: offset, y: 0), forKey: kCIInputTransformKey)
+            let bOffset = bTransform.outputImage ?? bImage
+            
+            // Combine
+            let addR = CIFilter(name: "CIAdditionCompositing")!
+            addR.setValue(rOffset, forKey: kCIInputImageKey)
+            addR.setValue(gImage, forKey: kCIInputBackgroundImageKey)
+            let rg = addR.outputImage ?? ciImage
+            
+            let addB = CIFilter(name: "CIAdditionCompositing")!
+            addB.setValue(bOffset, forKey: kCIInputImageKey)
+            addB.setValue(rg, forKey: kCIInputBackgroundImageKey)
+            ciImage = addB.outputImage ?? ciImage
+            
+        case .twist:
+            let twirl = CIFilter(name: "CITwirlDistortion")!
+            twirl.setValue(ciImage, forKey: kCIInputImageKey)
+            twirl.setValue(center, forKey: kCIInputCenterKey)
+            twirl.setValue(min(imageSize.width, imageSize.height) * 0.6, forKey: kCIInputRadiusKey)
+            twirl.setValue(t * 2 * intensity + bass * 5, forKey: kCIInputAngleKey)
+            ciImage = twirl.outputImage ?? ciImage
+            
+        case .fisheye:
+            let bump = CIFilter(name: "CIBumpDistortion")!
+            bump.setValue(ciImage, forKey: kCIInputImageKey)
+            bump.setValue(center, forKey: kCIInputCenterKey)
+            bump.setValue(min(imageSize.width, imageSize.height) * 0.8, forKey: kCIInputRadiusKey)
+            bump.setValue(-1.5 * intensity * (1 + bass * 0.5), forKey: kCIInputScaleKey)
+            ciImage = bump.outputImage ?? ciImage
+            
+        case .shatter:
+            // Triangular tile + displacement
+            let triangle = CIFilter(name: "CITriangleTile")!
+            triangle.setValue(ciImage, forKey: kCIInputImageKey)
+            triangle.setValue(center, forKey: kCIInputCenterKey)
+            triangle.setValue(t * 0.5 * intensity, forKey: kCIInputAngleKey)
+            triangle.setValue(50 + bass * 100 * intensity, forKey: kCIInputWidthKey)
+            ciImage = triangle.outputImage?.cropped(to: CIImage(cgImage: cgImage).extent) ?? ciImage
+            
+        case .stretch:
+            let pinch = CIFilter(name: "CIPinchDistortion")!
+            pinch.setValue(ciImage, forKey: kCIInputImageKey)
+            pinch.setValue(center, forKey: kCIInputCenterKey)
+            pinch.setValue(min(imageSize.width, imageSize.height) * 0.7, forKey: kCIInputRadiusKey)
+            pinch.setValue(bass * intensity * sin(t * 2), forKey: kCIInputScaleKey)
+            ciImage = pinch.outputImage ?? ciImage
+            
+        case .zoom:
+            let zoomBlur = CIFilter(name: "CIZoomBlur")!
+            zoomBlur.setValue(ciImage, forKey: kCIInputImageKey)
+            zoomBlur.setValue(center, forKey: kCIInputCenterKey)
+            zoomBlur.setValue(bass * 50 * intensity, forKey: kCIInputAmountKey)
+            ciImage = zoomBlur.outputImage ?? ciImage
+            
+        case .shake:
+            let offset = bass * 30 * intensity
+            let shakeX = sin(t * 30) * offset
+            let shakeY = cos(t * 25) * offset * 0.7
+            
+            let transform = CIFilter(name: "CIAffineTransform")!
+            transform.setValue(ciImage, forKey: kCIInputImageKey)
+            transform.setValue(CGAffineTransform(translationX: shakeX, y: shakeY), forKey: kCIInputTransformKey)
+            ciImage = transform.outputImage ?? ciImage
+            
+            let motionBlur = CIFilter(name: "CIMotionBlur")!
+            motionBlur.setValue(ciImage, forKey: kCIInputImageKey)
+            motionBlur.setValue(bass * 20 * intensity, forKey: kCIInputRadiusKey)
+            motionBlur.setValue(t * 10, forKey: kCIInputAngleKey)
+            ciImage = motionBlur.outputImage ?? ciImage
+            
+        case .bounce:
+            let bounceY = abs(sin(t * 3 * intensity)) * 50 * bass
+            let scaleY = 1.0 - (1 - abs(sin(t * 3 * intensity))) * bass * 0.2 * intensity
+            
+            let transform = CIFilter(name: "CIAffineTransform")!
+            var affine = CGAffineTransform(translationX: 0, y: bounceY)
+            affine = affine.concatenating(CGAffineTransform(scaleX: 1.0 / scaleY, y: scaleY))
+            transform.setValue(ciImage, forKey: kCIInputImageKey)
+            transform.setValue(affine, forKey: kCIInputTransformKey)
+            ciImage = transform.outputImage ?? ciImage
+            
+        case .feedback:
+            // Multiple scaled copies
+            for i in 1..<5 {
+                let scale = 1.0 - CGFloat(i) * 0.1
+                let alpha = 0.5 / CGFloat(i)
+                
+                let scaleTransform = CIFilter(name: "CIAffineTransform")!
+                var affine = CGAffineTransform(translationX: imageSize.width/2, y: imageSize.height/2)
+                affine = affine.scaledBy(x: scale, y: scale)
+                affine = affine.rotated(by: CGFloat(i) * 0.05 * bass * intensity)
+                affine = affine.translatedBy(x: -imageSize.width/2, y: -imageSize.height/2)
+                scaleTransform.setValue(CIImage(cgImage: cgImage), forKey: kCIInputImageKey)
+                scaleTransform.setValue(affine, forKey: kCIInputTransformKey)
+                
+                if let layerImage = scaleTransform.outputImage {
+                    let blend = CIFilter(name: "CISourceOverCompositing")!
+                    blend.setValue(layerImage.applyingFilter("CIColorMatrix", parameters: [
+                        "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha)
+                    ]), forKey: kCIInputImageKey)
+                    blend.setValue(ciImage, forKey: kCIInputBackgroundImageKey)
+                    ciImage = blend.outputImage ?? ciImage
+                }
+            }
+            
+            let bloom = CIFilter(name: "CIBloom")!
+            bloom.setValue(ciImage, forKey: kCIInputImageKey)
+            bloom.setValue(15 * level * intensity, forKey: kCIInputRadiusKey)
+            bloom.setValue(0.5 + bass, forKey: kCIInputIntensityKey)
+            ciImage = bloom.outputImage ?? ciImage
+            
+        case .strobe:
+            let strobeOn = Int(t * 10 * intensity) % 2 == 0 || bass > 0.6
+            if strobeOn {
+                let exposure = CIFilter(name: "CIExposureAdjust")!
+                exposure.setValue(ciImage, forKey: kCIInputImageKey)
+                exposure.setValue(bass * 2 * intensity, forKey: kCIInputEVKey)
+                ciImage = exposure.outputImage ?? ciImage
+            } else {
+                let exposure = CIFilter(name: "CIExposureAdjust")!
+                exposure.setValue(ciImage, forKey: kCIInputImageKey)
+                exposure.setValue(-1.0, forKey: kCIInputEVKey)
+                ciImage = exposure.outputImage ?? ciImage
+            }
+            
+        case .jitter:
+            let jitterX = CGFloat.random(in: -1...1) * bass * 20 * intensity
+            let jitterY = CGFloat.random(in: -1...1) * bass * 20 * intensity
+            let jitterScale = 1.0 + CGFloat.random(in: -0.05...0.05) * bass * intensity
+            
+            let transform = CIFilter(name: "CIAffineTransform")!
+            var affine = CGAffineTransform(translationX: jitterX, y: jitterY)
+            affine = affine.scaledBy(x: jitterScale, y: jitterScale)
+            transform.setValue(ciImage, forKey: kCIInputImageKey)
+            transform.setValue(affine, forKey: kCIInputTransformKey)
+            ciImage = transform.outputImage ?? ciImage
+            
+        case .mirror:
+            // 4-way mirror
+            let fourFold = CIFilter(name: "CIFourfoldReflectedTile")!
+            fourFold.setValue(ciImage, forKey: kCIInputImageKey)
+            fourFold.setValue(center, forKey: kCIInputCenterKey)
+            fourFold.setValue(t * 0.2 * intensity, forKey: kCIInputAngleKey)
+            fourFold.setValue(imageSize.width * (0.3 + bass * 0.2 * intensity), forKey: kCIInputWidthKey)
+            ciImage = fourFold.outputImage?.cropped(to: CIImage(cgImage: cgImage).extent) ?? ciImage
+            
+        case .tile:
+            let op = CIFilter(name: "CIOpTile")!
+            op.setValue(ciImage, forKey: kCIInputImageKey)
+            op.setValue(center, forKey: kCIInputCenterKey)
+            op.setValue(t * intensity, forKey: kCIInputAngleKey)
+            op.setValue(1.5 + bass * intensity, forKey: kCIInputScaleKey)
+            op.setValue(imageSize.width * 0.3, forKey: kCIInputWidthKey)
+            ciImage = op.outputImage?.cropped(to: CIImage(cgImage: cgImage).extent) ?? ciImage
+            
+        case .prism:
+            // Triangular kaleidoscope
+            let triangle = CIFilter(name: "CITriangleKaleidoscope")!
+            triangle.setValue(ciImage, forKey: kCIInputImageKey)
+            triangle.setValue(CIVector(x: imageSize.width * 0.5, y: imageSize.height * 0.5), forKey: "inputPoint")
+            triangle.setValue(imageSize.width * (0.3 + bass * 0.2), forKey: "inputSize")
+            triangle.setValue(t * 0.5 * intensity, forKey: "inputRotation")
+            triangle.setValue(0.1, forKey: "inputDecay")
+            ciImage = triangle.outputImage?.cropped(to: CIImage(cgImage: cgImage).extent) ?? ciImage
+            
+        case .doubleVision:
+            let offset = 20 + bass * 50 * intensity
+            
+            let transform1 = CIFilter(name: "CIAffineTransform")!
+            transform1.setValue(ciImage, forKey: kCIInputImageKey)
+            transform1.setValue(CGAffineTransform(translationX: -offset, y: 0), forKey: kCIInputTransformKey)
+            let img1 = transform1.outputImage ?? ciImage
+            
+            let transform2 = CIFilter(name: "CIAffineTransform")!
+            transform2.setValue(ciImage, forKey: kCIInputImageKey)
+            transform2.setValue(CGAffineTransform(translationX: offset, y: 0), forKey: kCIInputTransformKey)
+            let img2 = transform2.outputImage ?? ciImage
+            
+            let blend = CIFilter(name: "CIAdditionCompositing")!
+            blend.setValue(img1.applyingFilter("CIColorMatrix", parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0.5)]), forKey: kCIInputImageKey)
+            blend.setValue(img2.applyingFilter("CIColorMatrix", parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0.5)]), forKey: kCIInputBackgroundImageKey)
+            ciImage = blend.outputImage ?? ciImage
+            
+        case .flipbook:
+            // Rapid flip between normal and transformed
+            let flipPhase = Int(t * 8 * intensity) % 4
+            
+            let transform = CIFilter(name: "CIAffineTransform")!
+            var affine = CGAffineTransform.identity
+            switch flipPhase {
+            case 0: affine = CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -imageSize.width, y: 0)
+            case 1: affine = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: -imageSize.height)
+            case 2:
+                affine = CGAffineTransform(translationX: imageSize.width/2, y: imageSize.height/2)
+                affine = affine.rotated(by: .pi)
+                affine = affine.translatedBy(x: -imageSize.width/2, y: -imageSize.height/2)
+            default: break
+            }
+            transform.setValue(ciImage, forKey: kCIInputImageKey)
+            transform.setValue(affine, forKey: kCIInputTransformKey)
+            ciImage = transform.outputImage ?? ciImage
+            
+        case .mosaic:
+            let hexagonal = CIFilter(name: "CIHexagonalPixellate")!
+            hexagonal.setValue(ciImage, forKey: kCIInputImageKey)
+            hexagonal.setValue(center, forKey: kCIInputCenterKey)
+            hexagonal.setValue(10 + (1 - level) * 30 * intensity, forKey: kCIInputScaleKey)
+            ciImage = hexagonal.outputImage ?? ciImage
+            
+        case .pixelate:
+            let pixellate = CIFilter(name: "CIPixellate")!
+            pixellate.setValue(ciImage, forKey: kCIInputImageKey)
+            pixellate.setValue(center, forKey: kCIInputCenterKey)
+            pixellate.setValue(5 + (1 - level) * 40 * intensity, forKey: kCIInputScaleKey)
+            ciImage = pixellate.outputImage ?? ciImage
+            
+        case .scanlines:
+            // CRT scanline effect
+            let lines = CIFilter(name: "CILineScreen")!
+            lines.setValue(ciImage, forKey: kCIInputImageKey)
+            lines.setValue(center, forKey: kCIInputCenterKey)
+            lines.setValue(t * 0.5, forKey: kCIInputAngleKey)
+            lines.setValue(3 + bass * 5 * intensity, forKey: kCIInputWidthKey)
+            lines.setValue(0.7 + bass * 0.3, forKey: kCIInputSharpnessKey)
+            ciImage = lines.outputImage ?? ciImage
+            
+            let bloom = CIFilter(name: "CIBloom")!
+            bloom.setValue(ciImage, forKey: kCIInputImageKey)
+            bloom.setValue(5 * level, forKey: kCIInputRadiusKey)
+            bloom.setValue(0.3, forKey: kCIInputIntensityKey)
+            ciImage = bloom.outputImage ?? ciImage
+            
+        case .datamosh:
+            // Simulate datamosh with edge work + color shift
+            let edges = CIFilter(name: "CIEdgeWork")!
+            edges.setValue(ciImage, forKey: kCIInputImageKey)
+            edges.setValue(3 + bass * 10 * intensity, forKey: kCIInputRadiusKey)
+            let edgeImage = edges.outputImage ?? ciImage
+            
+            let blend = CIFilter(name: "CIMultiplyBlendMode")!
+            blend.setValue(edgeImage, forKey: kCIInputImageKey)
+            blend.setValue(ciImage, forKey: kCIInputBackgroundImageKey)
+            ciImage = blend.outputImage ?? ciImage
+            
+            let hue = CIFilter(name: "CIHueAdjust")!
+            hue.setValue(ciImage, forKey: kCIInputImageKey)
+            hue.setValue(bass * 3 * intensity, forKey: kCIInputAngleKey)
+            ciImage = hue.outputImage ?? ciImage
+            
+        case .blocky:
+            // Large pixelation with color boost
+            let pixellate = CIFilter(name: "CIPixellate")!
+            pixellate.setValue(ciImage, forKey: kCIInputImageKey)
+            pixellate.setValue(center, forKey: kCIInputCenterKey)
+            pixellate.setValue(20 + bass * 60 * intensity, forKey: kCIInputScaleKey)
+            ciImage = pixellate.outputImage ?? ciImage
+            
+            let vibrance = CIFilter(name: "CIVibrance")!
+            vibrance.setValue(ciImage, forKey: kCIInputImageKey)
+            vibrance.setValue(0.5 + bass * intensity, forKey: "inputAmount")
+            ciImage = vibrance.outputImage ?? ciImage
+        }
+        
+        // Render the processed image
+        let outputExtent = ciImage.extent
+        if let outputCGImage = ciContext.createCGImage(ciImage, from: outputExtent) {
+            context.saveGState()
+            context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+            context.scaleBy(x: 1, y: -1)
+            context.draw(outputCGImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+            context.restoreGState()
+        }
+    }
+    
+    // MARK: - Visualization Effects
+    
+    private func drawSubtleEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Gentle pulse
+        let pulse = 1.0 + bass * 0.1 * intensity * (0.5 + 0.5 * sin(t * 4))
+        let scaledRect = artworkRect.insetBy(dx: artworkRect.width * (1 - pulse) / 2, dy: artworkRect.height * (1 - pulse) / 2)
+        
+        context.saveGState()
+        context.translateBy(x: scaledRect.minX, y: scaledRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledRect.width, height: scaledRect.height))
+        context.restoreGState()
+        
+        // Soft glow
+        let glowAlpha = level * 0.3 * intensity
+        let hue = fmod(t * 0.05, 1.0)
+        context.saveGState()
+        context.setBlendMode(.screen)
+        context.setFillColor(NSColor(hue: hue, saturation: 0.5, brightness: 1.0, alpha: glowAlpha).cgColor)
+        context.fill(contentRect)
+        context.restoreGState()
+    }
+    
+    private func drawPsychedelicEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                       bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Rotating hue shift with pulsing
+        let pulse = 1.0 + bass * 0.25 * intensity
+        let rotation = t * 0.5 * intensity + bass * 0.3
+        
+        let centerX = contentRect.midX
+        let centerY = contentRect.midY
+        
+        // Draw multiple rotated/scaled copies for trippy effect
+        for i in 0..<3 {
+            let layerIntensity = CGFloat(3 - i) / 3.0
+            let layerScale = pulse * (1.0 + CGFloat(i) * 0.05 * mid * intensity)
+            let layerRotation = rotation + CGFloat(i) * 0.1 * treble
+            
+            let scaledWidth = artworkRect.width * layerScale
+            let scaledHeight = artworkRect.height * layerScale
+            
+            context.saveGState()
+            context.translateBy(x: centerX, y: centerY)
+            context.rotate(by: layerRotation)
+            context.translateBy(x: -scaledWidth / 2, y: scaledHeight / 2)
+            context.scaleBy(x: 1, y: -1)
+            
+            if i > 0 {
+                context.setAlpha(0.4 * layerIntensity)
+                context.setBlendMode(.plusLighter)
+            }
+            
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+            context.restoreGState()
+        }
+        
+        // Intense color cycling overlay
+        let hue1 = fmod(t * 0.2 + bass, 1.0)
+        let hue2 = fmod(t * 0.15 + treble + 0.33, 1.0)
+        
+        context.saveGState()
+        context.setBlendMode(.overlay)
+        context.setFillColor(NSColor(hue: hue1, saturation: 0.8 * intensity, brightness: 1.0, alpha: 0.4 * level * intensity).cgColor)
+        context.fill(contentRect)
+        context.restoreGState()
+        
+        context.saveGState()
+        context.setBlendMode(.colorDodge)
+        context.setFillColor(NSColor(hue: hue2, saturation: 1.0, brightness: 1.0, alpha: 0.2 * mid * intensity).cgColor)
+        context.fill(contentRect)
+        context.restoreGState()
+    }
+    
+    private func drawKaleidoscopeEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                        bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        let segments = 6 + Int(bass * 4 * intensity)
+        let angleStep = CGFloat.pi * 2 / CGFloat(segments)
+        let rotation = t * 0.3 * intensity
+        let pulse = 1.0 + bass * 0.15 * intensity
+        
+        let centerX = contentRect.midX
+        let centerY = contentRect.midY
+        let scaledWidth = artworkRect.width * pulse * 0.5
+        let scaledHeight = artworkRect.height * pulse * 0.5
+        
+        for i in 0..<segments {
+            let angle = CGFloat(i) * angleStep + rotation
+            let flip = i % 2 == 0 ? 1.0 : -1.0
+            
+            context.saveGState()
+            context.translateBy(x: centerX, y: centerY)
+            context.rotate(by: angle)
+            context.scaleBy(x: CGFloat(flip), y: 1)
+            context.translateBy(x: -scaledWidth / 2, y: scaledHeight / 2)
+            context.scaleBy(x: 1, y: -1)
+            context.setAlpha(0.8)
+            context.setBlendMode(i % 2 == 0 ? .normal : .screen)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+            context.restoreGState()
+        }
+        
+        // Trippy color wheel
+        let hue = fmod(t * 0.1, 1.0)
+        context.saveGState()
+        context.setBlendMode(.hue)
+        context.setFillColor(NSColor(hue: hue, saturation: 0.6 * intensity, brightness: 1.0, alpha: 0.3 * mid).cgColor)
+        context.fill(contentRect)
+        context.restoreGState()
+    }
+    
+    private func drawMeltEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base image stretched/melted
+        let meltAmount = bass * 0.3 * intensity
+        let waveFreq = 3.0 + treble * 5.0
+        let wavePhase = t * 2.0
+        
+        // Draw with vertical wave distortion simulation using multiple strips
+        let strips = 20
+        let stripWidth = artworkRect.width / CGFloat(strips)
+        
+        for i in 0..<strips {
+            let x = artworkRect.minX + CGFloat(i) * stripWidth
+            let waveOffset = sin(CGFloat(i) / CGFloat(strips) * waveFreq + wavePhase) * meltAmount * artworkRect.height
+            let stretchFactor = 1.0 + cos(CGFloat(i) / CGFloat(strips) * waveFreq * 0.5 + wavePhase * 0.7) * meltAmount * 0.3
+            
+            let srcRect = CGRect(x: CGFloat(i) / CGFloat(strips) * CGFloat(cgImage.width),
+                                y: 0,
+                                width: CGFloat(cgImage.width) / CGFloat(strips),
+                                height: CGFloat(cgImage.height))
+            
+            if let stripImage = cgImage.cropping(to: srcRect) {
+                let destHeight = artworkRect.height * stretchFactor
+                let destRect = NSRect(x: x, y: artworkRect.minY + waveOffset + (artworkRect.height - destHeight) / 2,
+                                     width: stripWidth + 1, height: destHeight)
+                
+                context.saveGState()
+                context.translateBy(x: destRect.minX, y: destRect.maxY)
+                context.scaleBy(x: 1, y: -1)
+                context.draw(stripImage, in: CGRect(x: 0, y: 0, width: destRect.width, height: destRect.height))
+                context.restoreGState()
+            }
+        }
+        
+        // Acid color wash
+        let hue = fmod(t * 0.08, 1.0)
+        context.saveGState()
+        context.setBlendMode(.color)
+        context.setFillColor(NSColor(hue: hue, saturation: 0.7 * intensity, brightness: 1.0, alpha: 0.25 * level * intensity).cgColor)
+        context.fill(contentRect)
+        context.restoreGState()
+    }
+    
+    private func drawStrobeEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Fast strobe on bass hits
+        let strobeFreq = 8.0 + bass * 20.0 * intensity
+        let strobe = sin(t * strobeFreq) > 0.3 ? 1.0 : 0.3
+        
+        // Invert colors on beat
+        let invert = bass > 0.6 && sin(t * 15.0) > 0
+        
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.setAlpha(strobe)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        if invert {
+            context.saveGState()
+            context.setBlendMode(.difference)
+            context.setFillColor(NSColor.white.cgColor)
+            context.fill(artworkRect)
+            context.restoreGState()
+        }
+        
+        // Flash overlay
+        let flashIntensity = bass > 0.5 ? bass * intensity : 0
+        if flashIntensity > 0.1 {
+            let flashHue = fmod(t * 0.5, 1.0)
+            context.saveGState()
+            context.setBlendMode(.screen)
+            context.setFillColor(NSColor(hue: flashHue, saturation: 1.0, brightness: 1.0, alpha: flashIntensity * 0.6).cgColor)
+            context.fill(contentRect)
+            context.restoreGState()
+        }
+    }
+    
+    private func drawRGBSplitEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                    bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Chromatic aberration / RGB split
+        let splitAmount = (10 + bass * 30) * intensity
+        let angle = t * 0.5
+        
+        let redOffset = CGPoint(x: cos(angle) * splitAmount, y: sin(angle) * splitAmount)
+        let greenOffset = CGPoint.zero
+        let blueOffset = CGPoint(x: cos(angle + CGFloat.pi) * splitAmount, y: sin(angle + CGFloat.pi) * splitAmount)
+        
+        // Red channel
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX + redOffset.x, y: artworkRect.maxY + redOffset.y)
+        context.scaleBy(x: 1, y: -1)
+        context.setBlendMode(.screen)
+        context.clip(to: CGRect(origin: .zero, size: artworkRect.size), mask: cgImage)
+        context.setFillColor(NSColor.red.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Green channel
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX + greenOffset.x, y: artworkRect.maxY + greenOffset.y)
+        context.scaleBy(x: 1, y: -1)
+        context.setBlendMode(.screen)
+        context.clip(to: CGRect(origin: .zero, size: artworkRect.size), mask: cgImage)
+        context.setFillColor(NSColor.green.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Blue channel
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX + blueOffset.x, y: artworkRect.maxY + blueOffset.y)
+        context.scaleBy(x: 1, y: -1)
+        context.setBlendMode(.screen)
+        context.clip(to: CGRect(origin: .zero, size: artworkRect.size), mask: cgImage)
+        context.setFillColor(NSColor.blue.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Scanlines
+        context.saveGState()
+        context.setBlendMode(.multiply)
+        for y in stride(from: contentRect.minY, to: contentRect.maxY, by: 4) {
+            context.setFillColor(NSColor(white: 0.8, alpha: 0.3 * intensity).cgColor)
+            context.fill(NSRect(x: contentRect.minX, y: y, width: contentRect.width, height: 2))
+        }
+        context.restoreGState()
+    }
+    
+    private func drawMirrorEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Infinite mirror tunnel effect
+        let layers = 5 + Int(bass * 5 * intensity)
+        let baseScale: CGFloat = 0.85
+        let rotation = t * 0.2 * intensity
+        
+        let centerX = contentRect.midX
+        let centerY = contentRect.midY
+        
+        for i in (0..<layers).reversed() {
+            let layerScale = pow(baseScale, CGFloat(i)) * (1.0 + bass * 0.1 * intensity)
+            let layerRotation = rotation * CGFloat(i) * 0.3
+            let alpha = 1.0 - CGFloat(i) * 0.15
+            
+            let scaledWidth = artworkRect.width * layerScale
+            let scaledHeight = artworkRect.height * layerScale
+            
+            context.saveGState()
+            context.translateBy(x: centerX, y: centerY)
+            context.rotate(by: layerRotation)
+            if i % 2 == 1 {
+                context.scaleBy(x: -1, y: 1)  // Mirror alternate layers
+            }
+            context.translateBy(x: -scaledWidth / 2, y: scaledHeight / 2)
+            context.scaleBy(x: 1, y: -1)
+            context.setAlpha(alpha)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+            context.restoreGState()
+        }
+        
+        // Vignette
+        let vignetteColors = [NSColor.clear.cgColor, NSColor(white: 0, alpha: 0.7 * intensity).cgColor]
+        let locations: [CGFloat] = [0.3, 1.0]
+        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: vignetteColors as CFArray, locations: locations) {
+            context.drawRadialGradient(gradient,
+                                       startCenter: CGPoint(x: centerX, y: centerY),
+                                       startRadius: 0,
+                                       endCenter: CGPoint(x: centerX, y: centerY),
+                                       endRadius: contentRect.width * 0.7,
+                                       options: [])
+        }
+    }
+    
+    private func drawVortexEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Spinning vortex
+        let baseRotation = t * 1.5 * intensity
+        let spiralTightness = 0.1 + bass * 0.2 * intensity
+        let layers = 8
+        
+        let centerX = contentRect.midX
+        let centerY = contentRect.midY
+        
+        for i in 0..<layers {
+            let progress = CGFloat(i) / CGFloat(layers)
+            let layerScale = 1.0 - progress * 0.8
+            let layerRotation = baseRotation + progress * CGFloat.pi * 4 * spiralTightness
+            let alpha = (1.0 - progress) * 0.7
+            
+            let scaledWidth = artworkRect.width * layerScale
+            let scaledHeight = artworkRect.height * layerScale
+            
+            context.saveGState()
+            context.translateBy(x: centerX, y: centerY)
+            context.rotate(by: layerRotation)
+            context.translateBy(x: -scaledWidth / 2, y: scaledHeight / 2)
+            context.scaleBy(x: 1, y: -1)
+            context.setAlpha(alpha)
+            context.setBlendMode(.plusLighter)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+            context.restoreGState()
+        }
+        
+        // Trippy radial color
+        let hue = fmod(t * 0.1 + level, 1.0)
+        context.saveGState()
+        context.setBlendMode(.softLight)
+        context.setFillColor(NSColor(hue: hue, saturation: 0.8 * intensity, brightness: 1.0, alpha: 0.4 * level).cgColor)
+        context.fill(contentRect)
+        context.restoreGState()
+    }
+    
+    private func drawGlitchEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Random glitch displacement
+        let glitchIntensity = bass * intensity
+        let shouldGlitch = bass > 0.4 && Int(t * 10) % 3 == 0
+        
+        // Base image
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        if shouldGlitch {
+            // Random horizontal slice displacement
+            let slices = Int.random(in: 3...8)
+            let sliceHeight = artworkRect.height / CGFloat(slices)
+            
+            for i in 0..<slices {
+                if Double.random(in: 0...1) < Double(glitchIntensity) {
+                    let offset = CGFloat.random(in: -50...50) * glitchIntensity
+                    let y = artworkRect.minY + CGFloat(i) * sliceHeight
+                    
+                    let srcY = CGFloat(cgImage.height) * CGFloat(i) / CGFloat(slices)
+                    let srcRect = CGRect(x: 0, y: srcY, width: CGFloat(cgImage.width), height: CGFloat(cgImage.height) / CGFloat(slices))
+                    
+                    if let sliceImage = cgImage.cropping(to: srcRect) {
+                        context.saveGState()
+                        context.translateBy(x: artworkRect.minX + offset, y: y + sliceHeight)
+                        context.scaleBy(x: 1, y: -1)
+                        context.setBlendMode(.normal)
+                        context.draw(sliceImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: sliceHeight))
+                        context.restoreGState()
+                    }
+                }
+            }
+            
+            // Color corruption
+            let corruptHue = CGFloat.random(in: 0...1)
+            context.saveGState()
+            context.setBlendMode(.exclusion)
+            context.setFillColor(NSColor(hue: corruptHue, saturation: 1.0, brightness: 1.0, alpha: glitchIntensity * 0.5).cgColor)
+            
+            // Random corrupt rectangles
+            for _ in 0..<Int(glitchIntensity * 10) {
+                let glitchRect = NSRect(
+                    x: artworkRect.minX + CGFloat.random(in: 0...artworkRect.width),
+                    y: artworkRect.minY + CGFloat.random(in: 0...artworkRect.height),
+                    width: CGFloat.random(in: 20...100),
+                    height: CGFloat.random(in: 5...30)
+                )
+                context.fill(glitchRect)
+            }
+            context.restoreGState()
+        }
+        
+        // Persistent noise overlay
+        context.saveGState()
+        context.setBlendMode(.overlay)
+        for _ in 0..<Int(50 * intensity) {
+            let noiseRect = NSRect(
+                x: artworkRect.minX + CGFloat.random(in: 0...artworkRect.width),
+                y: artworkRect.minY + CGFloat.random(in: 0...artworkRect.height),
+                width: CGFloat.random(in: 1...3),
+                height: CGFloat.random(in: 1...3)
+            )
+            context.setFillColor(NSColor(white: CGFloat.random(in: 0...1), alpha: 0.3).cgColor)
+            context.fill(noiseRect)
+        }
+        context.restoreGState()
+    }
+    
+    // MARK: - Geometric Effects
+    
+    private func drawFractalEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                   bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Recursive zoom fractal effect
+        let layers = 5 + Int(bass * 3 * intensity)
+        let zoomSpeed = 0.3 * intensity
+        let rotation = t * 0.2 * intensity
+        
+        for i in (0..<layers).reversed() {
+            let progress = CGFloat(i) / CGFloat(layers)
+            let scale = 1.0 + progress * (1.0 + sin(t * zoomSpeed) * 0.5) * intensity
+            let layerRotation = rotation * progress * 2
+            let alpha = 1.0 - progress * 0.7
+            
+            let centerX = contentRect.midX
+            let centerY = contentRect.midY
+            let scaledWidth = artworkRect.width / scale
+            let scaledHeight = artworkRect.height / scale
+            
+            context.saveGState()
+            context.translateBy(x: centerX, y: centerY)
+            context.rotate(by: layerRotation)
+            context.translateBy(x: -scaledWidth / 2, y: scaledHeight / 2)
+            context.scaleBy(x: 1, y: -1)
+            context.setAlpha(alpha)
+            context.setBlendMode(i % 2 == 0 ? .normal : .plusLighter)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+            context.restoreGState()
+        }
+    }
+    
+    private func drawHexGridEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                   bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base image
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Hexagonal grid overlay
+        let hexSize: CGFloat = 30 + bass * 20 * intensity
+        let rows = Int(contentRect.height / (hexSize * 0.866)) + 1
+        let cols = Int(contentRect.width / hexSize) + 1
+        
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let offset = row % 2 == 0 ? 0 : hexSize * 0.5
+                let x = contentRect.minX + CGFloat(col) * hexSize + offset
+                let y = contentRect.minY + CGFloat(row) * hexSize * 0.866
+                
+                let pulsePhase = sin(t * 3 + CGFloat(row + col) * 0.5) * 0.5 + 0.5
+                let hue = fmod(t * 0.1 + CGFloat(row + col) * 0.05, 1.0)
+                let alpha = level * pulsePhase * 0.5 * intensity
+                
+                context.saveGState()
+                context.setBlendMode(.overlay)
+                context.setFillColor(NSColor(hue: hue, saturation: 0.8, brightness: 1.0, alpha: alpha).cgColor)
+                
+                // Draw hexagon
+                let path = CGMutablePath()
+                for i in 0..<6 {
+                    let angle = CGFloat(i) * CGFloat.pi / 3 - CGFloat.pi / 6
+                    let px = x + cos(angle) * hexSize * 0.4
+                    let py = y + sin(angle) * hexSize * 0.4
+                    if i == 0 {
+                        path.move(to: CGPoint(x: px, y: py))
+                    } else {
+                        path.addLine(to: CGPoint(x: px, y: py))
+                    }
+                }
+                path.closeSubpath()
+                context.addPath(path)
+                context.fillPath()
+                context.restoreGState()
+            }
+        }
+    }
+    
+    private func drawTrianglesEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                     bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Exploding triangles
+        let triCount = Int(10 + bass * 30 * intensity)
+        for i in 0..<triCount {
+            let angle = CGFloat(i) / CGFloat(triCount) * CGFloat.pi * 2 + t * 0.5
+            let distance = (50 + level * 100 * intensity) * (1 + sin(t * 2 + CGFloat(i)) * 0.3)
+            let size: CGFloat = 20 + mid * 30
+            
+            let x = contentRect.midX + cos(angle) * distance
+            let y = contentRect.midY + sin(angle) * distance
+            
+            let hue = fmod(CGFloat(i) / CGFloat(triCount) + t * 0.1, 1.0)
+            
+            context.saveGState()
+            context.translateBy(x: x, y: y)
+            context.rotate(by: angle + t)
+            context.setBlendMode(.plusLighter)
+            context.setFillColor(NSColor(hue: hue, saturation: 0.9, brightness: 1.0, alpha: 0.6 * intensity).cgColor)
+            
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 0, y: -size/2))
+            path.addLine(to: CGPoint(x: size/2, y: size/2))
+            path.addLine(to: CGPoint(x: -size/2, y: size/2))
+            path.closeSubpath()
+            context.addPath(path)
+            context.fillPath()
+            context.restoreGState()
+        }
+    }
+    
+    private func drawRippleEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Concentric ripples
+        let rippleCount = 5 + Int(bass * 5)
+        let maxRadius = max(contentRect.width, contentRect.height) * 0.7
+        
+        for i in 0..<rippleCount {
+            let phase = fmod(t * 0.5 + CGFloat(i) * 0.2, 1.0)
+            let radius = phase * maxRadius
+            let alpha = (1 - phase) * level * 0.6 * intensity
+            let lineWidth = 2 + bass * 5 * intensity
+            
+            let hue = fmod(phase + t * 0.1, 1.0)
+            
+            context.saveGState()
+            context.setBlendMode(.screen)
+            context.setStrokeColor(NSColor(hue: hue, saturation: 0.7, brightness: 1.0, alpha: alpha).cgColor)
+            context.setLineWidth(lineWidth)
+            context.strokeEllipse(in: NSRect(x: contentRect.midX - radius, y: contentRect.midY - radius,
+                                            width: radius * 2, height: radius * 2))
+            context.restoreGState()
+        }
+    }
+    
+    private func drawPixelateEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                    bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Variable pixelation based on audio
+        let pixelSize = max(4, Int(8 + (1 - level) * 40 * intensity))
+        
+        // Create pixelated version by drawing small tiles
+        let cols = Int(artworkRect.width) / pixelSize + 1
+        let rows = Int(artworkRect.height) / pixelSize + 1
+        
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let srcX = CGFloat(col * pixelSize) / artworkRect.width * CGFloat(cgImage.width)
+                let srcY = CGFloat(row * pixelSize) / artworkRect.height * CGFloat(cgImage.height)
+                let srcRect = CGRect(x: srcX, y: srcY, width: CGFloat(pixelSize), height: CGFloat(pixelSize))
+                
+                if let pixel = cgImage.cropping(to: srcRect) {
+                    let destX = artworkRect.minX + CGFloat(col * pixelSize)
+                    let destY = artworkRect.minY + CGFloat(row * pixelSize)
+                    
+                    context.saveGState()
+                    context.translateBy(x: destX, y: destY + CGFloat(pixelSize))
+                    context.scaleBy(x: 1, y: -1)
+                    context.draw(pixel, in: CGRect(x: 0, y: 0, width: CGFloat(pixelSize), height: CGFloat(pixelSize)))
+                    context.restoreGState()
+                }
+            }
+        }
+        
+        // Color overlay on beats
+        if bass > 0.5 {
+            let hue = fmod(t * 0.2, 1.0)
+            context.saveGState()
+            context.setBlendMode(.overlay)
+            context.setFillColor(NSColor(hue: hue, saturation: 1.0, brightness: 1.0, alpha: bass * 0.4 * intensity).cgColor)
+            context.fill(artworkRect)
+            context.restoreGState()
+        }
+    }
+    
+    // MARK: - Color Effects
+    
+    private func drawNeonEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw darkened base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.setAlpha(0.3)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Neon glow layers
+        let glowColors: [NSColor] = [
+            NSColor(red: 1, green: 0, blue: 0.5, alpha: 1),    // Pink
+            NSColor(red: 0, green: 1, blue: 1, alpha: 1),      // Cyan
+            NSColor(red: 1, green: 1, blue: 0, alpha: 1),      // Yellow
+            NSColor(red: 0.5, green: 0, blue: 1, alpha: 1)     // Purple
+        ]
+        
+        let colorIndex = Int(fmod(t * 0.5, CGFloat(glowColors.count)))
+        let nextIndex = (colorIndex + 1) % glowColors.count
+        let blend = fmod(t * 0.5, 1.0)
+        
+        // Multiple glow passes
+        for pass in 0..<3 {
+            let glowSize = CGFloat(pass + 1) * 3 * intensity * (1 + bass * 0.5)
+            let alpha = 0.3 / CGFloat(pass + 1) * level * intensity
+            
+            context.saveGState()
+            context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+            context.scaleBy(x: 1, y: -1)
+            context.setBlendMode(.plusLighter)
+            context.setShadow(offset: .zero, blur: glowSize, color: glowColors[colorIndex].withAlphaComponent(alpha).cgColor)
+            context.setAlpha(alpha)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+            context.restoreGState()
+        }
+        
+        // Pulsing border glow
+        let borderGlow = bass * 20 * intensity
+        context.saveGState()
+        context.setBlendMode(.plusLighter)
+        context.setStrokeColor(glowColors[nextIndex].withAlphaComponent(level * 0.8).cgColor)
+        context.setLineWidth(borderGlow)
+        context.stroke(artworkRect.insetBy(dx: -borderGlow/2, dy: -borderGlow/2))
+        context.restoreGState()
+    }
+    
+    private func drawThermalEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                   bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Thermal color mapping overlay
+        let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                  colors: [NSColor.blue.cgColor, NSColor.cyan.cgColor, NSColor.green.cgColor,
+                                          NSColor.yellow.cgColor, NSColor.orange.cgColor, NSColor.red.cgColor,
+                                          NSColor.white.cgColor] as CFArray,
+                                  locations: [0, 0.15, 0.3, 0.45, 0.6, 0.8, 1.0])!
+        
+        // Animated thermal threshold
+        let threshold = 0.3 + sin(t * 2) * 0.2 * intensity
+        
+        context.saveGState()
+        context.setBlendMode(.color)
+        context.setAlpha(0.7 * intensity)
+        context.clip(to: artworkRect)
+        
+        // Draw gradient based on audio
+        let startPoint = CGPoint(x: artworkRect.minX, y: artworkRect.minY + artworkRect.height * threshold)
+        let endPoint = CGPoint(x: artworkRect.minX, y: artworkRect.maxY)
+        context.drawLinearGradient(gradient, start: startPoint, end: endPoint, options: [])
+        context.restoreGState()
+        
+        // Heat pulse on bass
+        if bass > 0.5 {
+            context.saveGState()
+            context.setBlendMode(.screen)
+            context.setFillColor(NSColor.red.withAlphaComponent(bass * 0.4 * intensity).cgColor)
+            context.fill(artworkRect)
+            context.restoreGState()
+        }
+    }
+    
+    private func drawPosterizeEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                     bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Posterize overlay with shifting colors
+        let hueShift = fmod(t * 0.1, 1.0)
+        let satBoost = 1.0 + bass * 0.5 * intensity
+        
+        // High contrast overlay
+        context.saveGState()
+        context.setBlendMode(.hardLight)
+        context.setAlpha(0.4 * intensity)
+        
+        let hue1 = fmod(hueShift, 1.0)
+        let hue2 = fmod(hueShift + 0.33, 1.0)
+        let hue3 = fmod(hueShift + 0.66, 1.0)
+        
+        // Color bands
+        let bandHeight = artworkRect.height / 3
+        context.setFillColor(NSColor(hue: hue1, saturation: satBoost, brightness: 1.0, alpha: 1).cgColor)
+        context.fill(NSRect(x: artworkRect.minX, y: artworkRect.minY, width: artworkRect.width, height: bandHeight))
+        context.setFillColor(NSColor(hue: hue2, saturation: satBoost, brightness: 1.0, alpha: 1).cgColor)
+        context.fill(NSRect(x: artworkRect.minX, y: artworkRect.minY + bandHeight, width: artworkRect.width, height: bandHeight))
+        context.setFillColor(NSColor(hue: hue3, saturation: satBoost, brightness: 1.0, alpha: 1).cgColor)
+        context.fill(NSRect(x: artworkRect.minX, y: artworkRect.minY + bandHeight * 2, width: artworkRect.width, height: bandHeight))
+        context.restoreGState()
+    }
+    
+    private func drawInvertEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Animated inversion based on audio
+        let invertAmount = (sin(t * 4 * intensity) * 0.5 + 0.5) * bass
+        
+        if invertAmount > 0.3 {
+            context.saveGState()
+            context.setBlendMode(.difference)
+            context.setFillColor(NSColor.white.withAlphaComponent(invertAmount * intensity).cgColor)
+            context.fill(artworkRect)
+            context.restoreGState()
+        }
+        
+        // Hue rotation
+        let hue = fmod(t * 0.15, 1.0)
+        context.saveGState()
+        context.setBlendMode(.hue)
+        context.setFillColor(NSColor(hue: hue, saturation: 1.0, brightness: 1.0, alpha: 0.3 * level * intensity).cgColor)
+        context.fill(artworkRect)
+        context.restoreGState()
+    }
+    
+    private func drawSepiaEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                 bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Sepia overlay
+        let sepiaStrength = 0.5 + sin(t * 0.5) * 0.3 * intensity
+        context.saveGState()
+        context.setBlendMode(.color)
+        context.setFillColor(NSColor(red: 0.9, green: 0.7, blue: 0.4, alpha: sepiaStrength).cgColor)
+        context.fill(artworkRect)
+        context.restoreGState()
+        
+        // Vignette
+        let vignetteRadius = artworkRect.width * 0.8 * (1 + bass * 0.2 * intensity)
+        let vignetteColors = [NSColor.clear.cgColor, NSColor(white: 0, alpha: 0.6 * intensity).cgColor]
+        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: vignetteColors as CFArray, locations: [0.3, 1.0]) {
+            context.drawRadialGradient(gradient,
+                                       startCenter: CGPoint(x: artworkRect.midX, y: artworkRect.midY), startRadius: 0,
+                                       endCenter: CGPoint(x: artworkRect.midX, y: artworkRect.midY), endRadius: vignetteRadius,
+                                       options: [])
+        }
+        
+        // Film grain
+        for _ in 0..<Int(100 * intensity) {
+            let x = artworkRect.minX + CGFloat.random(in: 0...artworkRect.width)
+            let y = artworkRect.minY + CGFloat.random(in: 0...artworkRect.height)
+            context.setFillColor(NSColor(white: CGFloat.random(in: 0.3...0.7), alpha: 0.1).cgColor)
+            context.fill(NSRect(x: x, y: y, width: 1, height: 1))
+        }
+    }
+    
+    // MARK: - Motion Effects
+    
+    private func drawZoomEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Breathing zoom
+        let zoomCycle = sin(t * 2 * intensity) * 0.5 + 0.5
+        let scale = 1.0 + zoomCycle * bass * 0.3 * intensity
+        
+        let centerX = contentRect.midX
+        let centerY = contentRect.midY
+        let scaledWidth = artworkRect.width * scale
+        let scaledHeight = artworkRect.height * scale
+        
+        context.saveGState()
+        context.translateBy(x: centerX - scaledWidth / 2, y: centerY + scaledHeight / 2)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+        context.restoreGState()
+        
+        // Motion blur simulation
+        let blurLayers = 3
+        for i in 1...blurLayers {
+            let blurScale = scale - CGFloat(i) * 0.02 * intensity
+            let blurAlpha = 0.2 / CGFloat(i)
+            let blurWidth = artworkRect.width * blurScale
+            let blurHeight = artworkRect.height * blurScale
+            
+            context.saveGState()
+            context.translateBy(x: centerX - blurWidth / 2, y: centerY + blurHeight / 2)
+            context.scaleBy(x: 1, y: -1)
+            context.setAlpha(blurAlpha)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: blurWidth, height: blurHeight))
+            context.restoreGState()
+        }
+    }
+    
+    private func drawShakeEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                 bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Earthquake shake
+        let shakeX = sin(t * 30 * intensity) * bass * 15 * intensity
+        let shakeY = cos(t * 25 * intensity) * bass * 10 * intensity
+        let rotation = sin(t * 20) * bass * 0.05 * intensity
+        
+        let centerX = contentRect.midX
+        let centerY = contentRect.midY
+        
+        context.saveGState()
+        context.translateBy(x: centerX + shakeX, y: centerY + shakeY)
+        context.rotate(by: rotation)
+        context.translateBy(x: -artworkRect.width / 2, y: artworkRect.height / 2)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Crack lines on heavy bass
+        if bass > 0.7 {
+            context.saveGState()
+            context.setStrokeColor(NSColor.white.withAlphaComponent(bass * 0.5).cgColor)
+            context.setLineWidth(2)
+            for _ in 0..<Int(bass * 5) {
+                let startX = contentRect.minX + CGFloat.random(in: 0...contentRect.width)
+                let startY = contentRect.minY + CGFloat.random(in: 0...contentRect.height)
+                context.move(to: CGPoint(x: startX, y: startY))
+                context.addLine(to: CGPoint(x: startX + CGFloat.random(in: -50...50),
+                                           y: startY + CGFloat.random(in: -50...50)))
+                context.strokePath()
+            }
+            context.restoreGState()
+        }
+    }
+    
+    private func drawSpinEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Continuous rotation with speed based on audio
+        let rotationSpeed = 0.5 + level * 2 * intensity
+        let rotation = t * rotationSpeed
+        let pulse = 1.0 + bass * 0.1 * intensity
+        
+        let centerX = contentRect.midX
+        let centerY = contentRect.midY
+        let scaledWidth = artworkRect.width * pulse
+        let scaledHeight = artworkRect.height * pulse
+        
+        context.saveGState()
+        context.translateBy(x: centerX, y: centerY)
+        context.rotate(by: rotation)
+        context.translateBy(x: -scaledWidth / 2, y: scaledHeight / 2)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+        context.restoreGState()
+        
+        // Trail effect
+        for i in 1..<4 {
+            let trailRotation = rotation - CGFloat(i) * 0.1
+            let trailAlpha = 0.3 / CGFloat(i)
+            
+            context.saveGState()
+            context.translateBy(x: centerX, y: centerY)
+            context.rotate(by: trailRotation)
+            context.translateBy(x: -scaledWidth / 2, y: scaledHeight / 2)
+            context.scaleBy(x: 1, y: -1)
+            context.setAlpha(trailAlpha)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+            context.restoreGState()
+        }
+    }
+    
+    private func drawBounceEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Bouncing with squash and stretch
+        let bouncePhase = abs(sin(t * 3 * intensity))
+        let squash = 1.0 + (1 - bouncePhase) * bass * 0.2 * intensity
+        let stretch = 1.0 - (1 - bouncePhase) * bass * 0.15 * intensity
+        
+        let offsetY = bouncePhase * 30 * intensity
+        
+        let scaledWidth = artworkRect.width * squash
+        let scaledHeight = artworkRect.height * stretch
+        let centerX = contentRect.midX
+        let centerY = contentRect.midY - offsetY
+        
+        context.saveGState()
+        context.translateBy(x: centerX - scaledWidth / 2, y: centerY + scaledHeight / 2)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+        context.restoreGState()
+        
+        // Shadow
+        context.saveGState()
+        context.setFillColor(NSColor.black.withAlphaComponent(0.3 * (1 - bouncePhase)).cgColor)
+        let shadowWidth = scaledWidth * (0.8 + bouncePhase * 0.2)
+        let shadowHeight: CGFloat = 10 * (1 - bouncePhase * 0.5)
+        context.fillEllipse(in: NSRect(x: centerX - shadowWidth / 2, y: contentRect.midY + artworkRect.height / 2 - 5,
+                                      width: shadowWidth, height: shadowHeight))
+        context.restoreGState()
+    }
+    
+    private func drawWaveEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Ocean wave distortion using strips
+        let strips = 30
+        let stripWidth = artworkRect.width / CGFloat(strips)
+        let waveAmp = 20 * bass * intensity
+        let waveFreq: CGFloat = 3
+        
+        for i in 0..<strips {
+            let x = artworkRect.minX + CGFloat(i) * stripWidth
+            let waveOffset = sin(CGFloat(i) / CGFloat(strips) * waveFreq * CGFloat.pi * 2 + t * 3) * waveAmp
+            
+            let srcX = CGFloat(i) / CGFloat(strips) * CGFloat(cgImage.width)
+            let srcRect = CGRect(x: srcX, y: 0, width: CGFloat(cgImage.width) / CGFloat(strips), height: CGFloat(cgImage.height))
+            
+            if let stripImage = cgImage.cropping(to: srcRect) {
+                context.saveGState()
+                context.translateBy(x: x, y: artworkRect.maxY + waveOffset)
+                context.scaleBy(x: 1, y: -1)
+                context.draw(stripImage, in: CGRect(x: 0, y: 0, width: stripWidth + 1, height: artworkRect.height))
+                context.restoreGState()
+            }
+        }
+        
+        // Water reflection
+        context.saveGState()
+        context.setBlendMode(.overlay)
+        context.setFillColor(NSColor.cyan.withAlphaComponent(0.15 * intensity * level).cgColor)
+        context.fill(artworkRect)
+        context.restoreGState()
+    }
+    
+    // MARK: - Trippy Effects
+    
+    private func drawPlasmaEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Plasma overlay
+        let gridSize: CGFloat = 20
+        let cols = Int(contentRect.width / gridSize)
+        let rows = Int(contentRect.height / gridSize)
+        
+        context.saveGState()
+        context.setBlendMode(.screen)
+        
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let x = contentRect.minX + CGFloat(col) * gridSize
+                let y = contentRect.minY + CGFloat(row) * gridSize
+                
+                // Plasma calculation
+                let v1 = sin(CGFloat(col) * 0.1 + t)
+                let v2 = sin(CGFloat(row) * 0.1 + t * 1.1)
+                let v3 = sin((CGFloat(col) + CGFloat(row)) * 0.1 + t * 0.7)
+                let v4 = sin(sqrt(pow(CGFloat(col) - CGFloat(cols)/2, 2) + pow(CGFloat(row) - CGFloat(rows)/2, 2)) * 0.1 + t)
+                let plasma = (v1 + v2 + v3 + v4) / 4
+                
+                let hue = fmod(plasma + 0.5 + t * 0.1, 1.0)
+                let alpha = 0.3 * level * intensity
+                
+                context.setFillColor(NSColor(hue: hue, saturation: 1.0, brightness: 1.0, alpha: alpha).cgColor)
+                context.fill(NSRect(x: x, y: y, width: gridSize, height: gridSize))
+            }
+        }
+        context.restoreGState()
+    }
+    
+    private func drawTunnelEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Time tunnel with zooming layers
+        let layers = 8
+        let zoomSpeed = t * 0.5 * intensity
+        
+        for i in (0..<layers).reversed() {
+            let progress = (CGFloat(i) / CGFloat(layers) + fmod(zoomSpeed, 1.0))
+            let scale = 0.2 + progress * 0.8
+            let rotation = progress * CGFloat.pi * 0.5 * intensity
+            let alpha = 1.0 - progress * 0.8
+            
+            let centerX = contentRect.midX
+            let centerY = contentRect.midY
+            let scaledWidth = artworkRect.width * scale
+            let scaledHeight = artworkRect.height * scale
+            
+            context.saveGState()
+            context.translateBy(x: centerX, y: centerY)
+            context.rotate(by: rotation)
+            context.translateBy(x: -scaledWidth / 2, y: scaledHeight / 2)
+            context.scaleBy(x: 1, y: -1)
+            context.setAlpha(alpha)
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledWidth, height: scaledHeight))
+            context.restoreGState()
+        }
+        
+        // Center glow
+        let glowColors = [NSColor.white.withAlphaComponent(level * 0.6 * intensity).cgColor, NSColor.clear.cgColor]
+        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: glowColors as CFArray, locations: [0, 1.0]) {
+            context.drawRadialGradient(gradient,
+                                       startCenter: CGPoint(x: contentRect.midX, y: contentRect.midY), startRadius: 0,
+                                       endCenter: CGPoint(x: contentRect.midX, y: contentRect.midY), endRadius: 50 + bass * 50,
+                                       options: [])
+        }
+    }
+    
+    private func drawWarpEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Space warp with stretching
+        let warpStrength = bass * 0.3 * intensity
+        let warpAngle = t * 0.5
+        
+        // Draw warped strips radiating from center
+        let strips = 24
+        let angleStep = CGFloat.pi * 2 / CGFloat(strips)
+        
+        for i in 0..<strips {
+            let angle = CGFloat(i) * angleStep + warpAngle
+            let warp = 1.0 + sin(angle * 3 + t * 2) * warpStrength
+            
+            let startX = contentRect.midX
+            let startY = contentRect.midY
+            let endX = startX + cos(angle) * artworkRect.width * warp
+            let endY = startY + sin(angle) * artworkRect.height * warp
+            
+            // Sample color from image center area for this angle
+            let hue = fmod(CGFloat(i) / CGFloat(strips) + t * 0.1, 1.0)
+            
+            context.saveGState()
+            context.setBlendMode(.screen)
+            context.setStrokeColor(NSColor(hue: hue, saturation: 0.8, brightness: 1.0, alpha: 0.4 * level * intensity).cgColor)
+            context.setLineWidth(artworkRect.width / CGFloat(strips) * 1.5)
+            context.move(to: CGPoint(x: startX, y: startY))
+            context.addLine(to: CGPoint(x: endX, y: endY))
+            context.strokePath()
+            context.restoreGState()
+        }
+        
+        // Center image
+        let centerScale = 0.4 + bass * 0.2
+        let centerWidth = artworkRect.width * centerScale
+        let centerHeight = artworkRect.height * centerScale
+        
+        context.saveGState()
+        context.translateBy(x: contentRect.midX - centerWidth / 2, y: contentRect.midY + centerHeight / 2)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: centerWidth, height: centerHeight))
+        context.restoreGState()
+    }
+    
+    private func drawMatrixEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                  bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw darkened base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.setAlpha(0.5)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Green tint
+        context.saveGState()
+        context.setBlendMode(.color)
+        context.setFillColor(NSColor.green.withAlphaComponent(0.4 * intensity).cgColor)
+        context.fill(artworkRect)
+        context.restoreGState()
+        
+        // Matrix rain
+        let columns = 30
+        let charWidth = artworkRect.width / CGFloat(columns)
+        let matrixChars = "01アイウエオカキクケコ"
+        
+        context.saveGState()
+        context.setBlendMode(.plusLighter)
+        
+        for col in 0..<columns {
+            let x = artworkRect.minX + CGFloat(col) * charWidth
+            let speed = 100 + CGFloat(col % 5) * 30
+            let offset = fmod(t * speed + CGFloat(col * 50), artworkRect.height + 200) - 100
+            
+            // Draw falling characters
+            for row in 0..<15 {
+                let y = artworkRect.minY + offset - CGFloat(row) * 15
+                if y < artworkRect.minY || y > artworkRect.maxY { continue }
+                
+                let charIndex = (col + row + Int(t * 10)) % matrixChars.count
+                let char = String(matrixChars[matrixChars.index(matrixChars.startIndex, offsetBy: charIndex)])
+                let alpha = 1.0 - CGFloat(row) / 15.0
+                
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: NSColor.green.withAlphaComponent(alpha * level * intensity),
+                    .font: NSFont(name: "Menlo", size: 12) ?? NSFont.systemFont(ofSize: 12)
+                ]
+                
+                context.saveGState()
+                context.translateBy(x: 0, y: y + 12)
+                context.scaleBy(x: 1, y: -1)
+                context.translateBy(x: 0, y: -y)
+                char.draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+                context.restoreGState()
+            }
+        }
+        context.restoreGState()
+    }
+    
+    private func drawFireEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Fire overlay from bottom
+        let fireHeight = artworkRect.height * (0.3 + bass * 0.4) * intensity
+        let flames = 40
+        
+        context.saveGState()
+        context.setBlendMode(.plusLighter)
+        
+        for i in 0..<flames {
+            let x = artworkRect.minX + CGFloat(i) / CGFloat(flames) * artworkRect.width
+            let flameHeight = fireHeight * (0.5 + CGFloat.random(in: 0...0.5))
+            let flameWidth: CGFloat = artworkRect.width / CGFloat(flames) * 2
+            let waveOffset = sin(t * 5 + CGFloat(i) * 0.5) * 10
+            
+            // Flame gradient
+            let flameColors = [
+                NSColor(red: 1, green: 1, blue: 0.3, alpha: 0.8 * level).cgColor,  // Yellow core
+                NSColor(red: 1, green: 0.5, blue: 0, alpha: 0.6 * level).cgColor,  // Orange
+                NSColor(red: 1, green: 0, blue: 0, alpha: 0.3 * level).cgColor,    // Red
+                NSColor.clear.cgColor
+            ]
+            
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: flameColors as CFArray,
+                                        locations: [0, 0.3, 0.6, 1.0]) {
+                let startPoint = CGPoint(x: x + waveOffset, y: artworkRect.maxY)
+                let endPoint = CGPoint(x: x + waveOffset, y: artworkRect.maxY - flameHeight)
+                
+                context.saveGState()
+                context.clip(to: NSRect(x: x - flameWidth/2, y: artworkRect.maxY - flameHeight,
+                                       width: flameWidth, height: flameHeight))
+                context.drawLinearGradient(gradient, start: startPoint, end: endPoint, options: [])
+                context.restoreGState()
+            }
+        }
+        context.restoreGState()
+        
+        // Heat distortion tint
+        context.saveGState()
+        context.setBlendMode(.overlay)
+        context.setFillColor(NSColor.orange.withAlphaComponent(0.2 * bass * intensity).cgColor)
+        context.fill(artworkRect)
+        context.restoreGState()
+    }
+    
+    private func drawElectricEffect(context: CGContext, cgImage: CGImage, artworkRect: NSRect, contentRect: NSRect,
+                                    bass: CGFloat, mid: CGFloat, treble: CGFloat, level: CGFloat, t: CGFloat, intensity: CGFloat) {
+        // Draw base
+        context.saveGState()
+        context.translateBy(x: artworkRect.minX, y: artworkRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: artworkRect.width, height: artworkRect.height))
+        context.restoreGState()
+        
+        // Electric bolts on beats
+        if bass > 0.4 {
+            let boltCount = Int(bass * 5 * intensity)
+            
+            context.saveGState()
+            context.setBlendMode(.plusLighter)
+            context.setStrokeColor(NSColor.cyan.withAlphaComponent(0.8 * bass).cgColor)
+            context.setLineWidth(2)
+            
+            for _ in 0..<boltCount {
+                var x = CGFloat.random(in: artworkRect.minX...artworkRect.maxX)
+                var y = artworkRect.minY
+                
+                context.move(to: CGPoint(x: x, y: y))
+                
+                while y < artworkRect.maxY {
+                    x += CGFloat.random(in: -20...20) * intensity
+                    y += CGFloat.random(in: 10...30)
+                    context.addLine(to: CGPoint(x: x, y: y))
+                }
+                context.strokePath()
+            }
+            context.restoreGState()
+            
+            // Glow
+            context.saveGState()
+            context.setBlendMode(.plusLighter)
+            context.setStrokeColor(NSColor.white.withAlphaComponent(0.3 * bass).cgColor)
+            context.setLineWidth(6)
+            
+            for _ in 0..<boltCount / 2 {
+                var x = CGFloat.random(in: artworkRect.minX...artworkRect.maxX)
+                var y = artworkRect.minY
+                
+                context.move(to: CGPoint(x: x, y: y))
+                
+                while y < artworkRect.maxY {
+                    x += CGFloat.random(in: -20...20) * intensity
+                    y += CGFloat.random(in: 10...30)
+                    context.addLine(to: CGPoint(x: x, y: y))
+                }
+                context.strokePath()
+            }
+            context.restoreGState()
+        }
+        
+        // Electric tint
+        let tintAlpha = 0.15 * level * intensity
+        context.saveGState()
+        context.setBlendMode(.screen)
+        context.setFillColor(NSColor.cyan.withAlphaComponent(tintAlpha).cgColor)
+        context.fill(artworkRect)
+        context.restoreGState()
     }
     
     private func drawAlphabetIndex(in context: CGContext, rect: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
@@ -2030,9 +3931,229 @@ class PlexBrowserView: NSView {
         return true
     }
     
+    override func rightMouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let winampPoint = convertToWinampCoordinates(point)
+        
+        // Show visualizer menu if in art-only mode with visualization
+        if isArtOnlyMode && isVisualizingArt && hitTestContentArea(at: winampPoint) {
+            showVisualizerMenu(at: event)
+            return
+        }
+        
+        // Check list area for item context menu
+        if !isArtOnlyMode, let clickedIndex = hitTestListArea(at: winampPoint) {
+            // Select the clicked item if not already selected
+            if !selectedIndices.contains(clickedIndex) {
+                selectedIndices = [clickedIndex]
+                needsDisplay = true
+            }
+            
+            let item = displayItems[clickedIndex]
+            showContextMenu(for: item, at: event)
+            return
+        }
+        
+        // Default right-click behavior
+        super.rightMouseDown(with: event)
+    }
+    
+    /// Show the visualizer effect selection menu
+    private func showVisualizerMenu(at event: NSEvent) {
+        let menu = NSMenu(title: "Visualizer")
+        
+        // Current effect + navigation at top
+        let currentItem = NSMenuItem(title: "▶ \(currentVisEffect.rawValue)", action: nil, keyEquivalent: "")
+        currentItem.isEnabled = false
+        menu.addItem(currentItem)
+        
+        let nextItem = NSMenuItem(title: "Next Effect →", action: #selector(menuNextEffect), keyEquivalent: "")
+        nextItem.target = self
+        menu.addItem(nextItem)
+        
+        let prevItem = NSMenuItem(title: "← Previous Effect", action: #selector(menuPrevEffect), keyEquivalent: "")
+        prevItem.target = self
+        menu.addItem(prevItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Mode selection (flat, not submenu)
+        let randomItem = NSMenuItem(title: "Random Mode", action: #selector(toggleRandomMode), keyEquivalent: "")
+        randomItem.target = self
+        randomItem.state = visMode == .random ? .on : .off
+        menu.addItem(randomItem)
+        
+        let cycleItem = NSMenuItem(title: "Auto-Cycle Mode", action: #selector(toggleCycleMode), keyEquivalent: "")
+        cycleItem.target = self
+        cycleItem.state = visMode == .cycle ? .on : .off
+        menu.addItem(cycleItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Effects submenu (organized by category)
+        let effectsItem = NSMenuItem(title: "All Effects", action: nil, keyEquivalent: "")
+        let effectsMenu = NSMenu()
+        
+        for effect in VisEffect.allCases {
+            addEffectItem(effect, to: effectsMenu)
+        }
+        
+        effectsItem.submenu = effectsMenu
+        menu.addItem(effectsItem)
+        
+        // Intensity submenu
+        let intensityItem = NSMenuItem(title: "Intensity", action: nil, keyEquivalent: "")
+        let intensityMenu = NSMenu()
+        
+        let intensityLevels: [(String, CGFloat)] = [
+            ("Low", 0.5),
+            ("Medium", 0.75),
+            ("Normal", 1.0),
+            ("High", 1.5),
+            ("Extreme", 2.0)
+        ]
+        
+        for (name, value) in intensityLevels {
+            let item = NSMenuItem(title: name, action: #selector(selectVisIntensity(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = Int(value * 100)
+            item.state = abs(visEffectIntensity - value) < 0.1 ? .on : .off
+            intensityMenu.addItem(item)
+        }
+        intensityItem.submenu = intensityMenu
+        menu.addItem(intensityItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Quick hint
+        let hintItem = NSMenuItem(title: "Click: next • R: random • C: cycle • F: fullscreen", action: nil, keyEquivalent: "")
+        hintItem.isEnabled = false
+        menu.addItem(hintItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Fullscreen
+        let isFullscreen = window?.styleMask.contains(.fullScreen) ?? false
+        let fullscreenItem = NSMenuItem(title: isFullscreen ? "Exit Fullscreen" : "Fullscreen", action: #selector(toggleVisFullscreen), keyEquivalent: "")
+        fullscreenItem.target = self
+        menu.addItem(fullscreenItem)
+        
+        // Turn off visualization
+        let offItem = NSMenuItem(title: "Turn Off", action: #selector(turnOffVisualization), keyEquivalent: "")
+        offItem.target = self
+        menu.addItem(offItem)
+        
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+    
+    @objc private func menuNextEffect() {
+        nextVisEffect()
+    }
+    
+    @objc private func menuPrevEffect() {
+        prevVisEffect()
+    }
+    
+    @objc private func toggleRandomMode() {
+        visMode = visMode == .random ? .single : .random
+    }
+    
+    @objc private func toggleCycleMode() {
+        if visMode == .cycle {
+            visMode = .single
+            cycleTimer?.invalidate()
+        } else {
+            visMode = .cycle
+            startCycleTimer()
+        }
+    }
+    
+    @objc private func toggleVisFullscreen() {
+        window?.toggleFullScreen(nil)
+    }
+    
+    private func addEffectItem(_ effect: VisEffect, to menu: NSMenu) {
+        let item = NSMenuItem(title: effect.rawValue, action: #selector(selectVisEffect(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = effect
+        item.state = currentVisEffect == effect ? .on : .off
+        menu.addItem(item)
+    }
+    
+    @objc private func selectVisEffect(_ sender: NSMenuItem) {
+        if let effect = sender.representedObject as? VisEffect {
+            currentVisEffect = effect
+            visMode = .single  // Switch to single mode when selecting an effect
+            UserDefaults.standard.set(effect.rawValue, forKey: "browserVisEffect")
+        }
+    }
+    
+    @objc private func selectVisMode(_ sender: NSMenuItem) {
+        switch sender.tag {
+        case 0: visMode = .single
+        case 1: visMode = .random
+        case 2:
+            visMode = .cycle
+            startCycleTimer()
+        default: break
+        }
+    }
+    
+    @objc private func selectCycleSpeed(_ sender: NSMenuItem) {
+        cycleInterval = TimeInterval(sender.tag)
+        if visMode == .cycle {
+            startCycleTimer()
+        }
+    }
+    
+    @objc private func selectVisIntensity(_ sender: NSMenuItem) {
+        visEffectIntensity = CGFloat(sender.tag) / 100.0
+        UserDefaults.standard.set(visEffectIntensity, forKey: "browserVisIntensity")
+    }
+    
+    @objc private func turnOffVisualization() {
+        isVisualizingArt = false
+    }
+    
+    /// Cycle to next effect
+    private func nextVisEffect() {
+        visMode = .single
+        let effects = VisEffect.allCases
+        if let currentIndex = effects.firstIndex(of: currentVisEffect) {
+            let nextIndex = (currentIndex + 1) % effects.count
+            currentVisEffect = effects[nextIndex]
+        }
+    }
+    
+    /// Cycle to previous effect
+    private func prevVisEffect() {
+        visMode = .single
+        let effects = VisEffect.allCases
+        if let currentIndex = effects.firstIndex(of: currentVisEffect) {
+            let prevIndex = (currentIndex - 1 + effects.count) % effects.count
+            currentVisEffect = effects[prevIndex]
+        }
+    }
+    
+    /// Check if point is in content area
+    private func hitTestContentArea(at point: NSPoint) -> Bool {
+        let contentY = Layout.titleBarHeight + Layout.serverBarHeight
+        let contentHeight = originalWindowSize.height - contentY - Layout.statusBarHeight
+        let contentRect = NSRect(x: Layout.leftBorder, y: contentY,
+                                 width: originalWindowSize.width - Layout.leftBorder - Layout.rightBorder - Layout.scrollbarWidth,
+                                 height: contentHeight)
+        return contentRect.contains(point)
+    }
+    
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let winampPoint = convertToWinampCoordinates(point)
+        
+        // In visualization mode, click anywhere in content to cycle effects
+        if isArtOnlyMode && isVisualizingArt && hitTestContentArea(at: winampPoint) {
+            nextVisEffect()
+            return
+        }
         
         // Check for double-click on title bar to toggle shade mode
         if event.clickCount == 2 && hitTestTitleBar(at: winampPoint) {
@@ -2152,7 +4273,8 @@ class PlexBrowserView: NSView {
         let barWidth = originalSize.width - Layout.leftBorder - Layout.rightBorder
         
         // Layout (right-aligned):
-        // Local: [Source: Local Files] [+ADD] ... [N items] [ART] [F5]
+        // Normal: [Source: Local Files] [+ADD] ... [N items] [ART] [F5]
+        // Art mode: [Source: Local Files] [+ADD] ... [N items] [VIS] [ART] [F5]
         // Plex:  [Source: ServerName] [LibraryName] ... [N items] [ART] [F5]
         
         let charWidth = SkinElements.TextFont.charWidth * 1.5  // scaled
@@ -2162,6 +4284,10 @@ class PlexBrowserView: NSView {
         let refreshZoneStart = barWidth - 30  // F5 + padding
         let artZoneEnd = refreshZoneStart - 16
         let artZoneStart = artZoneEnd - (3 * charWidth) - 8  // "ART" (3 chars)
+        
+        // VIS zone (only in art-only mode, before ART button)
+        let visZoneEnd = artZoneStart - 8
+        let visZoneStart = visZoneEnd - (3 * charWidth) - 8  // "VIS" (3 chars)
         
         // Calculate source zone width: "Source: " (8 chars)
         let sourcePrefix: CGFloat = 8 * charWidth + 4
@@ -2176,6 +4302,9 @@ class PlexBrowserView: NSView {
         } else if currentArtwork != nil && relativeX >= artZoneStart && relativeX <= artZoneEnd {
             // ART toggle click (only if artwork available)
             isArtOnlyMode.toggle()
+        } else if isArtOnlyMode && currentArtwork != nil && relativeX >= visZoneStart && relativeX <= visZoneEnd {
+            // VIS button click (only in art-only mode with artwork)
+            toggleVisualization()
         } else if case .local = currentSource {
             // Local mode - Source and +ADD on left
             let localNameWidth: CGFloat = 11 * charWidth  // "Local Files"
@@ -2636,28 +4765,10 @@ class PlexBrowserView: NSView {
         return true
     }
     
-    // MARK: - Right-Click Context Menu
+    // MARK: - Right-Click Context Menu (for list items)
     
-    override func rightMouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        let winampPoint = convertToWinampCoordinates(point)
-        
-        // Check list area
-        if let clickedIndex = hitTestListArea(at: winampPoint) {
-            // Select the clicked item if not already selected
-            if !selectedIndices.contains(clickedIndex) {
-                selectedIndices = [clickedIndex]
-                needsDisplay = true
-            }
-            
-            let item = displayItems[clickedIndex]
-            showContextMenu(for: item, at: event)
-            return
-        }
-        
-        // Default context menu
-        super.rightMouseDown(with: event)
-    }
+    // Note: rightMouseDown is now defined in the Mouse Events section above
+    // This section just contains the showContextMenu helper
     
     private func showContextMenu(for item: PlexDisplayItem, at event: NSEvent) {
         let menu = NSMenu()
@@ -3145,6 +5256,62 @@ class PlexBrowserView: NSView {
     override var acceptsFirstResponder: Bool { true }
     
     override func keyDown(with event: NSEvent) {
+        // Handle visualizer controls when in visualization mode
+        if isVisualizingArt && isArtOnlyMode {
+            switch event.keyCode {
+            case 123: // Left arrow - previous effect
+                visMode = .single
+                let effects = VisEffect.allCases
+                if let currentIndex = effects.firstIndex(of: currentVisEffect) {
+                    let prevIndex = (currentIndex - 1 + effects.count) % effects.count
+                    currentVisEffect = effects[prevIndex]
+                }
+                return
+                
+            case 124: // Right arrow - next effect
+                visMode = .single
+                let effects = VisEffect.allCases
+                if let currentIndex = effects.firstIndex(of: currentVisEffect) {
+                    let nextIndex = (currentIndex + 1) % effects.count
+                    currentVisEffect = effects[nextIndex]
+                }
+                return
+                
+            case 126: // Up arrow - increase intensity
+                visEffectIntensity = min(2.0, visEffectIntensity + 0.25)
+                return
+                
+            case 125: // Down arrow - decrease intensity
+                visEffectIntensity = max(0.5, visEffectIntensity - 0.25)
+                return
+                
+            case 53: // Escape - turn off visualization
+                isVisualizingArt = false
+                return
+                
+            case 15: // R key - toggle random mode
+                visMode = visMode == .random ? .single : .random
+                return
+                
+            case 8: // C key - toggle cycle mode
+                if visMode == .cycle {
+                    visMode = .single
+                    cycleTimer?.invalidate()
+                } else {
+                    visMode = .cycle
+                    startCycleTimer()
+                }
+                return
+                
+            case 3: // F key - toggle fullscreen
+                window?.toggleFullScreen(nil)
+                return
+                
+            default:
+                break
+            }
+        }
+        
         switch event.keyCode {
         case 36: // Enter - play selected
             if let index = selectedIndices.first, index < displayItems.count {
@@ -3152,17 +5319,21 @@ class PlexBrowserView: NSView {
             }
             
         case 125: // Down arrow
-            if let maxIndex = selectedIndices.max(), maxIndex < displayItems.count - 1 {
-                selectedIndices = [maxIndex + 1]
-                ensureVisible(index: maxIndex + 1)
-                needsDisplay = true
+            if !isVisualizingArt {
+                if let maxIndex = selectedIndices.max(), maxIndex < displayItems.count - 1 {
+                    selectedIndices = [maxIndex + 1]
+                    ensureVisible(index: maxIndex + 1)
+                    needsDisplay = true
+                }
             }
             
         case 126: // Up arrow
-            if let minIndex = selectedIndices.min(), minIndex > 0 {
-                selectedIndices = [minIndex - 1]
-                ensureVisible(index: minIndex - 1)
-                needsDisplay = true
+            if !isVisualizingArt {
+                if let minIndex = selectedIndices.min(), minIndex > 0 {
+                    selectedIndices = [minIndex - 1]
+                    ensureVisible(index: minIndex - 1)
+                    needsDisplay = true
+                }
             }
             
         default:

@@ -716,6 +716,7 @@ class WindowManager {
         defaults.removeObject(forKey: "PlexBrowserWindowFrame")
         defaults.removeObject(forKey: "VideoPlayerWindowFrame")
         defaults.removeObject(forKey: "MilkdropWindowFrame")
+        defaults.removeObject(forKey: "ArtVisualizerWindowFrame")
         
         // Center main window
         guard let mainWindow = mainWindowController?.window else { return }

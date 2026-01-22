@@ -53,6 +53,7 @@ class PlexBrowserWindowController: NSWindowController {
         window.hasShadow = true
         window.minSize = Self.minSize
         window.title = "Plex Browser"
+        window.collectionBehavior = [.fullScreenPrimary, .managed]  // Allow fullscreen for visualizer
         
         // Initial center position - will be repositioned in showWindow()
         window.center()

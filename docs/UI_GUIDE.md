@@ -160,6 +160,51 @@ Sliders use programmatic color based on knob position (not sprites):
 | `Skin/SkinLoader.swift` | WSZ loading, BMP parsing |
 | `Windows/*/View.swift` | Window views |
 
+## Art Visualizer Window
+
+The Art Visualizer is an audio-reactive album art visualization window that uses Metal shaders to transform album artwork based on music frequencies.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `Visualization/AudioReactiveUniforms.swift` | Audio data struct for shaders |
+| `Visualization/ShaderManager.swift` | Metal pipeline management |
+| `Visualization/ArtworkVisualizerView.swift` | MTKView rendering |
+| `Windows/ArtVisualizer/ArtVisualizerWindowController.swift` | Window controller |
+| `Windows/ArtVisualizer/ArtVisualizerContainerView.swift` | Window chrome |
+
+### Effect Presets
+
+| Effect | Description |
+|--------|-------------|
+| Clean | Original artwork, no effects |
+| Subtle Pulse | Gentle brightness/scale pulse on beats |
+| Liquid Dreams | Flowing displacement with color shifts |
+| Glitch City | Heavy RGB split and block glitches |
+| Cosmic Mirror | Kaleidoscope with chromatic aberration |
+| Deep Bass | Intense displacement on low frequencies |
+
+### Keyboard Controls (when focused)
+
+- `Escape` - Close window (or exit fullscreen)
+- `Enter` - Toggle fullscreen
+- `Left/Right` - Cycle through effects
+- `Up/Down` - Adjust intensity
+
+### Browser Integration
+
+When in ART-only mode in the Library Browser, a "VIS" button appears next to the ART button. Clicking it opens the Art Visualizer window with the currently displayed artwork.
+
+### Audio Analysis
+
+The visualizer uses the existing 75-band spectrum data from `AudioEngine`:
+- Bands 0-9: Bass (20-250Hz)
+- Bands 10-35: Mid (250-4000Hz)
+- Bands 36-74: Treble (4000-20000Hz)
+
+Beat detection triggers on bass energy spikes above threshold.
+
 ## External References
 
 - [Webamp skinSprites.ts](https://raw.githubusercontent.com/captbaritone/webamp/master/packages/webamp/js/skinSprites.ts) - Authoritative sprite coordinates

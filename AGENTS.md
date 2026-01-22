@@ -2,6 +2,7 @@
 
 ## Documentation
 
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - Complete user guide with all features, menus, keyboard shortcuts
 - [docs/UI_GUIDE.md](docs/UI_GUIDE.md) - Coordinate systems, scaling, skin sprites, hit testing
 - [docs/AUDIO_SYSTEM.md](docs/AUDIO_SYSTEM.md) - Audio engine, EQ, spectrum, Plex playback
 
@@ -12,6 +13,7 @@
 | Skin | `Skin/SkinElements.swift`, `Skin/SkinRenderer.swift`, `Skin/SkinLoader.swift` |
 | Audio | `Audio/AudioEngine.swift`, `Audio/StreamingAudioPlayer.swift` |
 | Windows | `Windows/MainWindow/`, `Windows/Playlist/`, `Windows/Equalizer/` |
+| Visualization | `Visualization/ShaderManager.swift`, `Visualization/ArtworkVisualizerView.swift`, `Windows/ArtVisualizer/` |
 | Plex | `Plex/PlexManager.swift`, `Plex/PlexServerClient.swift` |
 | App | `App/WindowManager.swift`, `App/ContextMenuBuilder.swift` |
 
