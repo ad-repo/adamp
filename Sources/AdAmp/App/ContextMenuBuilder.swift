@@ -43,12 +43,6 @@ class ContextMenuBuilder {
         
         menu.addItem(NSMenuItem.separator())
         
-        // Double Size
-        let doubleSize = NSMenuItem(title: "Double Size", action: #selector(MenuActions.toggleDoubleSize), keyEquivalent: "")
-        doubleSize.target = MenuActions.shared
-        doubleSize.state = wm.isDoubleSize ? .on : .off
-        menu.addItem(doubleSize)
-        
         // Always on Top
         let alwaysOnTop = NSMenuItem(title: "Always on Top", action: #selector(MenuActions.toggleAlwaysOnTop), keyEquivalent: "")
         alwaysOnTop.target = MenuActions.shared
@@ -752,10 +746,6 @@ class MenuActions: NSObject {
     
     @objc func setTimeRemaining() {
         WindowManager.shared.timeDisplayMode = .remaining
-    }
-    
-    @objc func toggleDoubleSize() {
-        WindowManager.shared.isDoubleSize.toggle()
     }
     
     @objc func toggleRepeat() {

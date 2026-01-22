@@ -53,6 +53,7 @@ class PlexBrowserWindowController: NSWindowController {
         window.hasShadow = true
         window.minSize = Self.minSize
         window.title = "Plex Browser"
+        window.collectionBehavior = [.fullScreenPrimary, .managed]  // Allow fullscreen for visualizer
         
         // Initial center position - will be repositioned in showWindow()
         window.center()
@@ -173,13 +174,6 @@ class PlexBrowserWindowController: NSWindowController {
                 self?.browserView.reloadData()
             }
         }
-    }
-    
-    // MARK: - Access to Media Library Window Controller
-    
-    var mediaLibraryWindowController: MediaLibraryWindowController? {
-        // This is a workaround - in real impl we'd get this from WindowManager
-        return nil
     }
 }
 
