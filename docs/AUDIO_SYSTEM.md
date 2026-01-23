@@ -20,8 +20,8 @@ Both pipelines support full 10-band EQ and real-time spectrum visualization. EQ 
 │                         AudioEngine                                  │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  LOCAL FILES                        STREAMING (Plex)                 │
-│  ────────────                       ──────────────────               │
+│  LOCAL FILES                        STREAMING (Plex/Subsonic)        │
+│  ────────────                       ──────────────────────────       │
 │                                                                      │
 │  ┌──────────────┐                   ┌─────────────────────────────┐ │
 │  │ AVAudioFile  │                   │   StreamingAudioPlayer      │ │
@@ -29,32 +29,46 @@ Both pipelines support full 10-band EQ and real-time spectrum visualization. EQ 
 │         │                           │                             │ │
 │         ▼                           │  ┌───────────────────────┐  │ │
 │  ┌──────────────┐                   │  │ HTTP URL → Decode →   │  │ │
-│  │ playerNode   │                   │  │ PCM buffers           │  │ │
-│  │ (AVAudio     │                   │  └───────────┬───────────┘  │ │
-│  │  PlayerNode) │                   │              │              │ │
-│  └──────┬───────┘                   │              ▼              │ │
-│         │                           │  ┌───────────────────────┐  │ │
-│         ▼                           │  │ eqNode (10-band)      │  │ │
-│  ┌──────────────┐                   │  │ AVAudioUnitEQ         │  │ │
-│  │ eqNode       │                   │  └───────────┬───────────┘  │ │
-│  │ (10-band EQ) │                   │              │              │ │
-│  └──────┬───────┘                   │              ▼              │ │
-│         │                           │  ┌───────────────────────┐  │ │
-│         ▼                           │  │ Spectrum Tap          │  │ │
-│  ┌──────────────┐                   │  │ (frameFiltering)      │  │ │
-│  │ limiterNode  │                   │  └───────────────────────┘  │ │
-│  │ (Anti-clip)  │                   └─────────────────────────────┘ │
-│  └──────┬───────┘                                                   │
-│         │                           EQ settings sync ◄──────────►   │
-│         ▼                                                           │
-│  ┌──────────────┐                                                   │
-│  │mainMixerNode │                                                   │
-│  └──────┬───────┘                                                   │
-│         │                                                           │
-│         ▼                                                           │
-│  ┌──────────────┐                                                   │
-│  │ Output Node  │ ─────► Speakers / Selected Audio Device           │
-│  └──────────────┘                                                   │
+│  │ playerNode   │─────────┐         │  │ PCM buffers           │  │ │
+│  │ (primary)    │         │         │  └───────────┬───────────┘  │ │
+│  └──────────────┘         │         │              │              │ │
+│                           │         │              ▼              │ │
+│  ┌──────────────┐         │         │  ┌───────────────────────┐  │ │
+│  │crossfadeNode │─────────┼──► mixerNode ─► eqNode ─► limiter   │ │
+│  │ (for Sweet   │         │         │  │ AVAudioUnitEQ         │  │ │
+│  │  Fades)      │         │         │  └───────────┬───────────┘  │ │
+│  └──────────────┘         │         │              │              │ │
+│                           │         │              ▼              │ │
+│                           │         │  ┌───────────────────────┐  │ │
+│                           │         │  │ Spectrum Tap          │  │ │
+│                           │         │  │ (frameFiltering)      │  │ │
+│                           │         │  └───────────────────────┘  │ │
+│                           ▼         └─────────────────────────────┘ │
+│                    ┌──────────────┐                                 │
+│                    │ mixerNode    │  EQ settings sync ◄──────────►  │
+│                    └──────┬───────┘                                 │
+│                           │                                         │
+│                           ▼                                         │
+│                    ┌──────────────┐                                 │
+│                    │ eqNode       │                                 │
+│                    │ (10-band EQ) │                                 │
+│                    └──────┬───────┘                                 │
+│                           │                                         │
+│                           ▼                                         │
+│                    ┌──────────────┐                                 │
+│                    │ limiterNode  │                                 │
+│                    │ (Anti-clip)  │                                 │
+│                    └──────┬───────┘                                 │
+│                           │                                         │
+│                           ▼                                         │
+│                    ┌──────────────┐                                 │
+│                    │mainMixerNode │                                 │
+│                    └──────┬───────┘                                 │
+│                           │                                         │
+│                           ▼                                         │
+│                    ┌──────────────┐                                 │
+│                    │ Output Node  │ ─────► Speakers / Audio Device  │
+│                    └──────────────┘                                 │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -78,11 +92,15 @@ The main audio controller that manages:
 ```swift
 private let engine = AVAudioEngine()        // For local files
 private let playerNode = AVAudioPlayerNode()
+private let crossfadePlayerNode = AVAudioPlayerNode() // For Sweet Fades
 private let eqNode = AVAudioUnitEQ(numberOfBands: 10)
 private let limiterNode = AVAudioUnitDynamicsProcessor()  // Anti-clipping
 private var streamingPlayer: StreamingAudioPlayer?  // For HTTP streaming
+private var crossfadeStreamingPlayer: StreamingAudioPlayer? // For Sweet Fades
 var gaplessPlaybackEnabled: Bool           // Pre-schedule next track
 var volumeNormalizationEnabled: Bool       // Loudness normalization
+var sweetFadeEnabled: Bool                 // Crossfade between tracks
+var sweetFadeDuration: TimeInterval        // Crossfade length (1-10s)
 ```
 
 ### StreamingAudioPlayer (`StreamingAudioPlayer.swift`)
@@ -209,20 +227,93 @@ When enabled via **Playback Options → Gapless Playback**, the engine pre-sched
 
 ### How It Works
 
+**Local Files:**
 1. When a track starts playing, the next track in the playlist is loaded and scheduled to play immediately after
 2. `AVAudioPlayerNode.scheduleFile()` queues the next file
 3. When the current track ends, playback continues seamlessly to the pre-scheduled track
 4. The next-next track is then pre-scheduled
 
-### Limitations
+**Streaming (Plex/Subsonic):**
+1. Uses the AudioStreaming library's `queue(url:)` method to pre-buffer the next streaming track
+2. The queued track plays immediately when the current track finishes
+3. Only works when both current and next tracks are streaming (can't cross pipelines)
 
-- Only works for **local files** (not HTTP streaming)
-- Not compatible with **repeat single track** mode (handled separately)
-- Shuffle mode picks a random next track to pre-schedule
+### Constraints
+
+| Scenario | Behavior |
+|----------|----------|
+| Sweet Fades enabled | Gapless disabled - crossfade handles transitions |
+| Casting active | Gapless disabled - playback is remote |
+| Mixed sources (local→streaming) | Gapless disabled for that transition |
+| Repeat single track mode | Handled separately (gapless not needed) |
+| Shuffle mode | Random next track is pre-scheduled |
 
 ### Settings Persistence
 
 The gapless setting is saved to UserDefaults and restored on app launch.
+
+## Sweet Fades (Crossfade)
+
+When enabled via **Playback Options → Sweet Fades (Crossfade)**, tracks smoothly blend into each other with overlapping playback and volume fading.
+
+### How It Works
+
+1. When the current track approaches its end (remaining time = fade duration), the next track begins playing at volume 0
+2. Both tracks play simultaneously while their volumes are crossfaded:
+   - Outgoing track: fades from full volume to 0
+   - Incoming track: fades from 0 to full volume
+3. Uses an **equal-power fade curve** (sine/cosine) for perceptually smooth transitions
+4. When the fade completes, the outgoing track is stopped
+
+### Signal Flow During Crossfade
+
+**Local Files:**
+```
+playerNode ─────────────────┐
+(outgoing, fading out)      │
+                            ├─► mixerNode ─► eqNode ─► limiter ─► output
+crossfadePlayerNode ────────┘
+(incoming, fading in)
+```
+
+**Streaming:**
+Two independent `StreamingAudioPlayer` instances with their volumes controlled independently.
+
+### Fade Duration
+
+Configurable via **Playback Options → Fade Duration** when Sweet Fades is enabled:
+- 1s, 2s, 3s, **5s (default)**, 7s, 10s
+
+### Constraints
+
+| Scenario | Behavior |
+|----------|----------|
+| Casting active | Crossfade disabled - playback is remote |
+| Mixed sources (local→streaming) | Crossfade skipped for that transition |
+| Next track shorter than 2x fade | Crossfade skipped (track too short) |
+| Repeat single track mode | Crossfade skipped (unusual UX) |
+| End of playlist | No crossfade, normal stop |
+| User skips/seeks during fade | Crossfade cancelled, normal playback resumes |
+
+### Cancel Conditions
+
+The crossfade is cancelled if the user:
+- Seeks to a new position
+- Skips to next/previous track
+- Selects a different track
+- Stops playback
+
+When cancelled, the outgoing track's volume is restored and the incoming track is stopped.
+
+### Interaction with Gapless Playback
+
+Sweet Fades takes precedence over gapless playback:
+- When Sweet Fades is enabled, gapless pre-scheduling is disabled
+- When Sweet Fades is disabled, gapless resumes (if enabled)
+
+### Settings Persistence
+
+Both `sweetFadeEnabled` and `sweetFadeDuration` are saved to UserDefaults and restored on app launch.
 
 ## Volume Normalization
 

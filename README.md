@@ -12,6 +12,9 @@ A faithful recreation of Winamp 2.x for macOS loaded up with Plex, Navidrome/Sub
 - Classic window snapping and docking behavior
 - Audio playback: MP3, FLAC, AAC, WAV, AIFF, ALAC, OGG
 - Video playback: MKV, MP4, MOV, AVI, WebM, HEVC (KSPlayer/FFmpeg)
+- Gapless playback for seamless track transitions
+- Sweet Fades (crossfade) with configurable fade duration
+- Volume normalization for consistent loudness
 - Local media library with metadata parsing
 - Media library backup and restore
 - Plex Media Server integration with PIN-based authentication

@@ -654,6 +654,8 @@ Right-click anywhere on AdAmp windows to access:
 - Shuffle
 - Gapless Playback
 - Volume Normalization
+- Sweet Fades (Crossfade)
+- Fade Duration (when Sweet Fades enabled)
 - Browser Album Art Background
 - Remember State on Quit
 
@@ -735,8 +737,28 @@ A backup is automatically created before:
 
 **Playback Options > Gapless Playback** enables seamless transitions:
 - Next track is pre-scheduled during playback
-- Works with local files only (not streaming)
+- Works with both local files and streaming (Plex/Subsonic)
 - Not compatible with Repeat Single mode
+- Disabled when Sweet Fades (crossfade) is enabled
+
+### Sweet Fades (Crossfade)
+
+**Playback Options > Sweet Fades (Crossfade)** enables smooth blending between tracks:
+- Tracks overlap and crossfade at the end of each song
+- Uses equal-power fade curve for perceptually smooth transitions
+- Works with both local files and streaming (Plex/Subsonic)
+
+**Fade Duration** options (when Sweet Fades is enabled):
+- 1s, 2s, 3s, **5s (default)**, 7s, 10s
+
+**Constraints:**
+- Disabled when casting (playback is remote)
+- Skipped for mixed source transitions (local→streaming)
+- Skipped if next track is shorter than 2× fade duration
+- Skipped in Repeat Single mode
+- Cancelled if you seek, skip, or select a different track
+
+**Note:** Sweet Fades takes precedence over Gapless Playback. When enabled, gapless pre-scheduling is disabled.
 
 ### Volume Normalization
 
@@ -760,7 +782,7 @@ The main window displays real-time frequency analysis:
 
 When enabled, the following is saved on quit and restored on launch:
 - **Window positions and visibility** (Main, EQ, Playlist, Browser, Milkdrop)
-- **Audio settings** (volume, balance, shuffle, repeat, gapless, normalization)
+- **Audio settings** (volume, balance, shuffle, repeat, gapless, normalization, Sweet Fades)
 - **Equalizer settings** (enabled state, preamp, all band values)
 - **Playlist** (local files only, not streaming tracks)
 - **Playback position** (resumes from where you left off)

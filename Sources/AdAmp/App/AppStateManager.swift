@@ -40,6 +40,10 @@ class AppStateManager {
         var gaplessPlaybackEnabled: Bool
         var volumeNormalizationEnabled: Bool
         
+        // Sweet Fades (crossfade) settings
+        var sweetFadeEnabled: Bool
+        var sweetFadeDuration: Double
+        
         // EQ settings
         var eqEnabled: Bool
         var eqPreamp: Float
@@ -118,6 +122,10 @@ class AppStateManager {
             repeatEnabled: engine.repeatEnabled,
             gaplessPlaybackEnabled: engine.gaplessPlaybackEnabled,
             volumeNormalizationEnabled: engine.volumeNormalizationEnabled,
+            
+            // Sweet Fades settings
+            sweetFadeEnabled: engine.sweetFadeEnabled,
+            sweetFadeDuration: engine.sweetFadeDuration,
             
             // EQ settings
             eqEnabled: engine.isEQEnabled(),
@@ -221,6 +229,10 @@ class AppStateManager {
         engine.repeatEnabled = state.repeatEnabled
         engine.gaplessPlaybackEnabled = state.gaplessPlaybackEnabled
         engine.volumeNormalizationEnabled = state.volumeNormalizationEnabled
+        
+        // Restore Sweet Fades settings
+        engine.sweetFadeEnabled = state.sweetFadeEnabled
+        engine.sweetFadeDuration = state.sweetFadeDuration
         
         // Restore EQ settings
         engine.setEQEnabled(state.eqEnabled)
