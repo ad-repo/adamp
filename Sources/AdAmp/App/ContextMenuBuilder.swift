@@ -52,6 +52,12 @@ class ContextMenuBuilder {
         alwaysOnTop.state = wm.isAlwaysOnTop ? .on : .off
         menu.addItem(alwaysOnTop)
         
+        // Remember State on Quit
+        let rememberState = NSMenuItem(title: "Remember State on Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
+        rememberState.target = MenuActions.shared
+        rememberState.state = AppStateManager.shared.isEnabled ? .on : .off
+        menu.addItem(rememberState)
+        
         // Snap to Default
         let snapToDefault = NSMenuItem(title: "Snap to Default", action: #selector(MenuActions.snapToDefault), keyEquivalent: "")
         snapToDefault.target = MenuActions.shared
@@ -279,14 +285,6 @@ class ContextMenuBuilder {
         artworkBgItem.target = MenuActions.shared
         artworkBgItem.state = wm.showBrowserArtworkBackground ? .on : .off
         optionsMenu.addItem(artworkBgItem)
-        
-        optionsMenu.addItem(NSMenuItem.separator())
-        
-        // State Persistence
-        let rememberStateItem = NSMenuItem(title: "Remember State on Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
-        rememberStateItem.target = MenuActions.shared
-        rememberStateItem.state = AppStateManager.shared.isEnabled ? .on : .off
-        optionsMenu.addItem(rememberStateItem)
         
         optionsItem.submenu = optionsMenu
         return optionsItem

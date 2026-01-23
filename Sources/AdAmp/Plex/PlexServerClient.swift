@@ -45,7 +45,6 @@ class PlexServerClient {
             "X-Plex-Platform-Version": ProcessInfo.processInfo.operatingSystemVersionString,
             "X-Plex-Device": "Mac",
             "X-Plex-Device-Name": Host.current().localizedName ?? "Mac",
-            "X-Plex-Device-Icon": "https://raw.githubusercontent.com/ad-repo/adamp/main/AppIcon.png",
             "X-Plex-Token": authToken,
             "Accept": "application/json"
         ]
@@ -62,7 +61,6 @@ class PlexServerClient {
             "X-Plex-Platform-Version": ProcessInfo.processInfo.operatingSystemVersionString,
             "X-Plex-Device": "Mac",
             "X-Plex-Device-Name": Host.current().localizedName ?? "Mac",
-            "X-Plex-Device-Icon": "https://raw.githubusercontent.com/ad-repo/adamp/main/AppIcon.png",
             "X-Plex-Token": authToken
         ]
     }
