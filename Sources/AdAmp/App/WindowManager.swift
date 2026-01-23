@@ -972,8 +972,10 @@ class WindowManager {
         }
         
         // Check if we should undock (break free from the group)
-        // Only title bar drags can undock - interior drags always move the whole group
-        if isTitleBarDrag && !dockedWindowsToMove.isEmpty {
+        // Only non-main windows can undock when dragged by title bar
+        // Main window ALWAYS moves the entire docked group - it never detaches
+        let isMainWindow = window === mainWindowController?.window
+        if !isMainWindow && isTitleBarDrag && !dockedWindowsToMove.isEmpty {
             let dragDistance = hypot(newOrigin.x - dragStartOrigin.x, newOrigin.y - dragStartOrigin.y)
             if dragDistance > undockThreshold {
                 // Break the dock - this window now moves alone
