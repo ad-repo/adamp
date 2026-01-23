@@ -4550,10 +4550,13 @@ class PlexBrowserView: NSView {
             return
         }
         
-        // Title bar - start window drag
+        // Title bar - start window drag (can undock)
         if hitTestTitleBar(at: winampPoint) {
             isDraggingWindow = true
             windowDragStartPoint = event.locationInWindow
+            if let window = window {
+                WindowManager.shared.windowWillStartDragging(window, fromTitleBar: true)
+            }
         }
     }
     
@@ -4580,9 +4583,12 @@ class PlexBrowserView: NSView {
             return
         }
         
-        // Start window drag
+        // Start window drag (shade mode is all title bar, so can undock)
         isDraggingWindow = true
         windowDragStartPoint = event.locationInWindow
+        if let window = window {
+            WindowManager.shared.windowWillStartDragging(window, fromTitleBar: true)
+        }
     }
     
     private func handleServerBarClick(at winampPoint: NSPoint, event: NSEvent) {

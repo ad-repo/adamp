@@ -90,8 +90,17 @@ class WindowManager {
     /// Should be >= snapThreshold to ensure snapped windows are detected as docked
     private let dockThreshold: CGFloat = 20
     
+    /// Undock threshold - how far you need to drag a window to break it free from the group
+    private let undockThreshold: CGFloat = 30
+    
     /// Track which window is currently being dragged
     private var draggingWindow: NSWindow?
+    
+    /// Track original position at drag start for undock detection
+    private var dragStartOrigin: NSPoint = .zero
+    
+    /// Track if current drag is from title bar (only title bar drags can undock)
+    private var isTitleBarDrag = false
     
     /// Track the last drag delta for grouped movement
     private var lastDragDelta: NSPoint = .zero
@@ -158,12 +167,13 @@ class WindowManager {
     }
     
     func showPlaylist() {
-        if playlistWindowController == nil {
+        let isNewWindow = playlistWindowController == nil
+        if isNewWindow {
             playlistWindowController = PlaylistWindowController()
         }
         
-        // Position playlist window snapped below main window (or below EQ if visible)
-        if let playlistWindow = playlistWindowController?.window {
+        // Position newly created windows relative to main window
+        if isNewWindow, let playlistWindow = playlistWindowController?.window {
             positionSubWindow(playlistWindow, preferBelowEQ: false)
             NSLog("showPlaylist: window frame = \(playlistWindow.frame)")
         }
@@ -188,12 +198,13 @@ class WindowManager {
     }
     
     func showEqualizer() {
-        if equalizerWindowController == nil {
+        let isNewWindow = equalizerWindowController == nil
+        if isNewWindow {
             equalizerWindowController = EQWindowController()
         }
         
-        // Position EQ window snapped below main window (or below playlist if visible)
-        if let eqWindow = equalizerWindowController?.window {
+        // Position newly created windows relative to main window
+        if isNewWindow, let eqWindow = equalizerWindowController?.window {
             positionSubWindow(eqWindow, preferBelowEQ: true)
         }
         
@@ -277,7 +288,7 @@ class WindowManager {
     
     // MARK: - Plex Browser Window
     
-    func showPlexBrowser() {
+    func showPlexBrowser(at restoredFrame: NSRect? = nil) {
         let isNewWindow = plexBrowserWindowController == nil
         if isNewWindow {
             plexBrowserWindowController = PlexBrowserWindowController()
@@ -285,13 +296,21 @@ class WindowManager {
         plexBrowserWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(plexBrowserWindowController?.window)
         
-        // Restore saved window position for newly created windows
-        if isNewWindow,
-           let frameString = UserDefaults.standard.string(forKey: "PlexBrowserWindowFrame"),
-           let window = plexBrowserWindowController?.window {
-            let frame = NSRectFromString(frameString)
-            if frame != .zero {
+        // Position newly created windows
+        if isNewWindow, let window = plexBrowserWindowController?.window {
+            if let frame = restoredFrame, frame != .zero {
+                // Use restored frame from state restoration
                 window.setFrame(frame, display: true)
+            } else if let mainWindow = mainWindowController?.window {
+                // Position relative to main window
+                let mainFrame = mainWindow.frame
+                let newFrame = NSRect(
+                    x: mainFrame.maxX,
+                    y: mainFrame.maxY - window.frame.height,
+                    width: window.frame.width,
+                    height: window.frame.height
+                )
+                window.setFrame(newFrame, display: true)
             }
         }
     }
@@ -494,7 +513,7 @@ class WindowManager {
     
     // MARK: - Milkdrop Visualization Window
     
-    func showMilkdrop() {
+    func showMilkdrop(at restoredFrame: NSRect? = nil) {
         let isNewWindow = milkdropWindowController == nil
         if isNewWindow {
             milkdropWindowController = MilkdropWindowController()
@@ -502,13 +521,21 @@ class WindowManager {
         milkdropWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(milkdropWindowController?.window)
         
-        // Restore saved window position for newly created windows
-        if isNewWindow,
-           let frameString = UserDefaults.standard.string(forKey: "MilkdropWindowFrame"),
-           let window = milkdropWindowController?.window {
-            let frame = NSRectFromString(frameString)
-            if frame != .zero {
+        // Position newly created windows
+        if isNewWindow, let window = milkdropWindowController?.window {
+            if let frame = restoredFrame, frame != .zero {
+                // Use restored frame from state restoration
                 window.setFrame(frame, display: true)
+            } else if let mainWindow = mainWindowController?.window {
+                // Position relative to main window
+                let mainFrame = mainWindow.frame
+                let newFrame = NSRect(
+                    x: mainFrame.minX - window.frame.width,
+                    y: mainFrame.maxY - window.frame.height,
+                    width: window.frame.width,
+                    height: window.frame.height
+                )
+                window.setFrame(newFrame, display: true)
             }
         }
     }
@@ -749,10 +776,11 @@ class WindowManager {
         window.level = isAlwaysOnTop ? .floating : .normal
     }
     
-    /// Bring all visible app windows to front (called when main window gets focus)
+    /// Bring all visible app windows to front (called when any app window gets focus)
     func bringAllWindowsToFront() {
         // Order all visible windows to front without making them key
         let windows: [NSWindow?] = [
+            mainWindowController?.window,
             equalizerWindowController?.window,
             playlistWindowController?.window,
             plexBrowserWindowController?.window,
@@ -769,71 +797,94 @@ class WindowManager {
     
     /// Reset all windows to their default positions
     func snapToDefaultPositions() {
-        // Clear saved window frames
         let defaults = UserDefaults.standard
+        
+        // Get screen for positioning
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        
+        // Calculate centered main window position
+        let mainSize = Skin.mainWindowSize
+        let mainFrame = NSRect(
+            x: screenFrame.midX - mainSize.width / 2,
+            y: screenFrame.midY - mainSize.height / 2,
+            width: mainSize.width,
+            height: mainSize.height
+        )
+        
+        // Calculate default positions for all windows based on main window
+        // EQ goes directly below main
+        let eqSize = Skin.eqWindowSize
+        let eqFrame = NSRect(
+            x: mainFrame.minX,
+            y: mainFrame.minY - eqSize.height,
+            width: mainSize.width,  // EQ width matches main
+            height: eqSize.height
+        )
+        
+        // Playlist goes below EQ
+        let playlistHeight = playlistWindowController?.window?.frame.height ?? 116
+        let playlistFrame = NSRect(
+            x: mainFrame.minX,
+            y: eqFrame.minY - playlistHeight,
+            width: mainSize.width,  // Playlist width matches main
+            height: playlistHeight
+        )
+        
+        // Browser goes to the right of main, top-aligned
+        let browserSize = plexBrowserWindowController?.window?.frame.size ?? NSSize(width: 550, height: mainSize.height * 3)
+        let browserFrame = NSRect(
+            x: mainFrame.maxX,
+            y: mainFrame.maxY - browserSize.height,
+            width: browserSize.width,
+            height: browserSize.height
+        )
+        
+        // Milkdrop goes to the left of main, top-aligned
+        let milkdropSize = milkdropWindowController?.window?.frame.size ?? SkinElements.Milkdrop.defaultSize
+        let milkdropFrame = NSRect(
+            x: mainFrame.minX - milkdropSize.width,
+            y: mainFrame.maxY - milkdropSize.height,
+            width: milkdropSize.width,
+            height: milkdropSize.height
+        )
+        
+        // Clear any saved positions (windows will be positioned relative to main on open)
         defaults.removeObject(forKey: "MainWindowFrame")
-        defaults.removeObject(forKey: "PlaylistWindowFrame")
         defaults.removeObject(forKey: "EqualizerWindowFrame")
+        defaults.removeObject(forKey: "PlaylistWindowFrame")
         defaults.removeObject(forKey: "PlexBrowserWindowFrame")
-        defaults.removeObject(forKey: "VideoPlayerWindowFrame")
         defaults.removeObject(forKey: "MilkdropWindowFrame")
+        defaults.removeObject(forKey: "VideoPlayerWindowFrame")
         defaults.removeObject(forKey: "ArtVisualizerWindowFrame")
         
-        // Center main window
-        guard let mainWindow = mainWindowController?.window else { return }
-        mainWindow.center()
+        // Apply positions to visible windows with animation
+        if let mainWindow = mainWindowController?.window {
+            mainWindow.setFrame(mainFrame, display: true, animate: true)
+        }
         
-        let mainFrame = mainWindow.frame
-        
-        // Track the bottom edge for stacking EQ and Playlist below main
-        var bottomEdge = mainFrame.minY
-        
-        // Position EQ directly below main window if visible
         if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
-            let newFrame = NSRect(
-                x: mainFrame.minX,
-                y: bottomEdge - eqWindow.frame.height,
-                width: mainFrame.width,
-                height: eqWindow.frame.height
-            )
-            eqWindow.setFrame(newFrame, display: true, animate: true)
-            bottomEdge = newFrame.minY
+            eqWindow.setFrame(eqFrame, display: true, animate: true)
         }
         
-        // Position Playlist below EQ (or main if EQ not visible) if visible
         if let playlistWindow = playlistWindowController?.window, playlistWindow.isVisible {
-            let newFrame = NSRect(
-                x: mainFrame.minX,
-                y: bottomEdge - playlistWindow.frame.height,
-                width: mainFrame.width,
-                height: playlistWindow.frame.height
+            let frame = NSRect(
+                x: playlistFrame.minX,
+                y: playlistFrame.minY,
+                width: playlistFrame.width,
+                height: playlistWindow.frame.height  // Keep current height
             )
-            playlistWindow.setFrame(newFrame, display: true, animate: true)
+            playlistWindow.setFrame(frame, display: true, animate: true)
         }
         
-        // Position Browser to the right of main window if visible
         if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
-            let newFrame = NSRect(
-                x: mainFrame.maxX,
-                y: mainFrame.maxY - plexWindow.frame.height,
-                width: plexWindow.frame.width,
-                height: plexWindow.frame.height
-            )
-            plexWindow.setFrame(newFrame, display: true, animate: true)
+            plexWindow.setFrame(browserFrame, display: true, animate: true)
         }
         
-        // Position Milkdrop to the left of main window if visible
         if let milkdropWindow = milkdropWindowController?.window, milkdropWindow.isVisible {
-            let newFrame = NSRect(
-                x: mainFrame.minX - milkdropWindow.frame.width,
-                y: mainFrame.maxY - milkdropWindow.frame.height,
-                width: milkdropWindow.frame.width,
-                height: milkdropWindow.frame.height
-            )
-            milkdropWindow.setFrame(newFrame, display: true, animate: true)
+            milkdropWindow.setFrame(milkdropFrame, display: true, animate: true)
         }
         
-        // Position Video Player centered if visible
         if let videoWindow = videoPlayerWindowController?.window, videoWindow.isVisible {
             videoWindow.center()
         }
@@ -842,8 +893,14 @@ class WindowManager {
     // MARK: - Window Snapping & Docking
     
     /// Called when a window drag begins
-    func windowWillStartDragging(_ window: NSWindow) {
+    /// - Parameters:
+    ///   - window: The window being dragged
+    ///   - fromTitleBar: If true, this drag can undock the window from its group
+    func windowWillStartDragging(_ window: NSWindow, fromTitleBar: Bool = false) {
         draggingWindow = window
+        dragStartOrigin = window.frame.origin
+        isTitleBarDrag = fromTitleBar
+        
         // Find all windows that are docked to this window
         dockedWindowsToMove = findDockedWindows(to: window)
         
@@ -890,6 +947,17 @@ class WindowManager {
         // If this is a new drag, find docked windows
         if draggingWindow !== window {
             windowWillStartDragging(window)
+        }
+        
+        // Check if we should undock (break free from the group)
+        // Only title bar drags can undock - interior drags always move the whole group
+        if isTitleBarDrag && !dockedWindowsToMove.isEmpty {
+            let dragDistance = hypot(newOrigin.x - dragStartOrigin.x, newOrigin.y - dragStartOrigin.y)
+            if dragDistance > undockThreshold {
+                // Break the dock - this window now moves alone
+                dockedWindowsToMove.removeAll()
+                dockedWindowOffsets.removeAll()
+            }
         }
         
         // Apply snap to screen edges and other windows

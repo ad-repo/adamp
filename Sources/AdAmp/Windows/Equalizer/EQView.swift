@@ -406,8 +406,13 @@ class EQView: NSView {
         }
         
         // Not on any control - start window drag
+        // Only allow undocking if dragging from title bar area
+        let isTitleBarArea = winampPoint.y < Layout.titleBarHeight
         isDraggingWindow = true
         windowDragStartPoint = event.locationInWindow
+        if let window = window {
+            WindowManager.shared.windowWillStartDragging(window, fromTitleBar: isTitleBarArea)
+        }
     }
     
     /// Handle mouse down in shade mode

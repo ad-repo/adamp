@@ -125,12 +125,35 @@ class AppStateManager {
             eqBands: (0..<10).map { engine.getEQBand($0) },
             
             // Playback state - only save local file URLs (not streaming)
-            playlistURLs: engine.playlist.compactMap { track -> String? in
-                // Only save local file URLs, not streaming URLs
-                guard track.url.isFileURL else { return nil }
-                return track.url.absoluteString
-            },
-            currentTrackIndex: engine.currentIndex,
+            // Build filtered list and calculate correct index within it
+            playlistURLs: {
+                // Get only local file URLs
+                let localURLs = engine.playlist.compactMap { track -> String? in
+                    guard track.url.isFileURL else { return nil }
+                    return track.url.absoluteString
+                }
+                return localURLs
+            }(),
+            currentTrackIndex: {
+                // Calculate the index within the filtered local-only playlist
+                // The saved index must correspond to the filtered playlistURLs, not the full playlist
+                guard engine.currentIndex >= 0 && engine.currentIndex < engine.playlist.count else {
+                    return -1
+                }
+                let currentTrack = engine.playlist[engine.currentIndex]
+                guard currentTrack.url.isFileURL else {
+                    // Current track is a streaming track, can't restore it
+                    return -1
+                }
+                // Count how many local file tracks come before the current one
+                var localIndex = 0
+                for i in 0..<engine.currentIndex {
+                    if engine.playlist[i].url.isFileURL {
+                        localIndex += 1
+                    }
+                }
+                return localIndex
+            }(),
             playbackPosition: engine.currentTime,
             wasPlaying: engine.state == .playing,
             
@@ -252,6 +275,10 @@ class AppStateManager {
         }
         
         // Restore window visibility (after a short delay to ensure proper positioning)
+        // Parse frames before the closure to avoid capturing state
+        let browserFrame = state.plexBrowserWindowFrame.flatMap { NSRectFromString($0) }
+        let milkdropFrame = state.milkdropWindowFrame.flatMap { NSRectFromString($0) }
+        
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if state.isEqualizerVisible {
                 wm.showEqualizer()
@@ -260,10 +287,10 @@ class AppStateManager {
                 wm.showPlaylist()
             }
             if state.isPlexBrowserVisible {
-                wm.showPlexBrowser()
+                wm.showPlexBrowser(at: browserFrame)
             }
             if state.isMilkdropVisible {
-                wm.showMilkdrop()
+                wm.showMilkdrop(at: milkdropFrame)
             }
         }
         
@@ -298,23 +325,8 @@ class AppStateManager {
             }
         }
         
-        // Store Plex Browser window frame in UserDefaults
-        // WindowManager.restoreWindowPositions() will apply it when the window is shown
-        if let frameString = state.plexBrowserWindowFrame {
-            let frame = NSRectFromString(frameString)
-            if frame != .zero {
-                UserDefaults.standard.set(frameString, forKey: "PlexBrowserWindowFrame")
-            }
-        }
-        
-        // Store Milkdrop window frame in UserDefaults
-        // WindowManager.restoreWindowPositions() will apply it when the window is shown
-        if let frameString = state.milkdropWindowFrame {
-            let frame = NSRectFromString(frameString)
-            if frame != .zero {
-                UserDefaults.standard.set(frameString, forKey: "MilkdropWindowFrame")
-            }
-        }
+        // Note: Plex Browser and Milkdrop frames are passed directly to their show methods
+        // in restoreState() since those windows may not exist yet when this is called
     }
     
     // MARK: - Helpers
