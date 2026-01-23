@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 5.9
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -19,7 +19,8 @@ let package = Package(
         // KSPlayer for MKV and extended codec support via FFmpeg
         .package(url: "https://github.com/kingslay/KSPlayer.git", branch: "main"),
         // Audio streaming with AVAudioEngine support (for Plex EQ)
-        .package(url: "https://github.com/dimitris-c/AudioStreaming.git", from: "1.4.0"),
+        // Pinned to 1.3.0 for Swift 5.9 compatibility (1.4.0+ requires Swift 5.10)
+        .package(url: "https://github.com/dimitris-c/AudioStreaming.git", exact: "1.3.0"),
     ],
     targets: [
         // System library target for libprojectM (Milkdrop visualization)
