@@ -126,7 +126,11 @@ jobs:
         run: ./scripts/bootstrap.sh
       
       - name: Run unit tests
-        run: swift test
+        run: |
+          # Create symlink in .build directory for test runtime
+          mkdir -p .build/arm64-apple-macosx/debug
+          ln -sf ../../../Frameworks/libprojectM-4.dylib .build/arm64-apple-macosx/debug/libprojectM-4.4.dylib
+          swift test
 
   # Optional: Parallel test execution for faster CI
   ui-tests-parallel:
