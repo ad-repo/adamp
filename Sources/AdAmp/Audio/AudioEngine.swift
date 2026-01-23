@@ -130,7 +130,9 @@ class AudioEngine {
     /// Balance (-1.0 left, 0.0 center, 1.0 right)
     var balance: Float = 0.0 {
         didSet {
+            // Apply to both players since they alternate during crossfades
             playerNode.pan = balance
+            crossfadePlayerNode.pan = balance
         }
     }
     
@@ -2022,7 +2024,10 @@ class AudioEngine {
         
         // Clamp to valid range
         let finalVolume = max(0, min(1, normalizedVolume))
-        playerNode.volume = finalVolume
+        
+        // Apply to the currently active player (may be crossfade player after a crossfade)
+        let activePlayer = crossfadePlayerIsActive ? crossfadePlayerNode : playerNode
+        activePlayer.volume = finalVolume
         
         // Note: For streaming, normalization is not applied (would require re-analysis)
     }
