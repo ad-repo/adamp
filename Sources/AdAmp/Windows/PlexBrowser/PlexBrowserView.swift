@@ -989,7 +989,11 @@ class PlexBrowserView: NSView {
         case .plex(let serverId):
             let manager = PlexManager.shared
             
-            if manager.isLinked {
+            // Check if we have a server configured (even if offline)
+            let configuredServer = manager.servers.first(where: { $0.id == serverId })
+            let hasConfiguredServer = configuredServer != nil || manager.isLinked
+            
+            if hasConfiguredServer {
                 // Max widths for server and library names (in characters)
                 let maxServerChars = 12
                 let maxLibraryChars = 10
@@ -997,7 +1001,7 @@ class PlexBrowserView: NSView {
                 let maxLibraryWidth = CGFloat(maxLibraryChars) * scaledCharWidth
                 
                 // Server name right after "Source:" - with clipping to prevent artifacts
-                let serverName = manager.servers.first(where: { $0.id == serverId })?.name ?? "Select Server"
+                let serverName = configuredServer?.name ?? "Select Server"
                 let serverTextWidth = CGFloat(serverName.count) * scaledCharWidth
                 
                 context.saveGState()
@@ -1095,7 +1099,7 @@ class PlexBrowserView: NSView {
                     radioButtonRect = .zero
                 }
             } else {
-                // Plex not linked - show link message
+                // Plex not linked and no servers - show link message
                 let linkText = "Click to link your Plex account"
                 let linkWidth = CGFloat(linkText.count) * scaledCharWidth
                 let linkX = barRect.midX - linkWidth / 2
@@ -1105,13 +1109,16 @@ class PlexBrowserView: NSView {
         case .subsonic(let serverId):
             let manager = SubsonicManager.shared
             
-            if manager.currentServer != nil {
+            // Check if we have a server configured (even if offline)
+            let configuredServer = manager.servers.first(where: { $0.id == serverId })
+            
+            if configuredServer != nil {
                 // Max width for server name (in characters)
                 let maxServerChars = 20
                 let maxServerWidth = CGFloat(maxServerChars) * scaledCharWidth
                 
                 // Server name right after "Source:"
-                let serverName = manager.servers.first(where: { $0.id == serverId })?.name ?? "Select Server"
+                let serverName = configuredServer?.name ?? "Select Server"
                 let serverTextWidth = CGFloat(serverName.count) * scaledCharWidth
                 
                 if serverTextWidth <= maxServerWidth {
@@ -1164,7 +1171,7 @@ class PlexBrowserView: NSView {
                 let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
                 drawScaledSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
             } else {
-                // Subsonic not connected - show add server message
+                // No Subsonic server configured - show add server message
                 let linkText = "Click to add a Subsonic server"
                 let linkWidth = CGFloat(linkText.count) * scaledCharWidth
                 let linkX = barRect.midX - linkWidth / 2
