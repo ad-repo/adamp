@@ -4560,6 +4560,16 @@ class PlexBrowserView: NSView {
                 // Source/server area = source dropdown
                 showSourceMenu(at: event)
             }
+        } else if case .subsonic = currentSource {
+            // Subsonic mode - Server name on left (no library selector)
+            let maxSubsonicServerChars = 20
+            let maxSubsonicServerWidth = CGFloat(maxSubsonicServerChars) * charWidth
+            let serverZoneEnd = sourcePrefix + maxSubsonicServerWidth
+            
+            if relativeX < serverZoneEnd {
+                // Source/server area = source dropdown
+                showSourceMenu(at: event)
+            }
         }
     }
     
