@@ -49,7 +49,10 @@ class PlexManager {
                     serverClient = PlexServerClient(server: server, authToken: token)
                 }
             }
-            UserDefaults.standard.set(currentServer?.id, forKey: "PlexCurrentServerID")
+            // Only save to UserDefaults if we have a valid server (don't overwrite with nil)
+            if let serverId = currentServer?.id {
+                UserDefaults.standard.set(serverId, forKey: "PlexCurrentServerID")
+            }
         }
     }
     
@@ -61,7 +64,10 @@ class PlexManager {
                 clearCachedContent()
             }
             NotificationCenter.default.post(name: Self.libraryDidChangeNotification, object: self)
-            UserDefaults.standard.set(currentLibrary?.id, forKey: "PlexCurrentLibraryID")
+            // Only save to UserDefaults if we have a valid library (don't overwrite with nil)
+            if let libraryId = currentLibrary?.id {
+                UserDefaults.standard.set(libraryId, forKey: "PlexCurrentLibraryID")
+            }
         }
     }
     
