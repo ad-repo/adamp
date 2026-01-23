@@ -109,7 +109,7 @@ class AppStateManager {
             playlistWindowFrame: wm.playlistWindowController?.window.map { NSStringFromRect($0.frame) },
             equalizerWindowFrame: wm.equalizerWindowController?.window.map { NSStringFromRect($0.frame) },
             plexBrowserWindowFrame: wm.plexBrowserWindowFrame.map { NSStringFromRect($0) },
-            milkdropWindowFrame: wm.isMilkdropVisible ? getMilkdropFrame().map { NSStringFromRect($0) } : nil,
+            milkdropWindowFrame: wm.isMilkdropVisible ? wm.milkdropWindowFrame.map { NSStringFromRect($0) } : nil,
             
             // Audio settings
             volume: engine.volume,
@@ -125,12 +125,35 @@ class AppStateManager {
             eqBands: (0..<10).map { engine.getEQBand($0) },
             
             // Playback state - only save local file URLs (not streaming)
-            playlistURLs: engine.playlist.compactMap { track -> String? in
-                // Only save local file URLs, not streaming URLs
-                guard track.url.isFileURL else { return nil }
-                return track.url.absoluteString
-            },
-            currentTrackIndex: engine.currentIndex,
+            // Build filtered list and calculate correct index within it
+            playlistURLs: {
+                // Get only local file URLs
+                let localURLs = engine.playlist.compactMap { track -> String? in
+                    guard track.url.isFileURL else { return nil }
+                    return track.url.absoluteString
+                }
+                return localURLs
+            }(),
+            currentTrackIndex: {
+                // Calculate the index within the filtered local-only playlist
+                // The saved index must correspond to the filtered playlistURLs, not the full playlist
+                guard engine.currentIndex >= 0 && engine.currentIndex < engine.playlist.count else {
+                    return -1
+                }
+                let currentTrack = engine.playlist[engine.currentIndex]
+                guard currentTrack.url.isFileURL else {
+                    // Current track is a streaming track, can't restore it
+                    return -1
+                }
+                // Count how many local file tracks come before the current one
+                var localIndex = 0
+                for i in 0..<engine.currentIndex {
+                    if engine.playlist[i].url.isFileURL {
+                        localIndex += 1
+                    }
+                }
+                return localIndex
+            }(),
             playbackPosition: engine.currentTime,
             wasPlaying: engine.state == .playing,
             
@@ -229,13 +252,24 @@ class AppStateManager {
             let validURLs = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
             
             if !validURLs.isEmpty {
+                // Calculate the correct index in the filtered playlist
+                // The saved index was relative to the full saved list, but some files may have been deleted
+                var newTrackIndex = -1
+                if state.currentTrackIndex >= 0 && state.currentTrackIndex < urls.count {
+                    let originalURL = urls[state.currentTrackIndex]
+                    // Find where this URL ended up in the filtered list
+                    if let validIndex = validURLs.firstIndex(of: originalURL) {
+                        newTrackIndex = validIndex
+                    }
+                }
+                
                 engine.loadFiles(validURLs)
                 
                 // Restore track position after a short delay to let the playlist load
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    // Set the current track index
-                    if state.currentTrackIndex >= 0 && state.currentTrackIndex < engine.playlist.count {
-                        engine.playTrack(at: state.currentTrackIndex)
+                    // Set the current track index (use the recalculated index for the filtered playlist)
+                    if newTrackIndex >= 0 && newTrackIndex < engine.playlist.count {
+                        engine.playTrack(at: newTrackIndex)
                         
                         // Seek to the saved position
                         if state.playbackPosition > 0 {
@@ -252,18 +286,24 @@ class AppStateManager {
         }
         
         // Restore window visibility (after a short delay to ensure proper positioning)
+        // Parse frames before the closure to avoid capturing state
+        let playlistFrame = state.playlistWindowFrame.flatMap { NSRectFromString($0) }
+        let equalizerFrame = state.equalizerWindowFrame.flatMap { NSRectFromString($0) }
+        let browserFrame = state.plexBrowserWindowFrame.flatMap { NSRectFromString($0) }
+        let milkdropFrame = state.milkdropWindowFrame.flatMap { NSRectFromString($0) }
+        
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if state.isEqualizerVisible {
-                wm.showEqualizer()
+                wm.showEqualizer(at: equalizerFrame)
             }
             if state.isPlaylistVisible {
-                wm.showPlaylist()
+                wm.showPlaylist(at: playlistFrame)
             }
             if state.isPlexBrowserVisible {
-                wm.showPlexBrowser()
+                wm.showPlexBrowser(at: browserFrame)
             }
             if state.isMilkdropVisible {
-                wm.showMilkdrop()
+                wm.showMilkdrop(at: milkdropFrame)
             }
         }
         
@@ -271,9 +311,13 @@ class AppStateManager {
     }
     
     /// Restore window frames from saved state
+    /// Note: Only the main window frame is restored here since it exists at restore time.
+    /// Playlist, EQ, Browser, and Milkdrop frames are passed to their show methods
+    /// in applyState() since those windows are created lazily.
     private func restoreWindowFrames(_ state: AppState) {
         let wm = WindowManager.shared
         
+        // Main window exists at this point, so we can restore its frame directly
         if let frameString = state.mainWindowFrame,
            let window = wm.mainWindowController?.window {
             let frame = NSRectFromString(frameString)
@@ -282,21 +326,9 @@ class AppStateManager {
             }
         }
         
-        if let frameString = state.playlistWindowFrame,
-           let window = wm.playlistWindowController?.window {
-            let frame = NSRectFromString(frameString)
-            if frame != .zero {
-                window.setFrame(frame, display: true)
-            }
-        }
-        
-        if let frameString = state.equalizerWindowFrame,
-           let window = wm.equalizerWindowController?.window {
-            let frame = NSRectFromString(frameString)
-            if frame != .zero {
-                window.setFrame(frame, display: true)
-            }
-        }
+        // Note: Playlist, EQ, Browser, and Milkdrop frames are passed directly to their
+        // show methods in applyState() since those windows are created lazily and don't
+        // exist yet when this function is called.
     }
     
     // MARK: - Helpers
@@ -305,17 +337,6 @@ class AppStateManager {
     private func getCustomSkinPath() -> String? {
         // Return the currently loaded custom skin path tracked by WindowManager
         return WindowManager.shared.currentSkinPath
-    }
-    
-    /// Get the Milkdrop window frame
-    private func getMilkdropFrame() -> NSRect? {
-        // Access via window manager's internal method or property
-        // Since we can't directly access milkdropWindowController, 
-        // we rely on the saved frame in UserDefaults
-        if let frameString = UserDefaults.standard.string(forKey: "MilkdropWindowFrame") {
-            return NSRectFromString(frameString)
-        }
-        return nil
     }
     
     // MARK: - Clear State

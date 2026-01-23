@@ -632,8 +632,14 @@ class MainWindowView: NSView {
         }
         
         // No action hit - start window drag
+        // Only allow undocking if dragging from title bar area (top 14 pixels in Winamp coords)
+        let winampY = originalWindowSize.height - point.y  // Convert to Winamp top-down coords
+        let isTitleBarArea = winampY < 14  // Title bar is 14px tall
         isDraggingWindow = true
         windowDragStartPoint = event.locationInWindow
+        if let window = window {
+            WindowManager.shared.windowWillStartDragging(window, fromTitleBar: isTitleBarArea)
+        }
     }
     
     /// Handle mouse down in shade mode
@@ -665,9 +671,12 @@ class MainWindowView: NSView {
             return
         }
         
-        // No button hit - start window drag
+        // No button hit - start window drag (shade mode is all title bar, so can undock)
         isDraggingWindow = true
         windowDragStartPoint = event.locationInWindow
+        if let window = window {
+            WindowManager.shared.windowWillStartDragging(window, fromTitleBar: true)
+        }
     }
     
     private func handleMouseDown(action: PlayerAction, at point: NSPoint) {
