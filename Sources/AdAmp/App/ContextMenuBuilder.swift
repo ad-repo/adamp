@@ -10,10 +10,6 @@ class ContextMenuBuilder {
         let menu = NSMenu()
         let wm = WindowManager.shared
         
-        // Play submenu
-        menu.addItem(buildPlayMenuItem())
-        menu.addItem(NSMenuItem.separator())
-        
         // Window toggles
         menu.addItem(buildWindowItem("Main Window", visible: wm.mainWindowController?.window?.isVisible ?? false, action: #selector(MenuActions.toggleMainWindow)))
         menu.addItem(buildWindowItem("Equalizer", visible: wm.isEqualizerVisible, action: #selector(MenuActions.toggleEQ)))
@@ -72,24 +68,6 @@ class ContextMenuBuilder {
         
         menu.autoenablesItems = false
         return menu
-    }
-    
-    // MARK: - Play Submenu
-    
-    private static func buildPlayMenuItem() -> NSMenuItem {
-        let playItem = NSMenuItem(title: "Play", action: nil, keyEquivalent: "")
-        let playMenu = NSMenu()
-        
-        let fileItem = NSMenuItem(title: "File...", action: #selector(MenuActions.openFile), keyEquivalent: "")
-        fileItem.target = MenuActions.shared
-        playMenu.addItem(fileItem)
-        
-        let folderItem = NSMenuItem(title: "Folder...", action: #selector(MenuActions.openFolder), keyEquivalent: "")
-        folderItem.target = MenuActions.shared
-        playMenu.addItem(folderItem)
-        
-        playItem.submenu = playMenu
-        return playItem
     }
     
     // MARK: - Window Toggle Items

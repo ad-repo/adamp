@@ -62,6 +62,7 @@ class AppStateManager {
         
         // Skin
         var customSkinPath: String?
+        var baseSkinIndex: Int?  // 1, 2, or 3 for base skins; nil for custom skin
         
         // Version for future compatibility
         var stateVersion: Int = 1
@@ -76,7 +77,7 @@ class AppStateManager {
             case eqEnabled, eqPreamp, eqBands
             case playlistURLs, currentTrackIndex, playbackPosition, wasPlaying
             case timeDisplayMode, isAlwaysOnTop
-            case customSkinPath
+            case customSkinPath, baseSkinIndex
             case stateVersion
         }
         
@@ -125,6 +126,7 @@ class AppStateManager {
             
             // Skin
             customSkinPath = try container.decodeIfPresent(String.self, forKey: .customSkinPath)
+            baseSkinIndex = try container.decodeIfPresent(Int.self, forKey: .baseSkinIndex)
             
             // Version
             stateVersion = try container.decodeIfPresent(Int.self, forKey: .stateVersion) ?? 1
@@ -159,6 +161,7 @@ class AppStateManager {
             timeDisplayMode: String,
             isAlwaysOnTop: Bool,
             customSkinPath: String? = nil,
+            baseSkinIndex: Int? = nil,
             stateVersion: Int = 1
         ) {
             self.isPlaylistVisible = isPlaylistVisible
@@ -188,6 +191,7 @@ class AppStateManager {
             self.timeDisplayMode = timeDisplayMode
             self.isAlwaysOnTop = isAlwaysOnTop
             self.customSkinPath = customSkinPath
+            self.baseSkinIndex = baseSkinIndex
             self.stateVersion = stateVersion
         }
     }
@@ -295,8 +299,9 @@ class AppStateManager {
             timeDisplayMode: wm.timeDisplayMode.rawValue,
             isAlwaysOnTop: wm.isAlwaysOnTop,
             
-            // Skin - save path if using a custom skin
-            customSkinPath: getCustomSkinPath()
+            // Skin - save path if using a custom skin, or base skin index
+            customSkinPath: getCustomSkinPath(),
+            baseSkinIndex: wm.currentBaseSkinIndex
         )
         
         // Encode and save
@@ -374,11 +379,20 @@ class AppStateManager {
         NSLog("AppStateManager: Restoring isAlwaysOnTop = %d", state.isAlwaysOnTop ? 1 : 0)
         wm.isAlwaysOnTop = state.isAlwaysOnTop
         
-        // Restore custom skin if set
+        // Restore skin
         if let skinPath = state.customSkinPath {
+            // Custom skin from file
             let skinURL = URL(fileURLWithPath: skinPath)
             if FileManager.default.fileExists(atPath: skinPath) {
                 wm.loadSkin(from: skinURL)
+            }
+        } else if let baseSkinIndex = state.baseSkinIndex {
+            // Base skin by index
+            switch baseSkinIndex {
+            case 1: wm.loadBaseSkin()
+            case 2: wm.loadBaseSkin2()
+            case 3: wm.loadBaseSkin3()
+            default: wm.loadBaseSkin()
             }
         }
         
