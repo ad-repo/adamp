@@ -22,14 +22,21 @@ jobs:
           xcodebuild -version
           swift --version
       
-      - name: Cache Swift packages
+      - name: Cache SPM build
         uses: actions/cache@v4
         with:
           path: |
             .build
             ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
-          restore-keys: ${{ runner.os }}-spm-
+          key: ${{ runner.os }}-spm-build-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-build-
+      
+      - name: Cache Frameworks
+        uses: actions/cache@v4
+        with:
+          path: Frameworks
+          key: ${{ runner.os }}-frameworks-v1
       
       - name: Bootstrap (download frameworks)
         run: ./scripts/bootstrap.sh
@@ -88,7 +95,7 @@ jobs:
   # Unit tests job (runs in parallel)
   unit-tests:
     runs-on: macos-14
-    timeout-minutes: 15
+    timeout-minutes: 20
     
     steps:
       - uses: actions/checkout@v4
@@ -99,14 +106,21 @@ jobs:
       - name: Show Swift version
         run: swift --version
       
-      - name: Cache Swift packages
+      - name: Cache SPM build
         uses: actions/cache@v4
         with:
           path: |
             .build
             ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
-          restore-keys: ${{ runner.os }}-spm-
+          key: ${{ runner.os }}-spm-build-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-build-
+      
+      - name: Cache Frameworks
+        uses: actions/cache@v4
+        with:
+          path: Frameworks
+          key: ${{ runner.os }}-frameworks-v1
       
       - name: Bootstrap (download frameworks)
         run: ./scripts/bootstrap.sh
