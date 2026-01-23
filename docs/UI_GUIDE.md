@@ -158,8 +158,8 @@ Located in `Windows/Playlist/PlaylistView.swift`:
 ```swift
 private var marqueeOffset: CGFloat = 0
 
-// Timer fires at 20fps for smooth scrolling
-displayTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+// Timer fires at 30fps with 1px increments for smooth scrolling
+displayTimer = Timer.scheduledTimer(withTimeInterval: 0.033, repeats: true) { [weak self] _ in
     self?.marqueeOffset += 1
     self?.needsDisplay = true
 }
@@ -170,13 +170,13 @@ displayTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [we
 In `drawTrackText()`:
 1. Calculate available width (item width minus duration area)
 2. If current track AND text width exceeds available width:
-   - Draw text twice with separator for seamless loop
+   - Draw text twice with simple spacing for seamless loop
    - Use `marqueeOffset` modulo cycle width for smooth wrapping
 3. Clip all tracks to prevent text/duration overlap
 
 ```swift
 if isCurrentTrack && textWidth > titleMaxWidth {
-    let fullText = titleText + "   +++   "
+    let fullText = titleText + "     "  // Simple spacing between repeats
     let cycleWidth = fullText.size(withAttributes: attrs).width
     let offset = marqueeOffset.truncatingRemainder(dividingBy: cycleWidth)
     

@@ -3,7 +3,7 @@ import Foundation
 /// Radio station configuration - easy to modify thresholds
 enum RadioConfig {
     /// Minimum Last.fm scrobbles to qualify as a "hit"
-    static let hitsThreshold = 250_000
+    static let hitsThreshold = 1_000_000
     
     /// Maximum Last.fm scrobbles to qualify as a "deep cut"
     static let deepCutsThreshold = 1_000

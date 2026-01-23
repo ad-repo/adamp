@@ -424,7 +424,19 @@ A track is "scrobbled" when:
 
 ### Plex Radio
 
-Generate dynamic playlists based on sonic similarity to a seed track, album, or artist:
+Generate dynamic playlists from the radio icon in the library browser toolbar. Each station type has two variants:
+- **Standard**: Random tracks matching the criteria
+- **Sonic**: Tracks sonically similar to the current/seed track
+
+| Radio Station | Description |
+|---------------|-------------|
+| **Library Radio** | Random tracks from your entire library |
+| **Only the Hits** | Popular tracks (250k+ Last.fm scrobbles) |
+| **Deep Cuts** | Lesser-known tracks (under 1k scrobbles) |
+| **Genre Stations** | Tracks from specific genres (dynamically loaded from your library) |
+| **Decade Stations** | Tracks from specific decades (1920s-2020s) |
+
+**Context Menu Radio** (right-click items):
 
 | Radio Type | How to Access | Description |
 |------------|---------------|-------------|
@@ -432,7 +444,12 @@ Generate dynamic playlists based on sonic similarity to a seed track, album, or 
 | **Album Radio** | Right-click album > "Start Album Radio" | Plays tracks from sonically similar albums |
 | **Artist Radio** | Right-click artist > "Start Artist Radio" | Plays tracks from sonically similar artists |
 
-**Requirements**: Plex Pass with sonic analysis enabled on the server. Tracks need to be analyzed (look for `musicAnalysisVersion` in track metadata).
+**Radio Features**:
+- Artist variety: Max 2 tracks per artist (1 for Sonic), spread apart to avoid back-to-back
+- Genres fetched dynamically from your Plex library
+- Sonic stations use currently playing track as seed, or random if nothing playing
+
+**Requirements**: Plex Pass with sonic analysis enabled on the server for Sonic variants.
 
 ---
 

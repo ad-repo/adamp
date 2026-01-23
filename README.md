@@ -16,6 +16,7 @@ A faithful recreation of Winamp 2.x for macOS loaded up with Plex, Navidrome/Sub
 - Media library backup and restore
 - Plex Media Server integration with PIN-based authentication
 - Plex music and video streaming
+- Plex Radio stations (Library, Genre, Decade, Hits, Deep Cuts) with sonic similarity
 - Navidrome/Subsonic server integration with scrobbling support
 - Album art visualizations
 - Casting to Chromecast, Sonos, and DLNA devices
