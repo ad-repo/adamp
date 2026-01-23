@@ -5,6 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "AdAmp",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v13)
     ],
@@ -55,5 +56,8 @@ let package = Package(
             dependencies: ["AdAmp"],
             path: "Tests/AdAmpTests"
         )
-    ]
+    ],
+    // Use Swift 5 language mode to keep concurrency warnings as warnings, not errors
+    // This allows gradual adoption of strict concurrency without blocking builds
+    swiftLanguageModes: [.v5]
 )
