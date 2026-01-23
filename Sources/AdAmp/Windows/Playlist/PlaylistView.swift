@@ -78,8 +78,9 @@ class PlaylistView: NSView {
         registerForDraggedTypes([.fileURL])
         
         // Start display timer for playback time updates and marquee scrolling
-        displayTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            self?.marqueeOffset += 10
+        // Use 30fps (0.033s) with 1px increments for smooth scrolling
+        displayTimer = Timer.scheduledTimer(withTimeInterval: 0.033, repeats: true) { [weak self] _ in
+            self?.marqueeOffset += 1
             self?.needsDisplay = true
         }
         
@@ -306,7 +307,7 @@ class PlaylistView: NSView {
         
         // Marquee scroll for current track if text is too long
         if isCurrentTrack && textWidth > titleMaxWidth {
-            let separator = "   +++   "
+            let separator = "     "  // Simple spacing between repeats
             let fullText = titleText + separator
             let cycleWidth = fullText.size(withAttributes: attrs).width
             let offset = marqueeOffset.truncatingRemainder(dividingBy: cycleWidth)
