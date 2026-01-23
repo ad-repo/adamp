@@ -252,13 +252,24 @@ class AppStateManager {
             let validURLs = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
             
             if !validURLs.isEmpty {
+                // Calculate the correct index in the filtered playlist
+                // The saved index was relative to the full saved list, but some files may have been deleted
+                var newTrackIndex = -1
+                if state.currentTrackIndex >= 0 && state.currentTrackIndex < urls.count {
+                    let originalURL = urls[state.currentTrackIndex]
+                    // Find where this URL ended up in the filtered list
+                    if let validIndex = validURLs.firstIndex(of: originalURL) {
+                        newTrackIndex = validIndex
+                    }
+                }
+                
                 engine.loadFiles(validURLs)
                 
                 // Restore track position after a short delay to let the playlist load
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    // Set the current track index
-                    if state.currentTrackIndex >= 0 && state.currentTrackIndex < engine.playlist.count {
-                        engine.playTrack(at: state.currentTrackIndex)
+                    // Set the current track index (use the recalculated index for the filtered playlist)
+                    if newTrackIndex >= 0 && newTrackIndex < engine.playlist.count {
+                        engine.playTrack(at: newTrackIndex)
                         
                         // Seek to the saved position
                         if state.playbackPosition > 0 {
