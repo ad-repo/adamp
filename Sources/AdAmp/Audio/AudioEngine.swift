@@ -77,6 +77,7 @@ class AudioEngine {
     /// This routes audio through AVAudioEngine so EQ affects streaming audio
     private var streamingPlayer: StreamingAudioPlayer?
     private var isStreamingPlayback: Bool = false
+    private var isLoadingNewStreamingTrack: Bool = false
     
     /// Current playback state
     private(set) var state: PlaybackState = .stopped {
@@ -1284,8 +1285,12 @@ class AudioEngine {
         audioFile = nil
         isStreamingPlayback = true
         
-        // Stop existing streaming player
-        stopStreamingPlayer()
+        // Set flag before starting new track - EOF callbacks from old track should be ignored
+        isLoadingNewStreamingTrack = true
+        
+        // DON'T call stop() before play() - the AudioStreaming library handles this internally.
+        // Calling stop() explicitly causes a race condition where the async stop callback
+        // fires AFTER play(url:) is called, cancelling the newly queued track.
         
         // Create streaming player if needed
         if streamingPlayer == nil {
@@ -1308,6 +1313,16 @@ class AudioEngine {
         
         // Start playback through the streaming player (routes through AVAudioEngine with EQ)
         streamingPlayer?.play(url: track.url)
+        
+        // Set state to playing immediately so play() doesn't try to reload
+        state = .playing
+        playbackStartDate = Date()
+        startTimeUpdates()
+        
+        // Clear the loading flag after a brief delay to ensure EOF callback has passed
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.isLoadingNewStreamingTrack = false
+        }
         
         // Report track start to Plex
         PlexPlaybackReporter.shared.trackDidStart(track, at: 0)
@@ -1777,7 +1792,12 @@ class AudioEngine {
     }
     
     func playTrack(at index: Int) {
-        guard index >= 0 && index < playlist.count else { return }
+        guard index >= 0 && index < playlist.count else {
+            NSLog("playTrack: invalid index %d (playlist count: %d)", index, playlist.count)
+            return
+        }
+        
+        NSLog("playTrack: playing track at index %d", index)
         
         // Check if we're currently casting
         let wasCasting = isCastingActive
@@ -1934,7 +1954,14 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
         // Note: We call trackDidFinish() directly instead of handlePlaybackComplete()
         // because the streaming player's state change callback (.stopped) fires BEFORE
         // this callback, so self.state is already .stopped by the time we get here.
-        // The generation check is also unnecessary since we know this is a natural EOF.
+        // 
+        // IMPORTANT: When loading a new track, the old track's EOF callback fires
+        // even though we intentionally stopped it. The isLoadingNewStreamingTrack flag
+        // is set before stopping and cleared after the new track starts.
+        guard !isLoadingNewStreamingTrack else {
+            NSLog("AudioEngine: Ignoring EOF during track switch")
+            return
+        }
         NSLog("AudioEngine: Streaming track finished, advancing playlist")
         trackDidFinish()
     }

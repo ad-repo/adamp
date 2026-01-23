@@ -167,6 +167,9 @@ struct PlexTrack: Identifiable, Equatable {
     let media: [PlexMedia]      // Media files/parts
     let addedAt: Date?
     let updatedAt: Date?
+    let genre: String?          // Primary genre tag
+    let parentYear: Int?        // Album release year
+    let ratingCount: Int?       // Last.fm scrobble count (global popularity)
     
     /// Get the streaming part key for this track
     var partKey: String? {
@@ -503,6 +506,9 @@ struct PlexMetadataDTO: Decodable {
     let playlistType: String?   // "audio", "video", or "photo"
     let smart: Bool?            // Whether it's a smart playlist
     let composite: String?      // Composite image path for playlists
+    // Track-specific fields for radio
+    let parentYear: Int?        // Album release year (for decade radio)
+    let ratingCount: Int?       // Last.fm scrobble count (for hits/deep cuts)
     
     enum CodingKeys: String, CodingKey {
         case ratingKey, key, type, title, parentTitle, grandparentTitle
@@ -513,6 +519,7 @@ struct PlexMetadataDTO: Decodable {
         case genre = "Genre"
         case studio, contentRating
         case playlistType, smart, composite
+        case parentYear, ratingCount
     }
     
     func toArtist() -> PlexArtist {
@@ -568,7 +575,10 @@ struct PlexMetadataDTO: Decodable {
             thumb: thumb,
             media: media?.map { $0.toMedia() } ?? [],
             addedAt: addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            updatedAt: updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            updatedAt: updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            genre: genre?.first?.tag,
+            parentYear: parentYear,
+            ratingCount: ratingCount
         )
     }
     

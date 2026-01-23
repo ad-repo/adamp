@@ -96,6 +96,50 @@ A wrapper around the [AudioStreaming](https://github.com/dimitris-c/AudioStreami
 **Why a separate EQ?**  
 AVAudioNode instances can only be attached to one AVAudioEngine at a time. Since AudioStreaming uses its own internal engine, we maintain a separate EQ node that stays synchronized with the main engine's EQ.
 
+### Track Switch Race Condition Guard
+
+When switching streaming tracks (e.g., clicking to play a different track), two race conditions can occur:
+
+1. **EOF callback race**: The old track's EOF callback fires even though it was intentionally stopped, which would incorrectly advance the playlist
+2. **Stop/play race**: If `stop()` is called before `play(url:)`, the async stop operation can cancel the newly queued track
+
+**Solution**: AudioEngine uses an `isLoadingNewStreamingTrack` flag and avoids explicit `stop()` calls:
+
+```swift
+private var isLoadingNewStreamingTrack: Bool = false
+
+private func loadStreamingTrack(_ track: Track) {
+    isLoadingNewStreamingTrack = true   // Set before starting new track
+    
+    // DON'T call stop() before play() - the AudioStreaming library handles this internally.
+    // Calling stop() explicitly causes a race condition where the async stop callback
+    // fires AFTER play(url:) is called, cancelling the newly queued track.
+    
+    streamingPlayer?.play(url: track.url)
+    
+    // Set state immediately so play() doesn't try to reload
+    state = .playing
+    
+    // Clear flag after delay to ensure stale EOF callbacks have passed
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        self?.isLoadingNewStreamingTrack = false
+    }
+}
+
+func streamingPlayerDidFinishPlaying() {
+    // Ignore EOF callbacks that fire during track switch
+    guard !isLoadingNewStreamingTrack else { return }
+    trackDidFinish()
+}
+```
+
+**Key points:**
+- Don't call `stop()` before `play(url:)` - the AudioStreaming library handles stopping internally
+- Set `state = .playing` immediately after `play(url:)` to prevent the `play()` function from triggering a redundant reload
+- The 50ms delay ensures stale EOF callbacks from the old track are ignored
+
+This prevents race conditions where clicking to play track N would result in track N+1 playing or no playback at all.
+
 ## Equalizer
 
 ### Configuration

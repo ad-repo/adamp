@@ -834,4 +834,248 @@ class PlexManager {
         }
         return true
     }
+    
+    // MARK: - Extended Radio Methods (Non-Sonic and Sonic Versions)
+    
+    /// Get a seed track for sonic radio: currently playing Plex track, or random from library
+    private func getSonicSeedTrackID() async -> String? {
+        // Check if currently playing track is a Plex track
+        if let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+           let ratingKey = currentTrack.plexRatingKey {
+            NSLog("PlexManager: Using current playing track as sonic seed: %@", ratingKey)
+            return ratingKey
+        }
+        
+        // Otherwise, pick a random track from the library
+        guard let client = serverClient, let library = currentLibrary else {
+            return nil
+        }
+        
+        do {
+            let randomTracks = try await client.fetchTracks(libraryID: library.id, offset: 0, limit: 1)
+            if let randomTrack = randomTracks.first {
+                NSLog("PlexManager: Using random track as sonic seed: %@", randomTrack.id)
+                return randomTrack.id
+            }
+        } catch {
+            NSLog("PlexManager: Failed to get random seed track: %@", error.localizedDescription)
+        }
+        
+        return nil
+    }
+    
+    // MARK: Library Radio
+    
+    /// Library Radio - Non-Sonic (random tracks from library)
+    func createLibraryRadio(limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create library radio - no server or library connected")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createLibraryRadio(libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Library radio created with %d tracks", tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create library radio: %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    /// Library Radio - Sonic (sonically similar to seed track)
+    func createLibraryRadioSonic(limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create library radio (sonic) - no server or library connected")
+            return []
+        }
+        
+        guard let seedTrackID = await getSonicSeedTrackID() else {
+            NSLog("PlexManager: Cannot create library radio (sonic) - no seed track available")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createLibraryRadioSonic(trackID: seedTrackID, libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Library radio (sonic) created with %d tracks", tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create library radio (sonic): %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    // MARK: Genre Radio
+    
+    /// Genre Radio - Non-Sonic
+    func createGenreRadio(genre: String, limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create genre radio - no server or library connected")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createGenreRadio(genre: genre, libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Genre radio (%@) created with %d tracks", genre, tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create genre radio: %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    /// Genre Radio - Sonic
+    func createGenreRadioSonic(genre: String, limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create genre radio (sonic) - no server or library connected")
+            return []
+        }
+        
+        guard let seedTrackID = await getSonicSeedTrackID() else {
+            NSLog("PlexManager: Cannot create genre radio (sonic) - no seed track available")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createGenreRadioSonic(genre: genre, trackID: seedTrackID, libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Genre radio (sonic) (%@) created with %d tracks", genre, tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create genre radio (sonic): %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    // MARK: Decade Radio
+    
+    /// Decade Radio - Non-Sonic
+    func createDecadeRadio(startYear: Int, endYear: Int, limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create decade radio - no server or library connected")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createDecadeRadio(startYear: startYear, endYear: endYear, libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Decade radio (%d-%d) created with %d tracks", startYear, endYear, tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create decade radio: %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    /// Decade Radio - Sonic
+    func createDecadeRadioSonic(startYear: Int, endYear: Int, limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create decade radio (sonic) - no server or library connected")
+            return []
+        }
+        
+        guard let seedTrackID = await getSonicSeedTrackID() else {
+            NSLog("PlexManager: Cannot create decade radio (sonic) - no seed track available")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createDecadeRadioSonic(startYear: startYear, endYear: endYear, trackID: seedTrackID, libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Decade radio (sonic) (%d-%d) created with %d tracks", startYear, endYear, tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create decade radio (sonic): %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    // MARK: Hits Radio
+    
+    /// Only the Hits Radio - Non-Sonic
+    func createHitsRadio(limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create hits radio - no server or library connected")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createHitsRadio(libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Hits radio created with %d tracks", tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create hits radio: %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    /// Only the Hits Radio - Sonic
+    func createHitsRadioSonic(limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create hits radio (sonic) - no server or library connected")
+            return []
+        }
+        
+        guard let seedTrackID = await getSonicSeedTrackID() else {
+            NSLog("PlexManager: Cannot create hits radio (sonic) - no seed track available")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createHitsRadioSonic(trackID: seedTrackID, libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Hits radio (sonic) created with %d tracks", tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create hits radio (sonic): %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    // MARK: Deep Cuts Radio
+    
+    /// Deep Cuts Radio - Non-Sonic
+    func createDeepCutsRadio(limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create deep cuts radio - no server or library connected")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createDeepCutsRadio(libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Deep cuts radio created with %d tracks", tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create deep cuts radio: %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    /// Deep Cuts Radio - Sonic
+    func createDeepCutsRadioSonic(limit: Int = 100) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create deep cuts radio (sonic) - no server or library connected")
+            return []
+        }
+        
+        guard let seedTrackID = await getSonicSeedTrackID() else {
+            NSLog("PlexManager: Cannot create deep cuts radio (sonic) - no seed track available")
+            return []
+        }
+        
+        do {
+            let plexTracks = try await client.createDeepCutsRadioSonic(trackID: seedTrackID, libraryID: library.id, limit: limit)
+            let tracks = convertToTracks(plexTracks)
+            NSLog("PlexManager: Deep cuts radio (sonic) created with %d tracks", tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create deep cuts radio (sonic): %@", error.localizedDescription)
+            return []
+        }
+    }
 }

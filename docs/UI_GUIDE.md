@@ -147,6 +147,54 @@ Sliders use programmatic color based on knob position (not sprites):
 | Middle | 0 | Yellow |
 | Bottom | -12 | Green |
 
+## Playlist Marquee Scrolling
+
+The playlist window features marquee scrolling for the currently playing track when its title is too long to fit in the available space.
+
+### Implementation
+
+Located in `Windows/Playlist/PlaylistView.swift`:
+
+```swift
+private var marqueeOffset: CGFloat = 0
+
+// Timer fires at 20fps for smooth scrolling
+displayTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+    self?.marqueeOffset += 1
+    self?.needsDisplay = true
+}
+```
+
+### Drawing Logic
+
+In `drawTrackText()`:
+1. Calculate available width (item width minus duration area)
+2. If current track AND text width exceeds available width:
+   - Draw text twice with separator for seamless loop
+   - Use `marqueeOffset` modulo cycle width for smooth wrapping
+3. Clip all tracks to prevent text/duration overlap
+
+```swift
+if isCurrentTrack && textWidth > titleMaxWidth {
+    let fullText = titleText + "   +++   "
+    let cycleWidth = fullText.size(withAttributes: attrs).width
+    let offset = marqueeOffset.truncatingRemainder(dividingBy: cycleWidth)
+    
+    fullText.draw(at: NSPoint(x: titleX - offset, y: textY), withAttributes: attrs)
+    fullText.draw(at: NSPoint(x: titleX - offset + cycleWidth, y: textY), withAttributes: attrs)
+}
+```
+
+### Text Clipping
+
+All track titles are clipped to prevent overlap with the duration column:
+
+```swift
+context.clip(to: NSRect(x: titleX, y: rect.minY, width: titleMaxWidth, height: rect.height))
+```
+
+This ensures long titles don't bleed into the duration area, even when not marquee scrolling.
+
 ## Common Pitfalls
 
 1. **Using `bounds` instead of `drawBounds`** after scaling transform

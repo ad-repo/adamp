@@ -143,6 +143,7 @@ The Playlist Editor manages your playback queue.
 - **Cmd+Click** to toggle individual selection
 - **Scroll wheel** to navigate long lists
 - **Drag & drop** files to add them
+- **Marquee scrolling** - Long track titles on the currently playing track automatically scroll horizontally
 
 ### Bottom Bar Information
 
