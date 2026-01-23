@@ -625,6 +625,7 @@ Right-click anywhere on AdAmp windows to access:
 - Gapless Playback
 - Volume Normalization
 - Browser Album Art Background
+- Remember State on Quit
 
 ### Local Library
 - Track count
@@ -715,6 +716,21 @@ The main window displays real-time frequency analysis:
 - 512-point FFT (~11.6ms latency at 44.1kHz)
 - Fast attack, slow decay smoothing
 
+### Remember State on Quit
+
+**Playback Options > Remember State on Quit** saves and restores the complete app state:
+
+When enabled, the following is saved on quit and restored on launch:
+- **Window positions and visibility** (Main, EQ, Playlist, Browser, Milkdrop)
+- **Audio settings** (volume, balance, shuffle, repeat, gapless, normalization)
+- **Equalizer settings** (enabled state, preamp, all band values)
+- **Playlist** (local files only, not streaming tracks)
+- **Playback position** (resumes from where you left off)
+- **Custom skin** (if a non-default skin was loaded)
+- **UI preferences** (time display mode, always on top, double size)
+
+**Note**: Only local file playlists are saved. Streaming tracks (Plex, Subsonic) are not persisted as they require authentication on each launch.
+
 ---
 
 ## File Format Support
@@ -771,6 +787,7 @@ The main window displays real-time frequency analysis:
 | Plex credentials | macOS Keychain |
 | Window positions | UserDefaults |
 | EQ settings | UserDefaults |
+| Saved app state | UserDefaults (when "Remember State" enabled) |
 | Preferences | UserDefaults |
 
 ---

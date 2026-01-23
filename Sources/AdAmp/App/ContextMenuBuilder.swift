@@ -280,6 +280,14 @@ class ContextMenuBuilder {
         artworkBgItem.state = wm.showBrowserArtworkBackground ? .on : .off
         optionsMenu.addItem(artworkBgItem)
         
+        optionsMenu.addItem(NSMenuItem.separator())
+        
+        // State Persistence
+        let rememberStateItem = NSMenuItem(title: "Remember State on Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
+        rememberStateItem.target = MenuActions.shared
+        rememberStateItem.state = AppStateManager.shared.isEnabled ? .on : .off
+        optionsMenu.addItem(rememberStateItem)
+        
         optionsItem.submenu = optionsMenu
         return optionsItem
     }
@@ -861,6 +869,10 @@ class MenuActions: NSObject {
     
     @objc func toggleBrowserArtworkBackground() {
         WindowManager.shared.showBrowserArtworkBackground.toggle()
+    }
+    
+    @objc func toggleRememberState() {
+        AppStateManager.shared.isEnabled.toggle()
     }
     
     @objc func toggleAlwaysOnTop() {

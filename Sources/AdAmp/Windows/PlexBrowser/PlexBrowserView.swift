@@ -90,15 +90,17 @@ enum PlexBrowseMode: Int, CaseIterable {
     case artists = 0
     case albums = 1
     case tracks = 2
-    case movies = 3
-    case shows = 4
-    case search = 5
+    case plists = 3
+    case movies = 4
+    case shows = 5
+    case search = 6
     
     var title: String {
         switch self {
         case .artists: return "Artists"
         case .albums: return "Albums"
         case .tracks: return "Tracks"
+        case .plists: return "Plists"
         case .movies: return "Movies"
         case .shows: return "Shows"
         case .search: return "Search"
@@ -110,7 +112,7 @@ enum PlexBrowseMode: Int, CaseIterable {
     }
     
     var isMusicMode: Bool {
-        self == .artists || self == .albums || self == .tracks
+        self == .artists || self == .albums || self == .tracks || self == .plists
     }
 }
 
@@ -237,9 +239,12 @@ class PlexBrowserView: NSView {
     /// Cached data - Music (Subsonic)
     private var cachedSubsonicArtists: [SubsonicArtist] = []
     private var cachedSubsonicAlbums: [SubsonicAlbum] = []
+    private var cachedSubsonicPlaylists: [SubsonicPlaylist] = []
     private var expandedSubsonicArtists: Set<String> = []
     private var expandedSubsonicAlbums: Set<String> = []
+    private var expandedSubsonicPlaylists: Set<String> = []
     private var subsonicArtistAlbums: [String: [SubsonicAlbum]] = [:]
+    private var subsonicPlaylistTracks: [String: [SubsonicSong]] = [:]
     private var subsonicAlbumSongs: [String: [SubsonicSong]] = [:]
     private var subsonicLoadTask: Task<Void, Never>?
     private var subsonicExpandTask: Task<Void, Never>?
@@ -249,6 +254,11 @@ class PlexBrowserView: NSView {
     private var cachedShows: [PlexShow] = []
     private var showSeasons: [String: [PlexSeason]] = [:]
     private var seasonEpisodes: [String: [PlexEpisode]] = [:]
+    
+    /// Cached data - Playlists (Plex)
+    private var cachedPlexPlaylists: [PlexPlaylist] = []
+    private var expandedPlexPlaylists: Set<String> = []
+    private var plexPlaylistTracks: [String: [PlexTrack]] = [:]
     
     /// Expanded shows (showing seasons)
     private var expandedShows: Set<String> = []
@@ -1384,6 +1394,8 @@ class PlexBrowserView: NSView {
             } else {
                 message = "This library doesn't contain TV shows"
             }
+        case .plists:
+            message = "No playlists found"
         case .search:
             message = searchQuery.isEmpty ? "Type to search" : "No results found"
         }
@@ -5232,6 +5244,28 @@ class PlexBrowserView: NSView {
             expandItem.representedObject = item
             menu.addItem(expandItem)
             
+        case .subsonicPlaylist(let playlist):
+            let playItem = NSMenuItem(title: "Play Playlist", action: #selector(contextMenuPlaySubsonicPlaylist(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = playlist
+            menu.addItem(playItem)
+            
+            let expandItem = NSMenuItem(title: expandedSubsonicPlaylists.contains(playlist.id) ? "Collapse" : "Expand", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem.target = self
+            expandItem.representedObject = item
+            menu.addItem(expandItem)
+            
+        case .plexPlaylist(let playlist):
+            let playItem = NSMenuItem(title: "Play Playlist", action: #selector(contextMenuPlayPlexPlaylist(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = playlist
+            menu.addItem(playItem)
+            
+            let expandItem = NSMenuItem(title: expandedPlexPlaylists.contains(playlist.id) ? "Collapse" : "Expand", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem.target = self
+            expandItem.representedObject = item
+            menu.addItem(expandItem)
+            
         case .header:
             return
         }
@@ -5439,6 +5473,16 @@ class PlexBrowserView: NSView {
     @objc private func contextMenuPlaySubsonicArtist(_ sender: NSMenuItem) {
         guard let artist = sender.representedObject as? SubsonicArtist else { return }
         playSubsonicArtist(artist)
+    }
+    
+    @objc private func contextMenuPlaySubsonicPlaylist(_ sender: NSMenuItem) {
+        guard let playlist = sender.representedObject as? SubsonicPlaylist else { return }
+        playSubsonicPlaylist(playlist)
+    }
+    
+    @objc private func contextMenuPlayPlexPlaylist(_ sender: NSMenuItem) {
+        guard let playlist = sender.representedObject as? PlexPlaylist else { return }
+        playPlexPlaylist(playlist)
     }
     
     // MARK: - Plex Context Menu Actions
@@ -5807,7 +5851,7 @@ class PlexBrowserView: NSView {
                     NSLog("PlexBrowserView: Built %d movie items", displayItems.count)
                     
                 case .shows:
-                    NSLog("PlexBrowserView: Loading shows...")
+                    NSLog("PlexBrowserView: Loading TV shows...")
                     if cachedShows.isEmpty {
                         // Use preloaded data from PlexManager if available
                         if plexManager.isContentPreloaded && !plexManager.cachedShows.isEmpty {
@@ -5820,6 +5864,20 @@ class PlexBrowserView: NSView {
                     }
                     buildShowItems()
                     NSLog("PlexBrowserView: Built %d show items", displayItems.count)
+                    
+                case .plists:
+                    NSLog("PlexBrowserView: Loading Plex playlists...")
+                    if cachedPlexPlaylists.isEmpty {
+                        if !plexManager.cachedPlaylists.isEmpty {
+                            cachedPlexPlaylists = plexManager.cachedPlaylists
+                            NSLog("PlexBrowserView: Using cached playlists (%d)", cachedPlexPlaylists.count)
+                        } else {
+                            cachedPlexPlaylists = try await plexManager.fetchPlaylists()
+                            NSLog("PlexBrowserView: Loaded %d playlists", cachedPlexPlaylists.count)
+                        }
+                    }
+                    buildPlexPlaylistItems()
+                    NSLog("PlexBrowserView: Built %d playlist items", displayItems.count)
                     
                 case .search:
                     if !searchQuery.isEmpty {
@@ -6011,6 +6069,57 @@ class PlexBrowserView: NSView {
                             ))
                         }
                     }
+                }
+            }
+        }
+    }
+    
+    private func buildPlexPlaylistItems() {
+        displayItems.removeAll()
+        
+        // Filter to audio playlists only for now
+        let audioPlaylists = cachedPlexPlaylists.filter { $0.isAudioPlaylist }
+        
+        // Deduplicate playlists by title (Plex API sometimes returns duplicates with different IDs)
+        var seenTitles = Set<String>()
+        let uniquePlaylists = audioPlaylists.filter { playlist in
+            let normalizedTitle = playlist.title.lowercased()
+            if seenTitles.contains(normalizedTitle) {
+                return false
+            }
+            seenTitles.insert(normalizedTitle)
+            return true
+        }
+        
+        let sortedPlaylists = uniquePlaylists.sorted { 
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending 
+        }
+        
+        for playlist in sortedPlaylists {
+            let isExpanded = expandedPlexPlaylists.contains(playlist.id)
+            let trackCount = playlist.leafCount
+            let info = "\(trackCount) \(trackCount == 1 ? "track" : "tracks")"
+            
+            displayItems.append(PlexDisplayItem(
+                id: playlist.id,
+                title: playlist.title,
+                info: info,
+                indentLevel: 0,
+                hasChildren: trackCount > 0,
+                type: .plexPlaylist(playlist)
+            ))
+            
+            // Show tracks if expanded
+            if isExpanded, let tracks = plexPlaylistTracks[playlist.id] {
+                for track in tracks {
+                    displayItems.append(PlexDisplayItem(
+                        id: "\(playlist.id)-\(track.id)",
+                        title: track.title,
+                        info: track.formattedDuration,
+                        indentLevel: 1,
+                        hasChildren: false,
+                        type: .track(track)
+                    ))
                 }
             }
         }
@@ -6319,6 +6428,9 @@ class PlexBrowserView: NSView {
             buildLocalTrackItems()
         case .search:
             buildLocalSearchItems()
+        case .plists:
+            // TODO: Build local playlist items
+            displayItems = []
         case .movies, .shows:
             // Video modes not supported for local content - show empty
             displayItems = []
@@ -6416,6 +6528,20 @@ class PlexBrowserView: NSView {
                     // TODO: Implement Subsonic search
                     displayItems = []
                     
+                case .plists:
+                    NSLog("PlexBrowserView: Loading Subsonic playlists...")
+                    if cachedSubsonicPlaylists.isEmpty {
+                        if manager.isContentPreloaded && !manager.cachedPlaylists.isEmpty {
+                            cachedSubsonicPlaylists = manager.cachedPlaylists
+                        } else {
+                            try Task.checkCancellation()
+                            cachedSubsonicPlaylists = try await manager.fetchPlaylists()
+                        }
+                    }
+                    try Task.checkCancellation()
+                    buildSubsonicPlaylistItems()
+                    NSLog("PlexBrowserView: Built %d playlist items", displayItems.count)
+                    
                 case .movies, .shows:
                     // Video modes not supported for Subsonic
                     displayItems = []
@@ -6501,6 +6627,44 @@ class PlexBrowserView: NSView {
                     type: .subsonicAlbum(album)
                 )
             }
+    }
+    
+    /// Build display items for Subsonic playlists
+    private func buildSubsonicPlaylistItems() {
+        displayItems.removeAll()
+        
+        let sortedPlaylists = cachedSubsonicPlaylists.sorted { 
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending 
+        }
+        
+        for playlist in sortedPlaylists {
+            let isExpanded = expandedSubsonicPlaylists.contains(playlist.id)
+            let songCount = playlist.songCount
+            let info = "\(songCount) \(songCount == 1 ? "track" : "tracks")"
+            
+            displayItems.append(PlexDisplayItem(
+                id: playlist.id,
+                title: playlist.name,
+                info: info,
+                indentLevel: 0,
+                hasChildren: songCount > 0,
+                type: .subsonicPlaylist(playlist)
+            ))
+            
+            // Show tracks if expanded
+            if isExpanded, let tracks = subsonicPlaylistTracks[playlist.id] {
+                for track in tracks {
+                    displayItems.append(PlexDisplayItem(
+                        id: "\(playlist.id)-\(track.id)",
+                        title: track.title,
+                        info: formatDuration(track.duration),
+                        indentLevel: 1,
+                        hasChildren: false,
+                        type: .subsonicTrack(track)
+                    ))
+                }
+            }
+        }
     }
     
     /// Format duration in seconds to mm:ss
@@ -6849,6 +7013,9 @@ class PlexBrowserView: NSView {
                 buildLocalTrackItems()
             case .search:
                 buildLocalSearchItems()
+            case .plists:
+                // TODO: Build local playlist items
+                displayItems = []
             case .movies, .shows:
                 displayItems = []
             }
@@ -6862,6 +7029,8 @@ class PlexBrowserView: NSView {
                 buildSubsonicAlbumItems() // Show albums for tracks mode
             case .search:
                 displayItems = [] // TODO: Implement Subsonic search
+            case .plists:
+                buildSubsonicPlaylistItems()
             case .movies, .shows:
                 displayItems = []
             }
@@ -6877,6 +7046,8 @@ class PlexBrowserView: NSView {
                 buildMovieItems()
             case .shows:
                 buildShowItems()
+            case .plists:
+                buildPlexPlaylistItems()
             case .search:
                 buildSearchItems()
             }
@@ -6909,6 +7080,10 @@ class PlexBrowserView: NSView {
             return expandedSubsonicArtists.contains(artist.id)
         case .subsonicAlbum(let album):
             return expandedSubsonicAlbums.contains(album.id)
+        case .subsonicPlaylist(let playlist):
+            return expandedSubsonicPlaylists.contains(playlist.id)
+        case .plexPlaylist(let playlist):
+            return expandedPlexPlaylists.contains(playlist.id)
         default:
             return false
         }
@@ -7099,6 +7274,59 @@ class PlexBrowserView: NSView {
             }
             rebuildCurrentModeItems()
             
+        case .subsonicPlaylist(let playlist):
+            if expandedSubsonicPlaylists.contains(playlist.id) {
+                expandedSubsonicPlaylists.remove(playlist.id)
+            } else {
+                expandedSubsonicPlaylists.insert(playlist.id)
+                // Load tracks for this playlist if not already loaded
+                if subsonicPlaylistTracks[playlist.id] == nil {
+                    let playlistId = playlist.id
+                    subsonicExpandTask?.cancel()
+                    subsonicExpandTask = Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do {
+                            try Task.checkCancellation()
+                            let (_, tracks) = try await SubsonicManager.shared.serverClient?.fetchPlaylist(id: playlistId) ?? (playlist, [])
+                            try Task.checkCancellation()
+                            subsonicPlaylistTracks[playlistId] = tracks
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                        } catch is CancellationError {
+                            // Cancelled, ignore
+                        } catch {
+                            NSLog("Failed to load tracks for playlist: \(error)")
+                        }
+                    }
+                    return
+                }
+            }
+            rebuildCurrentModeItems()
+            
+        case .plexPlaylist(let playlist):
+            if expandedPlexPlaylists.contains(playlist.id) {
+                expandedPlexPlaylists.remove(playlist.id)
+            } else {
+                expandedPlexPlaylists.insert(playlist.id)
+                // Load tracks for this playlist if not already loaded
+                if plexPlaylistTracks[playlist.id] == nil {
+                    let playlistId = playlist.id
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do {
+                            let tracks = try await PlexManager.shared.fetchPlaylistTracks(playlistID: playlistId)
+                            plexPlaylistTracks[playlistId] = tracks
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                        } catch {
+                            NSLog("Failed to load tracks for Plex playlist: \(error)")
+                        }
+                    }
+                    return
+                }
+            }
+            rebuildCurrentModeItems()
+            
         default:
             break
         }
@@ -7166,6 +7394,19 @@ class PlexBrowserView: NSView {
         WindowManager.shared.playEpisode(episode)
     }
     
+    private func playPlexPlaylist(_ playlist: PlexPlaylist) {
+        Task { @MainActor in
+            do {
+                let tracks = try await PlexManager.shared.fetchPlaylistTracks(playlistID: playlist.id)
+                let convertedTracks = PlexManager.shared.convertToTracks(tracks)
+                NSLog("Playing Plex playlist %@ with %d tracks", playlist.title, convertedTracks.count)
+                WindowManager.shared.audioEngine.loadTracks(convertedTracks)
+            } catch {
+                NSLog("Failed to play Plex playlist: %@", error.localizedDescription)
+            }
+        }
+    }
+    
     private func handleDoubleClick(on item: PlexDisplayItem) {
         switch item.type {
         case .track:
@@ -7209,6 +7450,12 @@ class PlexBrowserView: NSView {
             
         case .subsonicArtist:
             toggleExpand(item)
+            
+        case .subsonicPlaylist(let playlist):
+            playSubsonicPlaylist(playlist)
+            
+        case .plexPlaylist(let playlist):
+            playPlexPlaylist(playlist)
         }
     }
     
@@ -7248,6 +7495,19 @@ class PlexBrowserView: NSView {
                 WindowManager.shared.audioEngine.loadTracks(allTracks)
             } catch {
                 NSLog("Failed to play subsonic artist: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    private func playSubsonicPlaylist(_ playlist: SubsonicPlaylist) {
+        Task { @MainActor in
+            do {
+                let (_, songs) = try await SubsonicManager.shared.serverClient?.fetchPlaylist(id: playlist.id) ?? (playlist, [])
+                let tracks = songs.compactMap { SubsonicManager.shared.convertToTrack($0) }
+                NSLog("Playing subsonic playlist %@ with %d tracks", playlist.name, tracks.count)
+                WindowManager.shared.audioEngine.loadTracks(tracks)
+            } catch {
+                NSLog("Failed to play subsonic playlist: %@", error.localizedDescription)
             }
         }
     }
@@ -7316,5 +7576,8 @@ private struct PlexDisplayItem {
         case subsonicArtist(SubsonicArtist)
         case subsonicAlbum(SubsonicAlbum)
         case subsonicTrack(SubsonicSong)
+        case subsonicPlaylist(SubsonicPlaylist)
+        // Plex playlist type
+        case plexPlaylist(PlexPlaylist)
     }
 }

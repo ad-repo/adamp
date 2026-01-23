@@ -30,6 +30,9 @@ class WindowManager {
     /// The currently loaded skin
     private(set) var currentSkin: Skin?
     
+    /// Path to the currently loaded custom skin (nil if using a base skin)
+    private(set) var currentSkinPath: String?
+    
     // MARK: - User Preferences
     
     /// Time display mode (elapsed vs remaining)
@@ -560,6 +563,7 @@ class WindowManager {
         do {
             let skin = try SkinLoader.shared.load(from: url)
             currentSkin = skin
+            currentSkinPath = url.path
             notifySkinChanged()
         } catch {
             print("Failed to load skin: \(error)")
@@ -573,18 +577,21 @@ class WindowManager {
     /// Load the base/default skin (Base Skin 1)
     func loadBaseSkin() {
         currentSkin = SkinLoader.shared.loadDefault()
+        currentSkinPath = nil  // Base skins don't have a custom path
         notifySkinChanged()
     }
     
     /// Load the second built-in skin (Base Skin 2)
     func loadBaseSkin2() {
         currentSkin = SkinLoader.shared.loadBaseSkin2()
+        currentSkinPath = nil  // Base skins don't have a custom path
         notifySkinChanged()
     }
     
     /// Load the third built-in skin (Base Skin 3)
     func loadBaseSkin3() {
         currentSkin = SkinLoader.shared.loadBaseSkin3()
+        currentSkinPath = nil  // Base skins don't have a custom path
         notifySkinChanged()
     }
     
