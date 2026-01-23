@@ -254,14 +254,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         y -= 20
         
         // Credits
-        let creditLabel = NSTextField(labelWithString: "Re-imagined by ad")
-        creditLabel.font = NSFont.systemFont(ofSize: 13)
-        creditLabel.textColor = NSColor(white: 0.7, alpha: 1.0)
-        creditLabel.alignment = .center
-        creditLabel.frame = NSRect(x: 20, y: y - 18, width: windowWidth - 40, height: 18)
-        contentView.addSubview(creditLabel)
-        y -= 24
-        
         let thanksLabel = NSTextField(labelWithString: "Thanks to Nullsoft and Winamp")
         thanksLabel.font = NSFont.systemFont(ofSize: 12)
         thanksLabel.textColor = NSColor(white: 0.5, alpha: 1.0)
