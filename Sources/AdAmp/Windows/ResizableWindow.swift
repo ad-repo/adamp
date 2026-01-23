@@ -69,6 +69,20 @@ class ResizableWindow: NSWindow {
         let titleBarHeight: CGFloat = 20  // Generous area for title bar dragging
         let isInTitleBar = windowPoint.y > size.height - titleBarHeight
         
+        // Exclude top-right corner where window control buttons are (close, shade, minimize)
+        // Buttons occupy roughly the rightmost 35 pixels in the title bar
+        let buttonAreaWidth: CGFloat = 35
+        let isInButtonArea = isInTitleBar && windowPoint.x > size.width - buttonAreaWidth
+        
+        // Also exclude top-left corner where menu button is
+        let menuButtonWidth: CGFloat = 20
+        let isInMenuArea = isInTitleBar && windowPoint.x < menuButtonWidth
+        
+        if isInButtonArea || isInMenuArea {
+            // Don't allow resize in button areas - let clicks pass through to the view
+            return .none
+        }
+        
         if isInTitleBar {
             // In title bar area: only allow left/right edge resizing, not top
             if windowPoint.x < edgeThickness {

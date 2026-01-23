@@ -295,6 +295,11 @@ class WindowManager {
         return window.frame
     }
     
+    /// Get the Milkdrop window frame (for state saving)
+    var milkdropWindowFrame: NSRect? {
+        return milkdropWindowController?.window?.frame
+    }
+    
     func togglePlexBrowser() {
         if let controller = plexBrowserWindowController, controller.window?.isVisible == true {
             controller.window?.orderOut(nil)

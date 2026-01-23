@@ -109,7 +109,7 @@ class AppStateManager {
             playlistWindowFrame: wm.playlistWindowController?.window.map { NSStringFromRect($0.frame) },
             equalizerWindowFrame: wm.equalizerWindowController?.window.map { NSStringFromRect($0.frame) },
             plexBrowserWindowFrame: wm.plexBrowserWindowFrame.map { NSStringFromRect($0) },
-            milkdropWindowFrame: wm.isMilkdropVisible ? getMilkdropFrame().map { NSStringFromRect($0) } : nil,
+            milkdropWindowFrame: wm.isMilkdropVisible ? wm.milkdropWindowFrame.map { NSStringFromRect($0) } : nil,
             
             // Audio settings
             volume: engine.volume,
@@ -305,17 +305,6 @@ class AppStateManager {
     private func getCustomSkinPath() -> String? {
         // Return the currently loaded custom skin path tracked by WindowManager
         return WindowManager.shared.currentSkinPath
-    }
-    
-    /// Get the Milkdrop window frame
-    private func getMilkdropFrame() -> NSRect? {
-        // Access via window manager's internal method or property
-        // Since we can't directly access milkdropWindowController, 
-        // we rely on the saved frame in UserDefaults
-        if let frameString = UserDefaults.standard.string(forKey: "MilkdropWindowFrame") {
-            return NSRectFromString(frameString)
-        }
-        return nil
     }
     
     // MARK: - Clear State
