@@ -4609,14 +4609,18 @@ class PlexBrowserView: NSView {
         let charWidth = SkinElements.TextFont.charWidth * 1.5  // scaled
         let relativeX = winampPoint.x - Layout.leftBorder
         
+        // Use same spacing as drawing code - tighter in art-only mode
+        let artModeSpacing: CGFloat = isArtOnlyMode ? 12 : 24
+        let artModeVisSpacing: CGFloat = isArtOnlyMode ? 8 : 16
+        
         // Right side zones (from right edge)
         let refreshZoneStart = barWidth - 30  // F5 + padding
-        let artZoneEnd = refreshZoneStart - 16
-        let artZoneStart = artZoneEnd - (3 * charWidth) - 8  // "ART" (3 chars)
+        let artZoneEnd = refreshZoneStart - artModeSpacing
+        let artZoneStart = artZoneEnd - (3 * charWidth)  // "ART" (3 chars)
         
         // VIS zone (only in art-only mode, before ART button)
-        let visZoneEnd = artZoneStart - 8
-        let visZoneStart = visZoneEnd - (3 * charWidth) - 8  // "VIS" (3 chars)
+        let visZoneEnd = artZoneStart - artModeVisSpacing
+        let visZoneStart = visZoneEnd - (3 * charWidth)  // "VIS" (3 chars)
         
         // Calculate source zone width: "Source: " (8 chars)
         let sourcePrefix: CGFloat = 8 * charWidth + 4
