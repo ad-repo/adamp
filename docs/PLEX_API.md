@@ -343,16 +343,16 @@ http://192.168.0.102:32400/library/parts/653835/1723508508/file.flac?X-Plex-Toke
 ### Only the Hits Radio
 Plays only popular/hit tracks based on Last.fm scrobble data.
 
-**Threshold**: 250,000+ scrobbles (configurable in `RadioConfig.hitsThreshold`)
+**Threshold**: 1,000,000+ scrobbles (configurable in `RadioConfig.hitsThreshold`)
 
 **Sonic Version** - Sonically similar hits:
 ```
-GET /library/sections/{libID}/all?type=10&track.sonicallySimilar={trackID}&ratingCount>=250000&sort=random&limit=100
+GET /library/sections/{libID}/all?type=10&track.sonicallySimilar={trackID}&ratingCount>=1000000&sort=random&limit=100
 ```
 
 **Non-Sonic Version** - All hits from library:
 ```
-GET /library/sections/{libID}/all?type=10&ratingCount>=250000&sort=random&limit=100
+GET /library/sections/{libID}/all?type=10&ratingCount>=1000000&sort=random&limit=100
 ```
 
 ### Deep Cuts Radio
@@ -421,7 +421,7 @@ Radio station thresholds are defined in `RadioConfig` enum (`PlexServerClient.sw
 
 | Setting | Value | Description |
 |---------|-------|-------------|
-| `hitsThreshold` | 250,000 | Minimum Last.fm scrobbles for "hits" |
+| `hitsThreshold` | 1,000,000 | Minimum Last.fm scrobbles for "hits" |
 | `deepCutsThreshold` | 1,000 | Maximum Last.fm scrobbles for "deep cuts" |
 | `defaultLimit` | 100 | Default number of tracks per radio station |
 | `maxTracksPerArtist` | 2 | Maximum tracks per artist for variety (1 for Sonic) |

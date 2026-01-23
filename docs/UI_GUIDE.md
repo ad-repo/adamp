@@ -195,6 +195,45 @@ context.clip(to: NSRect(x: titleX, y: rect.minY, width: titleMaxWidth, height: r
 
 This ensures long titles don't bleed into the duration area, even when not marquee scrolling.
 
+## Main Window Marquee
+
+The main window uses a scrolling marquee to display the current track title.
+
+### Skin Bitmap Font
+
+By default, the marquee uses the skin's `TEXT.BMP` bitmap font, which provides the authentic Winamp look. This font only supports:
+- A-Z (case-insensitive)
+- 0-9
+- Common symbols: `" @ : ( ) - ' ! _ + \ / [ ] ^ & % . = $ # ? *`
+
+### Unicode Fallback
+
+When track titles contain characters not supported by the skin font (Japanese, Cyrillic, Chinese, Korean, accented characters, etc.), the marquee automatically falls back to system font rendering:
+
+```swift
+private func containsNonLatinCharacters(_ text: String) -> Bool {
+    for char in text {
+        switch char {
+        case "A"..."Z", "a"..."z", "0"..."9":
+            continue
+        case " ", "\"", "@", ":", "(", ")", "-", "'", "!", "_", "+", "\\", "/",
+             "[", "]", "^", "&", "%", ".", "=", "$", "#", "?", "*":
+            continue
+        default:
+            return true  // Non-Latin character detected
+        }
+    }
+    return false
+}
+```
+
+This ensures:
+- **Latin text**: Uses skin bitmap font for authentic look
+- **Non-Latin text**: Falls back to system font for proper Unicode display
+- **Mixed text**: Falls back to system font if any non-Latin characters present
+
+The system font fallback maintains the green color and scrolling behavior, just with full Unicode support.
+
 ## Common Pitfalls
 
 1. **Using `bounds` instead of `drawBounds`** after scaling transform

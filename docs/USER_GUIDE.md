@@ -431,7 +431,7 @@ Generate dynamic playlists from the radio icon in the library browser toolbar. E
 | Radio Station | Description |
 |---------------|-------------|
 | **Library Radio** | Random tracks from your entire library |
-| **Only the Hits** | Popular tracks (250k+ Last.fm scrobbles) |
+| **Only the Hits** | Popular tracks (1M+ Last.fm scrobbles) |
 | **Deep Cuts** | Lesser-known tracks (under 1k scrobbles) |
 | **Genre Stations** | Tracks from specific genres (dynamically loaded from your library) |
 | **Decade Stations** | Tracks from specific decades (1920s-2020s) |
