@@ -43,7 +43,7 @@ Sources/AdAmp/
 | Visualization | `Windows/Milkdrop/`, `Windows/PlexBrowser/PlexBrowserView.swift`, `Visualization/ProjectMWrapper.swift` |
 | Plex | `Plex/PlexManager.swift`, `Plex/PlexServerClient.swift` |
 | Subsonic | `Subsonic/SubsonicManager.swift`, `Subsonic/SubsonicServerClient.swift`, `Subsonic/SubsonicModels.swift` |
-| Casting | `Casting/CastManager.swift`, `Casting/UPnPManager.swift`, `Casting/ChromecastManager.swift` |
+| Casting | `Casting/CastManager.swift`, `Casting/UPnPManager.swift`, `Casting/ChromecastManager.swift`, `Casting/LocalMediaServer.swift` |
 | App | `App/WindowManager.swift`, `App/ContextMenuBuilder.swift` |
 
 ## Common Tasks

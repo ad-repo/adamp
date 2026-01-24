@@ -290,11 +290,24 @@ Bonded speakers are handled automatically:
 ### Menu Refresh Behavior
 During device refresh, the menu preserves existing zone and group data to avoid UI flicker. The `resetDiscoveryState()` function keeps `sonosZones` and `lastFetchedGroups` intact while only resetting the discovery flags.
 
-### Plex Content Only
-Sonos casting requires HTTP-accessible media. This means:
+### Local File Casting
+
+Local files are supported via an embedded HTTP server (LocalMediaServer):
+
+- **Automatic startup**: Server starts automatically when casting local files
+- **Port**: Files are served on port 8765
+- **Seeking**: Supports HTTP Range requests for seeking
+- **Network binding**: Server binds to local network interface (en0/en1), not localhost
+
+**Supported content:**
 - ✅ Plex streaming (with token in URL)
 - ✅ Subsonic/Navidrome streaming
-- ❌ Local files (no HTTP server)
+- ✅ Local files (via embedded HTTP server)
+
+**Requirements for local file casting:**
+- Mac must be on the same network as Sonos speakers
+- Firewall must allow incoming connections on port 8765
+- Local network interface (en0 or en1) must have an IP address
 
 ---
 
@@ -330,6 +343,13 @@ This is expected behavior:
 - When casting STOPS: selections are cleared
 - Refresh always shows the actual Sonos state
 
+### Local Files Won't Cast
+If local files fail to cast:
+1. Check that your Mac has a local network IP address (not just 127.0.0.1)
+2. Ensure firewall allows incoming connections on port 8765
+3. Verify Sonos speakers are on the same network as your Mac
+4. Check Console.app for "LocalMediaServer" log messages
+
 ---
 
 ## Network Requirements
@@ -338,6 +358,7 @@ This is expected behavior:
 - **UDP 1900**: SSDP discovery
 - **UDP 5353**: mDNS discovery
 - **TCP 1400**: Sonos HTTP/SOAP control
+- **TCP 8765**: Local media server (for casting local files)
 - **Media port**: Whatever port your media is served on (Plex default: 32400)
 
 ### Multicast
@@ -355,6 +376,7 @@ SSDP requires multicast to work. Some routers/switches block this:
 | `CastManager.swift` | Central casting coordinator, `selectedSonosRooms` state |
 | `UPnPManager.swift` | SSDP/mDNS discovery, SOAP control, group topology |
 | `ContextMenuBuilder.swift` | Menu UI, `SonosRoomCheckboxView`, casting actions |
+| `LocalMediaServer.swift` | Embedded HTTP server for local file casting |
 
 ---
 

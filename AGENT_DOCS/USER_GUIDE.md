@@ -576,7 +576,7 @@ Sonos                          ▸
 
 #### How to Cast to Sonos
 
-1. **Load music** - Play or load a track from Plex/Subsonic
+1. **Load music** - Play or load a track (Plex, Subsonic, or local files)
 2. **Open Sonos menu** - Right-click → Output Devices → Sonos
 3. **Select rooms** - Check one or more room checkboxes (menu stays open!)
 4. **Start casting** - Click **🟢 Start Casting**
@@ -613,7 +613,8 @@ The room checkboxes use a special view that **keeps the menu open** when clicked
 
 - **UPnP must be enabled** in the Sonos app (Account → Privacy & Security → Connection Security)
 - Sonos speakers must be on the same network as your Mac
-- Only works with Plex/Subsonic streaming (not local files)
+- Works with Plex/Subsonic streaming and local files
+- Local file casting requires firewall to allow port 8765
 
 ### Chromecast & DLNA
 
@@ -989,11 +990,12 @@ When enabled, the following is saved on quit and restored on launch:
 ### Sonos Issues
 
 - **No Sonos devices appear**: Ensure UPnP is enabled in Sonos app settings
-- **"No Music" error**: Load a track from Plex/Subsonic before casting
+- **"No Music" error**: Load a track before casting
 - **"No Room Selected" error**: Check at least one room checkbox
 - **Room won't join cast**: Click Refresh, ensure UPnP is enabled
 - **Checkbox changes don't work**: Wait for discovery to complete (10+ seconds after refresh)
 - **Menu disappears during refresh**: Close and reopen context menu - data is preserved
+- **Local files won't cast**: Ensure firewall allows port 8765 and Mac has a local network IP
 
 ---
 

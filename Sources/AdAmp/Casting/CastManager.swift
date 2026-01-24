@@ -292,8 +292,20 @@ class CastManager {
                 castURL = track.url
             }
         } else {
-            // Local files can't be cast (no HTTP server)
-            throw CastError.localFileNotCastable
+            // Local file - register with HTTP server
+            // Ensure server is running
+            if !LocalMediaServer.shared.isRunning {
+                do {
+                    try await LocalMediaServer.shared.start()
+                } catch {
+                    throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
+                }
+            }
+            
+            guard let serverURL = LocalMediaServer.shared.registerFile(track.url) else {
+                throw CastError.localServerError("Could not register file with local media server")
+            }
+            castURL = serverURL
         }
         
         // Get artwork URL if available
@@ -329,7 +341,11 @@ class CastManager {
                 castURL = track.url
             }
         } else {
-            throw CastError.localFileNotCastable
+            // Local file - register with HTTP server
+            guard let serverURL = LocalMediaServer.shared.registerFile(track.url) else {
+                throw CastError.localServerError("Could not register file with local media server")
+            }
+            castURL = serverURL
         }
         
         // Get artwork URL if available
@@ -381,6 +397,9 @@ class CastManager {
         
         // Clear Sonos room selection
         selectedSonosRooms.removeAll()
+        
+        // Unregister all files from local media server
+        LocalMediaServer.shared.unregisterAll()
         
         // Resume local playback from current position
         await MainActor.run {
