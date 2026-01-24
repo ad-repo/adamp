@@ -20,6 +20,12 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     /// Current video title
     private(set) var currentTitle: String?
     
+    /// Current Plex movie (if playing Plex content)
+    private var currentPlexMovie: PlexMovie?
+    
+    /// Current Plex episode (if playing Plex content)
+    private var currentPlexEpisode: PlexEpisode?
+    
     /// Current playback time
     var currentTime: TimeInterval {
         return videoPlayerView.currentPlaybackTime
@@ -112,8 +118,36 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             self?.updatePlayingState(playing)
         }
         
+        // Track pause/resume for Plex reporting
+        videoPlayerView.onPlaybackPaused = { [weak self] position in
+            guard let self = self, self.isPlexContent else { return }
+            PlexVideoPlaybackReporter.shared.videoDidPause(at: position)
+        }
+        
+        videoPlayerView.onPlaybackResumed = { [weak self] position in
+            guard let self = self, self.isPlexContent else { return }
+            PlexVideoPlaybackReporter.shared.videoDidResume(at: position)
+        }
+        
+        // Track position updates for Plex reporting
+        videoPlayerView.onPositionUpdate = { [weak self] position in
+            guard let self = self, self.isPlexContent else { return }
+            PlexVideoPlaybackReporter.shared.updatePosition(position)
+        }
+        
+        // Track playback completion for Plex scrobbling
+        videoPlayerView.onPlaybackFinished = { [weak self] position in
+            guard let self = self, self.isPlexContent else { return }
+            PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: true)
+        }
+        
         // Set up local event monitor for keyboard shortcuts (especially Escape in fullscreen)
         setupKeyboardMonitor()
+    }
+    
+    /// Whether current content is from Plex
+    private var isPlexContent: Bool {
+        currentPlexMovie != nil || currentPlexEpisode != nil
     }
     
     private func setupKeyboardMonitor() {
@@ -170,6 +204,11 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     
     /// Play a video from URL with optional title
     func play(url: URL, title: String) {
+        // Clear any Plex content (this is a non-Plex video)
+        currentPlexMovie = nil
+        currentPlexEpisode = nil
+        PlexVideoPlaybackReporter.shared.stopTracking()
+        
         currentTitle = title
         window?.title = title
         videoPlayerView.play(url: url, title: title, isPlexURL: false, plexHeaders: nil)
@@ -190,6 +229,10 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         let headers = PlexManager.shared.streamingHeaders
         NSLog("Playing Plex movie: %@ with URL: %@", movie.title, url.absoluteString)
         
+        // Store Plex content for reporting
+        currentPlexMovie = movie
+        currentPlexEpisode = nil
+        
         currentTitle = movie.title
         window?.title = movie.title
         videoPlayerView.play(url: url, title: movie.title, isPlexURL: true, plexHeaders: headers)
@@ -197,6 +240,9 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
         isPlaying = true
         WindowManager.shared.videoPlaybackDidStart()
+        
+        // Start Plex playback reporting
+        PlexVideoPlaybackReporter.shared.movieDidStart(movie)
     }
     
     /// Play a Plex episode
@@ -211,6 +257,10 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         let title = "\(episode.grandparentTitle ?? "Unknown") - \(episode.episodeIdentifier) - \(episode.title)"
         NSLog("Playing Plex episode: %@ with URL: %@", title, url.absoluteString)
         
+        // Store Plex content for reporting
+        currentPlexMovie = nil
+        currentPlexEpisode = episode
+        
         currentTitle = title
         window?.title = title
         videoPlayerView.play(url: url, title: title, isPlexURL: true, plexHeaders: headers)
@@ -218,6 +268,9 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
         isPlaying = true
         WindowManager.shared.videoPlaybackDidStart()
+        
+        // Start Plex playback reporting
+        PlexVideoPlaybackReporter.shared.episodeDidStart(episode)
     }
     
     /// Stop playback
@@ -225,9 +278,17 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         guard !isClosing else { return }
         isClosing = true
         
+        // Report stop to Plex if playing Plex content
+        if isPlexContent {
+            let position = videoPlayerView.currentPlaybackTime
+            PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        }
+        
         videoPlayerView.stop()
         isPlaying = false
         currentTitle = nil
+        currentPlexMovie = nil
+        currentPlexEpisode = nil
         WindowManager.shared.videoPlaybackDidStop()
         close()
     }
@@ -262,9 +323,17 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         // Only do cleanup if not already handled by stop()
         if !isClosing {
+            // Report stop to Plex if playing Plex content
+            if isPlexContent {
+                let position = videoPlayerView.currentPlaybackTime
+                PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+            }
+            
             videoPlayerView.stop()
             isPlaying = false
             currentTitle = nil
+            currentPlexMovie = nil
+            currentPlexEpisode = nil
             WindowManager.shared.videoPlaybackDidStop()
         }
         removeKeyboardMonitor()

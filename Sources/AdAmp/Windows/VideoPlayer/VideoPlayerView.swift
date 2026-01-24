@@ -38,8 +38,23 @@ class VideoPlayerView: NSView {
     /// Callback when minimize button is clicked
     var onMinimize: (() -> Void)?
     
-    /// Callback when playback state changes
+    /// Callback when playback state changes (playing/not playing)
     var onPlaybackStateChanged: ((Bool) -> Void)?
+    
+    /// Callback when playback is paused (with current position)
+    var onPlaybackPaused: ((TimeInterval) -> Void)?
+    
+    /// Callback when playback is resumed (with current position)
+    var onPlaybackResumed: ((TimeInterval) -> Void)?
+    
+    /// Callback for position updates (called periodically during playback)
+    var onPositionUpdate: ((TimeInterval) -> Void)?
+    
+    /// Callback when playback finishes naturally (with final position)
+    var onPlaybackFinished: ((TimeInterval) -> Void)?
+    
+    /// Track previous state to detect pause/resume transitions
+    private var previousState: KSPlayerState?
     
     // MARK: - Initialization
     
@@ -405,10 +420,14 @@ class VideoPlayerView: NSView {
 
 // MARK: - KSPlayerLayerDelegate
 
+// MARK: - KSPlayerLayerDelegate
+
 extension VideoPlayerView: KSPlayerLayerDelegate {
     func player(layer: KSPlayerLayer, state: KSPlayerState) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
+            
+            let previousWasPlaying = self.previousState == .readyToPlay || self.previousState == .bufferFinished
             
             switch state {
             case .initialized:
@@ -422,6 +441,10 @@ extension VideoPlayerView: KSPlayerLayerDelegate {
                 self.controlBarView.updatePlayState(isPlaying: true)
                 self.resetControlsHideTimer()
                 self.onPlaybackStateChanged?(true)
+                // Check if resuming from pause
+                if self.previousState == .paused {
+                    self.onPlaybackResumed?(self.currentTime)
+                }
             case .buffering:
                 NSLog("VideoPlayerView: Buffering")
                 self.showLoading(true)
@@ -429,33 +452,49 @@ extension VideoPlayerView: KSPlayerLayerDelegate {
                 NSLog("VideoPlayerView: Buffer finished")
                 self.showLoading(false)
                 self.onPlaybackStateChanged?(true)
+                // Check if resuming from pause
+                if self.previousState == .paused {
+                    self.onPlaybackResumed?(self.currentTime)
+                }
             case .paused:
                 NSLog("VideoPlayerView: Paused")
                 self.controlBarView.updatePlayState(isPlaying: false)
                 self.showControls()
                 self.onPlaybackStateChanged?(false)
+                // Report pause if was playing
+                if previousWasPlaying {
+                    self.onPlaybackPaused?(self.currentTime)
+                }
             case .playedToTheEnd:
                 NSLog("VideoPlayerView: Played to end")
                 self.controlBarView.updatePlayState(isPlaying: false)
                 self.showControls()
                 self.onPlaybackStateChanged?(false)
+                // Report finished
+                self.onPlaybackFinished?(self.currentTime)
             case .error:
                 NSLog("VideoPlayerView: Playback error")
                 self.showLoading(false)
                 self.controlBarView.updatePlayState(isPlaying: false)
                 self.onPlaybackStateChanged?(false)
             }
+            
+            self.previousState = state
         }
     }
     
     func player(layer: KSPlayerLayer, currentTime: TimeInterval, totalTime: TimeInterval) {
         DispatchQueue.main.async { [weak self] in
-            self?.currentTime = currentTime
-            self?.totalDuration = totalTime
-            self?.controlBarView.updateTime(current: currentTime, total: totalTime)
+            guard let self = self else { return }
+            self.currentTime = currentTime
+            self.totalDuration = totalTime
+            self.controlBarView.updateTime(current: currentTime, total: totalTime)
             
             // Report to WindowManager so main window can display video time
             WindowManager.shared.videoDidUpdateTime(current: currentTime, duration: totalTime)
+            
+            // Report position update for Plex tracking
+            self.onPositionUpdate?(currentTime)
         }
     }
     
