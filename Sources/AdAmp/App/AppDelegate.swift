@@ -254,8 +254,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         y -= 20
         
         // Credits
-        let thanksLabel = NSTextField(labelWithString: "Thanks to Nullsoft and Winamp")
-        thanksLabel.font = NSFont.systemFont(ofSize: 12)
+        let thanksLabel = NSTextField(labelWithString: "Thanks to Nullsoft and Plex")
+        thanksLabel.font = NSFont.systemFont(ofSize: 14)
         thanksLabel.textColor = NSColor(white: 0.5, alpha: 1.0)
         thanksLabel.alignment = .center
         thanksLabel.frame = NSRect(x: 20, y: y - 16, width: windowWidth - 40, height: 16)
