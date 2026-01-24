@@ -106,6 +106,10 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Setup
     
     private func setupVideoView() {
+        // Ensure content view has black background to prevent any white pixels
+        window?.contentView?.wantsLayer = true
+        window?.contentView?.layer?.backgroundColor = NSColor.black.cgColor
+        
         videoPlayerView = VideoPlayerView(frame: window!.contentView!.bounds)
         videoPlayerView.autoresizingMask = [.width, .height]
         window?.contentView?.addSubview(videoPlayerView)

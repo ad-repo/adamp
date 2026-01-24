@@ -368,6 +368,18 @@ class VideoPlayerView: NSView {
         if let playerView = layer.player.view {
             playerView.frame = playerHostView.bounds
             playerView.autoresizingMask = [.width, .height]
+            // Set background to black on all layers to prevent white line flashing
+            playerView.wantsLayer = true
+            playerView.layer?.backgroundColor = NSColor.black.cgColor
+            // Also set black background on any sublayers (KSPlayer internal views)
+            func setBlackBackground(on view: NSView) {
+                view.wantsLayer = true
+                view.layer?.backgroundColor = NSColor.black.cgColor
+                for subview in view.subviews {
+                    setBlackBackground(on: subview)
+                }
+            }
+            setBlackBackground(on: playerView)
             playerHostView.subviews.forEach { $0.removeFromSuperview() }
             playerHostView.addSubview(playerView)
         }
