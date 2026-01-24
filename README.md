@@ -24,7 +24,7 @@ A loaded recreation of Winamp 2.x for macOS
 - Navidrome/Subsonic server integration with scrobbling support
 - Album/Cover/Movie art browser with visualizations
 - IMDB integration
-- Airplay and Casting to Chromecast, Sonos, and DLNA devices
+- AirPlay and Casting to Chromecast, Sonos (multi-room), and DLNA devices
 
 ## Requirements
 
