@@ -279,15 +279,38 @@ class PlexBrowserView: NSView {
     private var lastServerName: String = ""
     private var lastLibraryName: String = ""
     
-    /// Radio button icon (cached)
-    private static var radioIcon: NSImage? = {
-        // Load radio icon from bundle
+    /// Radio button icon template (cached)
+    private static var radioIconTemplate: NSImage? = {
+        // Load radio icon from bundle as template
         if let url = Bundle.module.url(forResource: "radio-icon", withExtension: "png"),
            let image = NSImage(contentsOf: url) {
+            image.isTemplate = true
             return image
         }
         return nil
     }()
+    
+    /// Get radio icon tinted with current skin color
+    private func tintedRadioIcon(with color: NSColor) -> NSImage? {
+        guard let template = Self.radioIconTemplate else { return nil }
+        let size = template.size
+        
+        let tinted = NSImage(size: size)
+        tinted.lockFocus()
+        
+        // Draw the template image
+        template.draw(in: NSRect(origin: .zero, size: size),
+                      from: .zero,
+                      operation: .sourceOver,
+                      fraction: 1.0)
+        
+        // Apply color tint using source-atop (preserves alpha from template)
+        color.set()
+        NSRect(origin: .zero, size: size).fill(using: .sourceAtop)
+        
+        tinted.unlockFocus()
+        return tinted
+    }
     
     /// Radio button hit rect (updated during draw)
     private var radioButtonRect: NSRect = .zero
@@ -1107,15 +1130,21 @@ class PlexBrowserView: NSView {
                 drawScaledSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
                 
                 // Draw radio icon with padding from item count (only for music libraries)
-                if manager.currentLibrary?.type == "artist", let radioIcon = Self.radioIcon {
-                    let iconSize: CGFloat = 18
-                    // Position radio icon with fixed padding before item count
-                    let radioPadding: CGFloat = isArtOnlyMode ? 14 : 10
-                    let radioX = countX - iconSize - radioPadding
-                    let radioY = barRect.minY + (barRect.height - iconSize) / 2
-                    let iconRect = NSRect(x: radioX, y: radioY, width: iconSize, height: iconSize)
-                    radioButtonRect = iconRect  // Store for hit testing
-                    radioIcon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                if manager.currentLibrary?.type == "artist" {
+                    // Tint radio icon with skin's text color
+                    let skinColor = renderer.skin.playlistColors.normalText
+                    if let radioIcon = tintedRadioIcon(with: skinColor) {
+                        let iconSize: CGFloat = 18
+                        // Position radio icon with fixed padding before item count
+                        let radioPadding: CGFloat = isArtOnlyMode ? 14 : 10
+                        let radioX = countX - iconSize - radioPadding
+                        let radioY = barRect.minY + (barRect.height - iconSize) / 2
+                        let iconRect = NSRect(x: radioX, y: radioY, width: iconSize, height: iconSize)
+                        radioButtonRect = iconRect  // Store for hit testing
+                        radioIcon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                    } else {
+                        radioButtonRect = .zero
+                    }
                 } else {
                     radioButtonRect = .zero
                 }
