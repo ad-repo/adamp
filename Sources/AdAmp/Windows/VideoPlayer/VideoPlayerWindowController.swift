@@ -204,10 +204,15 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     
     /// Play a video from URL with optional title
     func play(url: URL, title: String) {
+        // Report stop to Plex if currently playing Plex content (before clearing state)
+        if isPlexContent {
+            let position = videoPlayerView.currentPlaybackTime
+            PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        }
+        
         // Clear any Plex content (this is a non-Plex video)
         currentPlexMovie = nil
         currentPlexEpisode = nil
-        PlexVideoPlaybackReporter.shared.stopTracking()
         
         currentTitle = title
         window?.title = title
@@ -220,6 +225,12 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     
     /// Play a Plex movie
     func play(movie: PlexMovie) {
+        // Report stop to Plex if currently playing Plex content (before starting new video)
+        if isPlexContent {
+            let position = videoPlayerView.currentPlaybackTime
+            PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        }
+        
         guard let url = PlexManager.shared.streamURL(for: movie) else {
             NSLog("Failed to get stream URL for movie: %@", movie.title)
             return
@@ -247,6 +258,12 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     
     /// Play a Plex episode
     func play(episode: PlexEpisode) {
+        // Report stop to Plex if currently playing Plex content (before starting new video)
+        if isPlexContent {
+            let position = videoPlayerView.currentPlaybackTime
+            PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        }
+        
         guard let url = PlexManager.shared.streamURL(for: episode) else {
             NSLog("Failed to get stream URL for episode: %@", episode.title)
             return
