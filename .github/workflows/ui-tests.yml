@@ -46,6 +46,10 @@ jobs:
             -parallelizeTargets \
             -jobs $(sysctl -n hw.ncpu)
       
+      - name: Copy libprojectM to DerivedData
+        run: |
+          cp Frameworks/libprojectM-4.dylib DerivedData/Build/Products/Debug/libprojectM-4.4.dylib || true
+      
       - name: Upload DerivedData
         uses: actions/upload-artifact@v4
         with:
@@ -130,6 +134,10 @@ jobs:
           name: frameworks
           path: Frameworks
       
+      - name: Setup libprojectM
+        run: |
+          cp Frameworks/libprojectM-4.dylib DerivedData/Build/Products/Debug/libprojectM-4.4.dylib || true
+      
       - name: Run ${{ matrix.test-class }}
         run: |
           xcodebuild test-without-building \
@@ -138,6 +146,9 @@ jobs:
             -derivedDataPath DerivedData \
             -only-testing:AdAmpUITests/${{ matrix.test-class }} \
             -resultBundlePath TestResults-${{ matrix.test-class }}.xcresult \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -disableAutomaticPackageResolution \
             2>&1 || {
               echo "UI tests for ${{ matrix.test-class }} not available"
               exit 0
