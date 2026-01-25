@@ -97,4 +97,5 @@ Manual QA for UI/playback changes:
 - Window snapping/docking
 - Visualizations
 - Sonos casting (multi-room selection, join/leave while casting)
+- Video casting (Plex movies/episodes to Chromecast/DLNA TVs)
 

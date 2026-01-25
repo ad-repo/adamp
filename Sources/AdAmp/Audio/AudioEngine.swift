@@ -121,8 +121,8 @@ class AudioEngine {
             // Apply volume to video player
             WindowManager.shared.setVideoVolume(volume)
             
-            // Also set volume on cast device if casting
-            if isCastingActive {
+            // Send volume to cast device if any casting is active (audio or video)
+            if isAnyCastingActive {
                 Task {
                     try? await CastManager.shared.setVolume(volume)
                 }
@@ -261,9 +261,19 @@ class AudioEngine {
     /// Current output device ID (nil = system default)
     private(set) var currentOutputDeviceID: AudioDeviceID?
     
-    /// Whether casting is currently active (playback controlled by CastManager)
+    /// Whether audio casting is currently active (playback controlled by CastManager)
     var isCastingActive: Bool {
         CastManager.shared.isCasting
+    }
+    
+    /// Whether video casting is active (from video player)
+    var isVideoCastingActive: Bool {
+        WindowManager.shared.isVideoCastingActive
+    }
+    
+    /// Whether any casting (audio or video) is active
+    var isAnyCastingActive: Bool {
+        isCastingActive || isVideoCastingActive
     }
     
     // MARK: - Initialization
@@ -560,7 +570,13 @@ class AudioEngine {
     // MARK: - Playback Control
     
     func play() {
-        // If casting is active, forward command to CastManager
+        // If video casting is active, forward to video player
+        if isVideoCastingActive {
+            WindowManager.shared.toggleVideoCastPlayPause()
+            return
+        }
+        
+        // If audio casting is active, forward command to CastManager
         if isCastingActive {
             Task {
                 try? await CastManager.shared.resume()
@@ -628,7 +644,13 @@ class AudioEngine {
     }
     
     func pause() {
-        // If casting is active, forward command to CastManager
+        // If video casting is active, forward to video player
+        if isVideoCastingActive {
+            WindowManager.shared.toggleVideoCastPlayPause()
+            return
+        }
+        
+        // If audio casting is active, forward command to CastManager
         if isCastingActive {
             Task {
                 try? await CastManager.shared.pause()

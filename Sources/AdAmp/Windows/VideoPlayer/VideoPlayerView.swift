@@ -83,6 +83,21 @@ class VideoPlayerView: NSView {
     /// Callback when track selection panel is requested
     var onTrackSelectionRequested: (() -> Void)?
     
+    /// Callback when cast button is clicked
+    var onCast: (() -> Void)?
+    
+    /// Callback when play/pause is toggled (for casting intercept)
+    var onPlayPauseToggled: (() -> Void)?
+    
+    /// Callback when seek is requested (for casting intercept) - normalized 0-1 position
+    var onSeekRequested: ((Double) -> Void)?
+    
+    /// Callback when skip forward is requested (for casting intercept)
+    var onSkipForwardRequested: ((TimeInterval) -> Void)?
+    
+    /// Callback when skip backward is requested (for casting intercept)
+    var onSkipBackwardRequested: ((TimeInterval) -> Void)?
+    
     /// Track previous state to detect pause/resume transitions
     private var previousState: KSPlayerState?
     
@@ -125,12 +140,38 @@ class VideoPlayerView: NSView {
         controlBarView = VideoControlBarView(frame: NSRect(x: 0, y: bounds.height - controlBarHeight, 
                                                             width: bounds.width, height: controlBarHeight))
         controlBarView.autoresizingMask = [.width, .minYMargin]
-        controlBarView.onPlayPause = { [weak self] in self?.togglePlayPause() }
-        controlBarView.onSeek = { [weak self] position in self?.seekToPosition(position) }
-        controlBarView.onSkipBackward = { [weak self] in self?.skipBackward(10) }
-        controlBarView.onSkipForward = { [weak self] in self?.skipForward(10) }
+        controlBarView.onPlayPause = { [weak self] in
+            // Call external callback if set (for casting intercept), otherwise handle locally
+            if let callback = self?.onPlayPauseToggled {
+                callback()
+            } else {
+                self?.togglePlayPause()
+            }
+        }
+        controlBarView.onSeek = { [weak self] position in
+            if let callback = self?.onSeekRequested {
+                callback(position)
+            } else {
+                self?.seekToPosition(position)
+            }
+        }
+        controlBarView.onSkipBackward = { [weak self] in
+            if let callback = self?.onSkipBackwardRequested {
+                callback(10)
+            } else {
+                self?.skipBackward(10)
+            }
+        }
+        controlBarView.onSkipForward = { [weak self] in
+            if let callback = self?.onSkipForwardRequested {
+                callback(10)
+            } else {
+                self?.skipForward(10)
+            }
+        }
         controlBarView.onFullscreen = { [weak self] in self?.window?.toggleFullScreen(nil) }
         controlBarView.onTrackSettings = { [weak self] in self?.showTrackSelectionPanel() }
+        controlBarView.onCast = { [weak self] in self?.onCast?() }
         addSubview(controlBarView)
         
         // Create loading indicator
@@ -703,6 +744,16 @@ class VideoPlayerView: NSView {
     func updateActiveState(_ isActive: Bool) {
         // No title bar to update
     }
+    
+    // MARK: - Cast State
+    
+    /// Update the view to show casting state
+    /// - Parameters:
+    ///   - isPlaying: Whether the cast is currently playing
+    ///   - deviceName: Name of the device being cast to, or nil if not casting
+    func updateCastState(isPlaying: Bool, deviceName: String?) {
+        controlBarView.updateCastState(isPlaying: isPlaying, deviceName: deviceName)
+    }
 }
 
 // MARK: - KSPlayerLayerDelegate
@@ -814,18 +865,22 @@ class VideoControlBarView: NSView {
     var onSkipForward: (() -> Void)?
     var onFullscreen: (() -> Void)?
     var onTrackSettings: (() -> Void)?
+    var onCast: (() -> Void)?
     
     private var playButton: NSButton!
     private var skipBackButton: NSButton!
     private var skipForwardButton: NSButton!
     private var fullscreenButton: NSButton!
     private var trackSettingsButton: NSButton!
+    private var castButton: NSButton!
     private var seekSlider: NSSlider!
     private var currentTimeLabel: NSTextField!
     private var durationLabel: NSTextField!
+    private var castingLabel: NSTextField!
     
     private var isPlaying: Bool = false
     private var isSeeking: Bool = false
+    private var isCasting: Bool = false
     
     // MARK: - Initialization
     
@@ -865,15 +920,29 @@ class VideoControlBarView: NSView {
         trackSettingsButton = createButton(symbol: "text.bubble", action: #selector(trackSettingsClicked))
         trackSettingsButton.toolTip = "Audio & Subtitle Settings"
         
+        // Cast button (for casting to TVs/Chromecast)
+        castButton = createButton(symbol: "tv", action: #selector(castClicked))
+        castButton.toolTip = "Cast to TV"
+        
         // Fullscreen button
         fullscreenButton = createButton(symbol: "arrow.up.left.and.arrow.down.right", action: #selector(fullscreenClicked))
+        
+        // Casting indicator label (hidden by default)
+        castingLabel = NSTextField(labelWithString: "")
+        castingLabel.translatesAutoresizingMaskIntoConstraints = false
+        castingLabel.textColor = NSColor.systemBlue
+        castingLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        castingLabel.alignment = .center
+        castingLabel.isHidden = true
         
         addSubview(skipBackButton)
         addSubview(playButton)
         addSubview(skipForwardButton)
         addSubview(currentTimeLabel)
+        addSubview(castingLabel)
         addSubview(seekSlider)
         addSubview(durationLabel)
+        addSubview(castButton)
         addSubview(trackSettingsButton)
         addSubview(fullscreenButton)
         
@@ -930,6 +999,10 @@ class VideoControlBarView: NSView {
             currentTimeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             currentTimeLabel.widthAnchor.constraint(equalToConstant: 50),
             
+            // Casting indicator label (centered in the control bar)
+            castingLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            castingLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            
             // Fullscreen button
             fullscreenButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             fullscreenButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -942,8 +1015,14 @@ class VideoControlBarView: NSView {
             trackSettingsButton.widthAnchor.constraint(equalToConstant: 30),
             trackSettingsButton.heightAnchor.constraint(equalToConstant: 30),
             
+            // Cast button
+            castButton.trailingAnchor.constraint(equalTo: trackSettingsButton.leadingAnchor, constant: -5),
+            castButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            castButton.widthAnchor.constraint(equalToConstant: 30),
+            castButton.heightAnchor.constraint(equalToConstant: 30),
+            
             // Duration label
-            durationLabel.trailingAnchor.constraint(equalTo: trackSettingsButton.leadingAnchor, constant: -10),
+            durationLabel.trailingAnchor.constraint(equalTo: castButton.leadingAnchor, constant: -10),
             durationLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             durationLabel.widthAnchor.constraint(equalToConstant: 50),
             
@@ -976,6 +1055,10 @@ class VideoControlBarView: NSView {
         onTrackSettings?()
     }
     
+    @objc private func castClicked() {
+        onCast?()
+    }
+    
     @objc private func seekChanged() {
         onSeek?(seekSlider.doubleValue)
     }
@@ -994,9 +1077,51 @@ class VideoControlBarView: NSView {
         currentTimeLabel.stringValue = formatTime(current)
         durationLabel.stringValue = formatTime(total)
         
-        // Update slider position (only if not seeking)
-        if total > 0 {
+        // Update slider position (only if not seeking and not casting)
+        if total > 0 && !isCasting {
             seekSlider.doubleValue = current / total
+        }
+    }
+    
+    /// Update the cast state display
+    /// - Parameters:
+    ///   - isPlaying: Whether the cast is playing
+    ///   - deviceName: Name of the device being cast to, or nil if not casting
+    func updateCastState(isPlaying: Bool, deviceName: String?) {
+        isCasting = deviceName != nil
+        
+        if let deviceName = deviceName {
+            // Show casting indicator, hide seek slider
+            castingLabel.stringValue = "Casting to \(deviceName)"
+            castingLabel.isHidden = false
+            seekSlider.isHidden = true
+            currentTimeLabel.isHidden = true
+            durationLabel.isHidden = true
+            
+            // Update cast button to show active state
+            if let image = NSImage(systemSymbolName: "tv.fill", accessibilityDescription: nil) {
+                castButton.image = image
+                castButton.contentTintColor = .systemBlue
+            }
+            
+            // Update play button for cast state
+            let symbol = isPlaying ? "pause.fill" : "play.fill"
+            if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+                playButton.image = image
+            }
+            self.isPlaying = isPlaying
+        } else {
+            // Hide casting indicator, show seek slider
+            castingLabel.isHidden = true
+            seekSlider.isHidden = false
+            currentTimeLabel.isHidden = false
+            durationLabel.isHidden = false
+            
+            // Reset cast button
+            if let image = NSImage(systemSymbolName: "tv", accessibilityDescription: nil) {
+                castButton.image = image
+                castButton.contentTintColor = .white
+            }
         }
     }
     

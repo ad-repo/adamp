@@ -1361,15 +1361,112 @@ class UPnPManager {
         let seekTarget = formatSeekTime(time)
         NSLog("UPnPManager: Seeking to %@ on %@", seekTarget, session.device.name)
         
-        try await sendSOAPAction(
+        // Wait for transport to be ready (some TVs need time to buffer before seeking)
+        for waitAttempt in 1...5 {
+            if let state = try? await getTransportState(), state == "PLAYING" {
+                NSLog("UPnPManager: Transport ready (PLAYING), attempting seek")
+                break
+            } else if waitAttempt < 5 {
+                NSLog("UPnPManager: Transport not ready, waiting... (attempt %d/5)", waitAttempt)
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            }
+        }
+        
+        // Try REL_TIME first (most common)
+        do {
+            try await sendSOAPActionNoRetry(
+                controlURL: controlURL,
+                action: "Seek",
+                arguments: [
+                    ("InstanceID", "0"),
+                    ("Unit", "REL_TIME"),
+                    ("Target", seekTarget)
+                ]
+            )
+            NSLog("UPnPManager: Seek with REL_TIME succeeded")
+            return
+        } catch {
+            NSLog("UPnPManager: REL_TIME seek failed: %@", error.localizedDescription)
+        }
+        
+        // Fallback to ABS_TIME (some Samsung TVs require this)
+        do {
+            try await sendSOAPActionNoRetry(
+                controlURL: controlURL,
+                action: "Seek",
+                arguments: [
+                    ("InstanceID", "0"),
+                    ("Unit", "ABS_TIME"),
+                    ("Target", seekTarget)
+                ]
+            )
+            NSLog("UPnPManager: Seek with ABS_TIME succeeded")
+            return
+        } catch {
+            NSLog("UPnPManager: ABS_TIME seek also failed: %@", error.localizedDescription)
+        }
+        
+        // Both seek methods failed - device may not support seeking
+        NSLog("UPnPManager: All seek methods failed for this device")
+        throw CastError.playbackFailed("Seek not supported by this device")
+    }
+    
+    /// Get transport state (PLAYING, STOPPED, PAUSED_PLAYBACK, TRANSITIONING, etc.)
+    private func getTransportState() async throws -> String? {
+        guard let session = activeSession,
+              let controlURL = session.device.avTransportControlURL else {
+            return nil
+        }
+        
+        let response = try await sendSOAPActionNoRetry(
             controlURL: controlURL,
-            action: "Seek",
-            arguments: [
-                ("InstanceID", "0"),
-                ("Unit", "REL_TIME"),
-                ("Target", seekTarget)
-            ]
+            action: "GetTransportInfo",
+            arguments: [("InstanceID", "0")]
         )
+        
+        return extractXMLValue(response, tag: "CurrentTransportState")
+    }
+    
+    /// Send SOAP action without retries (for quick checks)
+    @discardableResult
+    private func sendSOAPActionNoRetry(controlURL: URL, action: String, arguments: [(String, String)]) async throws -> String {
+        let serviceType = "urn:schemas-upnp-org:service:AVTransport:1"
+        
+        var argsXML = ""
+        for (name, value) in arguments {
+            argsXML += "<\(name)>\(value.xmlEscapedForSOAP)</\(name)>"
+        }
+        
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:\(action) xmlns:u="\(serviceType)">
+                    \(argsXML)
+                </u:\(action)>
+            </s:Body>
+        </s:Envelope>
+        """
+        
+        var request = URLRequest(url: controlURL)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"\(serviceType)#\(action)\"", forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = soapBody.data(using: .utf8)
+        request.timeoutInterval = 5
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CastError.networkError(NSError(domain: "UPnP", code: -1))
+        }
+        
+        if httpResponse.statusCode >= 400 {
+            let errorBody = String(data: data, encoding: .utf8) ?? ""
+            throw CastError.playbackFailed("SOAP error \(httpResponse.statusCode): \(errorBody)")
+        }
+        
+        return String(data: data, encoding: .utf8) ?? ""
     }
     
     /// Get current position information

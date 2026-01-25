@@ -84,8 +84,28 @@ class WindowManager {
     
     /// Video playback time tracking
     private(set) var videoCurrentTime: TimeInterval = 0
-    private(set) var videoDuration: TimeInterval = 0
+    private var _videoDuration: TimeInterval = 0
     private(set) var videoTitle: String?
+    
+    /// Video duration - returns cast duration when video casting is active
+    var videoDuration: TimeInterval {
+        get {
+            if isVideoCastingActive {
+                // First check VideoPlayerWindowController (for casts from video player)
+                if let controller = videoPlayerWindowController, controller.isCastingVideo {
+                    return controller.castDuration
+                }
+                // Then check CastManager (for casts from context menu)
+                if CastManager.shared.isVideoCasting {
+                    return CastManager.shared.videoCastDuration
+                }
+            }
+            return _videoDuration
+        }
+        set {
+            _videoDuration = newValue
+        }
+    }
     
     /// Snap threshold in pixels - how close windows need to be to snap
     private let snapThreshold: CGFloat = 15
@@ -513,6 +533,33 @@ class WindowManager {
         videoPlayerWindowController?.volume = volume
     }
     
+    /// Whether video casting is currently active
+    var isVideoCastingActive: Bool {
+        // Check both VideoPlayerWindowController (for casts initiated from video player)
+        // and CastManager (for casts initiated from context menu)
+        (videoPlayerWindowController?.isCastingVideo ?? false) || CastManager.shared.isVideoCasting
+    }
+    
+    /// Set volume on video cast device
+    func setVideoCastVolume(_ volume: Float) {
+        guard isVideoCastingActive else { return }
+        Task {
+            try? await CastManager.shared.setVolume(volume)
+        }
+    }
+    
+    /// Toggle play/pause on video cast
+    func toggleVideoCastPlayPause() {
+        videoPlayerWindowController?.togglePlayPause()
+    }
+    
+    /// Seek video cast (normalized 0-1 position)
+    func seekVideoCast(position: Double) {
+        guard let controller = videoPlayerWindowController, controller.isCastingVideo else { return }
+        let time = position * controller.duration
+        controller.seek(to: time)
+    }
+    
     /// Skip video forward
     func skipVideoForward(_ seconds: TimeInterval = 10) {
         videoPlayerWindowController?.skipForward(seconds)
@@ -525,6 +572,15 @@ class WindowManager {
     
     /// Seek video to specific time
     func seekVideo(to time: TimeInterval) {
+        // If video casting from CastManager (context menu cast), seek directly
+        if CastManager.shared.isVideoCasting {
+            Task {
+                try? await CastManager.shared.seek(to: time)
+            }
+            return
+        }
+        
+        // Otherwise use video player controller
         videoPlayerWindowController?.seek(to: time)
     }
     
@@ -563,9 +619,14 @@ class WindowManager {
     }
     
     /// Whether video is the active playback source (video session is active)
-    /// Returns true when a video is loaded in the video player (even if paused)
+    /// Returns true when a video is loaded in the video player (even if paused) OR when video casting is active
     /// This is used by playlist mini controls to route commands correctly
     var isVideoActivePlayback: Bool {
+        // Video casting is active - controls should route to video cast
+        if isVideoCastingActive {
+            return true
+        }
+        
         // A video session is active if the video player is visible AND has a video loaded
         // (indicated by currentTitle being set). This is different from isVideoPlaying
         // which only returns true when actively playing (not paused).

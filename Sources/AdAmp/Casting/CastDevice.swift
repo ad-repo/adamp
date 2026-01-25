@@ -41,6 +41,9 @@ struct CastDevice: Identifiable, Equatable, Hashable {
     let manufacturer: String?
     let modelName: String?
     
+    /// Whether this device supports video casting (Sonos is audio-only)
+    let supportsVideo: Bool
+    
     /// URL for UPnP AVTransport control (for Sonos/DLNA)
     var avTransportControlURL: URL?
     
@@ -55,6 +58,7 @@ struct CastDevice: Identifiable, Equatable, Hashable {
         port: Int,
         manufacturer: String? = nil,
         modelName: String? = nil,
+        supportsVideo: Bool? = nil,
         avTransportControlURL: URL? = nil,
         descriptionURL: URL? = nil
     ) {
@@ -65,6 +69,8 @@ struct CastDevice: Identifiable, Equatable, Hashable {
         self.port = port
         self.manufacturer = manufacturer
         self.modelName = modelName
+        // Default supportsVideo based on device type (Sonos is audio-only)
+        self.supportsVideo = supportsVideo ?? (type != .sonos)
         self.avTransportControlURL = avTransportControlURL
         self.descriptionURL = descriptionURL
     }
@@ -105,6 +111,12 @@ struct CastMetadata {
     let artworkURL: URL?
     let duration: TimeInterval?
     let contentType: String
+    let mediaType: MediaType  // .audio or .video
+    
+    // Video-specific metadata (optional)
+    let resolution: String?   // e.g., "1920x1080"
+    let year: Int?
+    let summary: String?
     
     init(
         title: String,
@@ -112,7 +124,11 @@ struct CastMetadata {
         album: String? = nil,
         artworkURL: URL? = nil,
         duration: TimeInterval? = nil,
-        contentType: String = "audio/mpeg"
+        contentType: String = "audio/mpeg",
+        mediaType: MediaType = .audio,
+        resolution: String? = nil,
+        year: Int? = nil,
+        summary: String? = nil
     ) {
         self.title = title
         self.artist = artist
@@ -120,23 +136,49 @@ struct CastMetadata {
         self.artworkURL = artworkURL
         self.duration = duration
         self.contentType = contentType
+        self.mediaType = mediaType
+        self.resolution = resolution
+        self.year = year
+        self.summary = summary
     }
     
     /// Generate DIDL-Lite metadata for UPnP devices
     func toDIDLLite(streamURL: URL) -> String {
         let escapedTitle = title.xmlEscaped
-        let escapedArtist = (artist ?? "Unknown Artist").xmlEscaped
-        let escapedAlbum = (album ?? "Unknown Album").xmlEscaped
         let durationStr = duration.map { formatDuration($0) } ?? "00:00:00"
+        
+        // Choose UPnP class and elements based on media type
+        let upnpClass: String
+        var extraElements = ""
+        
+        switch mediaType {
+        case .audio:
+            upnpClass = "object.item.audioItem.musicTrack"
+            let escapedArtist = (artist ?? "Unknown Artist").xmlEscaped
+            let escapedAlbum = (album ?? "Unknown Album").xmlEscaped
+            extraElements = """
+            <dc:creator>\(escapedArtist)</dc:creator>
+            <upnp:artist>\(escapedArtist)</upnp:artist>
+            <upnp:album>\(escapedAlbum)</upnp:album>
+            """
+        case .video:
+            upnpClass = "object.item.videoItem.movie"
+            if let year = year {
+                extraElements += "<dc:date>\(year)-01-01</dc:date>\n"
+            }
+            if let summary = summary {
+                extraElements += "<dc:description>\(summary.xmlEscaped)</dc:description>\n"
+            }
+            if let resolution = resolution {
+                extraElements += "<upnp:resolution>\(resolution)</upnp:resolution>\n"
+            }
+        }
         
         var didl = """
         <DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
         <item id="1" parentID="0" restricted="1">
         <dc:title>\(escapedTitle)</dc:title>
-        <dc:creator>\(escapedArtist)</dc:creator>
-        <upnp:artist>\(escapedArtist)</upnp:artist>
-        <upnp:album>\(escapedAlbum)</upnp:album>
-        <upnp:class>object.item.audioItem.musicTrack</upnp:class>
+        \(extraElements)<upnp:class>\(upnpClass)</upnp:class>
         <res protocolInfo="http-get:*:\(contentType):*" duration="\(durationStr)">\(streamURL.absoluteString.xmlEscaped)</res>
         """
         
@@ -207,6 +249,44 @@ enum CastError: Error, LocalizedError {
             return "Authentication required for streaming"
         }
     }
+}
+
+// MARK: - Content Type Helpers
+
+/// Detect content type from URL and return appropriate MIME type and media type
+func detectContentType(for url: URL) -> (contentType: String, mediaType: MediaType) {
+    let ext = url.pathExtension.lowercased()
+    
+    // Video extensions
+    let videoExtensions = ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "m2ts", "mts", "wmv", "flv"]
+    if videoExtensions.contains(ext) {
+        let mimeType: String
+        switch ext {
+        case "mp4", "m4v": mimeType = "video/mp4"
+        case "mkv": mimeType = "video/x-matroska"
+        case "webm": mimeType = "video/webm"
+        case "avi": mimeType = "video/x-msvideo"
+        case "mov": mimeType = "video/quicktime"
+        case "ts", "m2ts", "mts": mimeType = "video/mp2t"
+        case "wmv": mimeType = "video/x-ms-wmv"
+        case "flv": mimeType = "video/x-flv"
+        default: mimeType = "video/mp4"
+        }
+        return (mimeType, .video)
+    }
+    
+    // Audio extensions (default)
+    let mimeType: String
+    switch ext {
+    case "mp3": mimeType = "audio/mpeg"
+    case "m4a", "aac": mimeType = "audio/mp4"
+    case "flac": mimeType = "audio/flac"
+    case "wav": mimeType = "audio/wav"
+    case "ogg": mimeType = "audio/ogg"
+    case "opus": mimeType = "audio/opus"
+    default: mimeType = "audio/mpeg"
+    }
+    return (mimeType, .audio)
 }
 
 // MARK: - String Extensions

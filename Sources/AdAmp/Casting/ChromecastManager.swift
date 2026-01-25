@@ -379,22 +379,15 @@ class ChromecastManager {
         
         NSLog("ChromecastManager: Casting %@ to %@", url.absoluteString, session.device.name)
         
-        // Update session state
-        session.state = .casting
-        session.currentURL = url
-        session.metadata = metadata
-        
-        // Note: Full implementation would require:
+        // TODO: Chromecast requires Google Cast Protocol with protobuf messaging
+        // Full implementation would require:
         // 1. Send CONNECT message to receiver-0
-        // 2. Launch Default Media Receiver app
-        // 3. Send LOAD message with media URL
-        // For now, we'll use HTTP-based media loading which some Chromecasts support
+        // 2. Launch Default Media Receiver app (APP_ID: CC1AD845)
+        // 3. Send LOAD message with media URL and metadata
+        // Consider using OpenCastSwift library for full implementation
         
-        // Simplified: Many Chromecasts support direct HTTP control
-        // This would need the full protobuf implementation for production
-        
-        NotificationCenter.default.post(name: CastManager.sessionDidChangeNotification, object: nil)
-        NotificationCenter.default.post(name: CastManager.playbackStateDidChangeNotification, object: nil)
+        NSLog("ChromecastManager: WARNING - Chromecast casting not fully implemented yet")
+        throw CastError.playbackFailed("Chromecast video casting is not yet fully implemented. Use DLNA TVs for video casting.")
     }
     
     /// Stop casting

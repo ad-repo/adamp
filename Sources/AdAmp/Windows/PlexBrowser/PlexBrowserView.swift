@@ -5604,6 +5604,25 @@ class PlexBrowserView: NSView {
             addItem.representedObject = movie
             menu.addItem(addItem)
             
+            // Cast submenu (for video-capable devices)
+            let videoDevices = CastManager.shared.videoCapableDevices
+            if !videoDevices.isEmpty {
+                menu.addItem(NSMenuItem.separator())
+                
+                let castItem = NSMenuItem(title: "Cast to...", action: nil, keyEquivalent: "")
+                let castMenu = NSMenu()
+                
+                for device in videoDevices {
+                    let deviceItem = NSMenuItem(title: device.name, action: #selector(contextMenuCastMovie(_:)), keyEquivalent: "")
+                    deviceItem.target = self
+                    deviceItem.representedObject = (movie, device)
+                    castMenu.addItem(deviceItem)
+                }
+                
+                castItem.submenu = castMenu
+                menu.addItem(castItem)
+            }
+            
             // External links submenu
             menu.addItem(NSMenuItem.separator())
             
@@ -5684,6 +5703,25 @@ class PlexBrowserView: NSView {
             addItem.target = self
             addItem.representedObject = episode
             menu.addItem(addItem)
+            
+            // Cast submenu (for video-capable devices)
+            let videoDevicesEpisode = CastManager.shared.videoCapableDevices
+            if !videoDevicesEpisode.isEmpty {
+                menu.addItem(NSMenuItem.separator())
+                
+                let castItem = NSMenuItem(title: "Cast to...", action: nil, keyEquivalent: "")
+                let castMenu = NSMenu()
+                
+                for device in videoDevicesEpisode {
+                    let deviceItem = NSMenuItem(title: device.name, action: #selector(contextMenuCastEpisode(_:)), keyEquivalent: "")
+                    deviceItem.target = self
+                    deviceItem.representedObject = (episode, device)
+                    castMenu.addItem(deviceItem)
+                }
+                
+                castItem.submenu = castMenu
+                menu.addItem(castItem)
+            }
             
             // External links submenu
             menu.addItem(NSMenuItem.separator())
@@ -6283,6 +6321,68 @@ class PlexBrowserView: NSView {
     @objc private func contextMenuPlayEpisode(_ sender: NSMenuItem) {
         guard let episode = sender.representedObject as? PlexEpisode else { return }
         playEpisode(episode)
+    }
+    
+    @objc private func contextMenuCastMovie(_ sender: NSMenuItem) {
+        guard let (movie, device) = sender.representedObject as? (PlexMovie, CastDevice) else { return }
+        
+        // Prevent dual casting - check if already casting
+        if WindowManager.shared.isVideoCastingActive {
+            NSLog("PlexBrowserView: Cannot cast - already casting")
+            let alert = NSAlert()
+            alert.messageText = "Already Casting"
+            alert.informativeText = "Stop the current cast before starting a new one."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+        
+        Task {
+            do {
+                try await CastManager.shared.castPlexMovie(movie, to: device)
+                NSLog("PlexBrowserView: Cast movie '%@' to %@", movie.title, device.name)
+            } catch {
+                NSLog("PlexBrowserView: Failed to cast movie: %@", error.localizedDescription)
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "Cast Failed"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
+        }
+    }
+    
+    @objc private func contextMenuCastEpisode(_ sender: NSMenuItem) {
+        guard let (episode, device) = sender.representedObject as? (PlexEpisode, CastDevice) else { return }
+        
+        // Prevent dual casting - check if already casting
+        if WindowManager.shared.isVideoCastingActive {
+            NSLog("PlexBrowserView: Cannot cast - already casting")
+            let alert = NSAlert()
+            alert.messageText = "Already Casting"
+            alert.informativeText = "Stop the current cast before starting a new one."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+        
+        Task {
+            do {
+                try await CastManager.shared.castPlexEpisode(episode, to: device)
+                NSLog("PlexBrowserView: Cast episode '%@' to %@", episode.title, device.name)
+            } catch {
+                NSLog("PlexBrowserView: Failed to cast episode: %@", error.localizedDescription)
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "Cast Failed"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
+        }
     }
     
     // MARK: - External Links Context Menu Actions
