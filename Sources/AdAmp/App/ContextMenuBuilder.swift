@@ -1358,10 +1358,14 @@ class MenuActions: NSObject {
         }
         
         // If still no match, just use the first available Sonos device
+        // IMPORTANT: Set targetRoomUDN to the device we're actually casting to, not a selected room.
+        // This ensures all selected rooms get joined to the group in the loop below.
+        // (Previously this was set to selectedUDNs.first, which caused that room to be
+        // incorrectly filtered out of the join loop even though it wasn't receiving audio.)
         if targetDevice == nil, let firstDevice = devices.first {
             NSLog("MenuActions: No exact match, using first available device: %@", firstDevice.name)
             targetDevice = firstDevice
-            targetRoomUDN = selectedUDNs.first
+            targetRoomUDN = firstDevice.id
         }
         
         guard let device = targetDevice, let firstUDN = targetRoomUDN else {
