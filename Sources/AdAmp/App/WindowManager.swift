@@ -507,7 +507,15 @@ class WindowManager {
     
     /// Current video title (if playing)
     var currentVideoTitle: String? {
-        videoPlayerWindowController?.currentTitle
+        // First check video player window (for local playback or casts from player)
+        if let title = videoPlayerWindowController?.currentTitle {
+            return title
+        }
+        // Then check CastManager (for video casts from library browser menu)
+        if CastManager.shared.isVideoCasting {
+            return CastManager.shared.videoCastTitle
+        }
+        return nil
     }
     
     func toggleVideoPlayer() {

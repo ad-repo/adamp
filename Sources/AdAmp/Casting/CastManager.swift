@@ -109,6 +109,9 @@ class CastManager {
     /// Whether video casting is currently active (as opposed to audio casting)
     private(set) var isVideoCasting: Bool = false
     
+    /// Title of the video being cast (for main window display when casting from menu)
+    private(set) var videoCastTitle: String?
+    
     /// Duration of the video being cast (for seek calculations)
     private(set) var videoCastDuration: TimeInterval = 0
     
@@ -308,12 +311,17 @@ class CastManager {
         await MainActor.run {
             if isVideo {
                 self.isVideoCasting = true
+                self.videoCastTitle = metadata.title
                 self.videoCastDuration = metadata.duration ?? 0
                 self.videoCastStartPosition = startPosition
                 self.videoCastStartDate = Date()
                 self.isVideoCastPlaying = true
                 self.startVideoCastUpdateTimer()
-                NSLog("CastManager: Video cast state set - duration=%.1f, startPosition=%.1f", self.videoCastDuration, startPosition)
+                
+                // Update main window with video title (for casts from library browser menu)
+                WindowManager.shared.mainWindowController?.updateVideoTrackInfo(title: metadata.title)
+                
+                NSLog("CastManager: Video cast state set - title='%@', duration=%.1f, startPosition=%.1f", metadata.title, self.videoCastDuration, startPosition)
             } else {
                 // Audio casting - use AudioEngine tracking
                 WindowManager.shared.audioEngine.startCastPlayback(from: startPosition)
@@ -633,10 +641,14 @@ class CastManager {
             
             // Clear video cast state
             self.isVideoCasting = false
+            self.videoCastTitle = nil
             self.videoCastDuration = 0
             self.videoCastStartPosition = 0
             self.videoCastStartDate = nil
             self.isVideoCastPlaying = false
+            
+            // Clear video title from main window
+            WindowManager.shared.mainWindowController?.clearVideoTrackInfo()
             
             WindowManager.shared.audioEngine.stopCastPlayback(resumeLocally: true)
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
