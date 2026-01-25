@@ -227,6 +227,11 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             self?.showCastMenu()
         }
         
+        // Stop button callback
+        videoPlayerView.onStop = { [weak self] in
+            self?.stop()
+        }
+        
         // Control callbacks for casting intercept
         videoPlayerView.onPlayPauseToggled = { [weak self] in
             self?.togglePlayPause()
@@ -477,9 +482,33 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         guard !isClosing else { return }
         isClosing = true
         
+        // Capture cast position before stopping (for Plex reporting)
+        let wasCasting = isCastingVideo
+        let castPosition = wasCasting ? castCurrentTime : 0
+        
+        // Stop casting if active (this will exit the movie on the TV)
+        // Use semaphore to wait for cast stop to complete before closing
+        if isCastingVideo {
+            let semaphore = DispatchSemaphore(value: 0)
+            Task {
+                await CastManager.shared.stopCasting()
+                NSLog("VideoPlayerWindowController: Stopped video cast on TV")
+                semaphore.signal()
+            }
+            // Wait up to 2 seconds for cast to stop
+            _ = semaphore.wait(timeout: .now() + 2.0)
+            
+            stopCastUpdateTimer()
+            isCastingVideo = false
+            castTargetDevice = nil
+            castStartPosition = 0
+            castPlaybackStartDate = nil
+            castDuration = 0
+        }
+        
         // Report stop to Plex if playing Plex content
         if isPlexContent {
-            let position = videoPlayerView.currentPlaybackTime
+            let position = wasCasting ? castPosition : videoPlayerView.currentPlaybackTime
             PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
         }
         
@@ -802,6 +831,25 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         
         // Only do cleanup if not already handled by stop()
         if !isClosing {
+            // Stop casting if active (exit movie on TV)
+            // Use semaphore to wait for cast stop to complete
+            if isCastingVideo {
+                let semaphore = DispatchSemaphore(value: 0)
+                Task {
+                    await CastManager.shared.stopCasting()
+                    NSLog("VideoPlayerWindowController: Stopped video cast on TV (window closed)")
+                    semaphore.signal()
+                }
+                // Wait up to 2 seconds for cast to stop
+                _ = semaphore.wait(timeout: .now() + 2.0)
+                
+                isCastingVideo = false
+                castTargetDevice = nil
+                castStartPosition = 0
+                castPlaybackStartDate = nil
+                castDuration = 0
+            }
+            
             // Report stop to Plex if playing Plex content
             if isPlexContent {
                 let position = videoPlayerView.currentPlaybackTime

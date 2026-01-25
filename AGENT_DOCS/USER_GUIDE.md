@@ -368,8 +368,9 @@ AdAmp supports video playback for Plex movies and TV shows with full audio/subti
 ### Controls
 
 Hover over the video to reveal controls:
-- **Play/Pause** button
+- **Stop** button - Stop playback and close the player (also stops cast on TV if casting)
 - **Skip backward** (10 seconds)
+- **Play/Pause** button
 - **Skip forward** (10 seconds)
 - **Seek slider** - Drag to jump to any position
 - **Cast** button (TV icon) - Cast to Chromecast or DLNA TV
@@ -377,6 +378,16 @@ Hover over the video to reveal controls:
 - **Fullscreen** toggle
 
 Controls auto-hide after 3 seconds during playback.
+
+### Click Overlay
+
+**Single-click** anywhere on the video to show a center overlay with:
+- **Large play/pause button** - Toggle playback
+- **Close button** (X) in top-right corner - Stop and close the player (also stops cast on TV if casting)
+
+The overlay auto-hides after 2 seconds.
+
+**Double-click** anywhere on the video to toggle play/pause immediately.
 
 ### Audio & Subtitle Track Selection
 

@@ -100,6 +100,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        // Stop any active casting (video or audio)
+        // Use a semaphore to wait for async completion before app terminates
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            await CastManager.shared.stopCasting()
+            semaphore.signal()
+        }
+        // Wait up to 2 seconds for casting to stop
+        _ = semaphore.wait(timeout: .now() + 2.0)
+        
         // Save app state if "Remember State" is enabled
         AppStateManager.shared.saveState()
         

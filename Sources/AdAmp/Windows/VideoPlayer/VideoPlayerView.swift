@@ -44,6 +44,10 @@ class VideoPlayerView: NSView {
     private var controlsHideTimer: Timer?
     private var controlsVisible: Bool = true
     
+    /// Center overlay for click-to-play/pause (large centered icons)
+    private var centerOverlayView: VideoCenterOverlayView?
+    private var centerOverlayHideTimer: Timer?
+    
     /// Current playback time and duration
     private(set) var currentTime: TimeInterval = 0
     private(set) var totalDuration: TimeInterval = 0
@@ -85,6 +89,9 @@ class VideoPlayerView: NSView {
     
     /// Callback when cast button is clicked
     var onCast: (() -> Void)?
+    
+    /// Callback when stop button is clicked
+    var onStop: (() -> Void)?
     
     /// Callback when play/pause is toggled (for casting intercept)
     var onPlayPauseToggled: (() -> Void)?
@@ -172,7 +179,11 @@ class VideoPlayerView: NSView {
         controlBarView.onFullscreen = { [weak self] in self?.window?.toggleFullScreen(nil) }
         controlBarView.onTrackSettings = { [weak self] in self?.showTrackSelectionPanel() }
         controlBarView.onCast = { [weak self] in self?.onCast?() }
+        controlBarView.onStop = { [weak self] in self?.onStop?() }
         addSubview(controlBarView)
+        
+        // Create center overlay for click-to-play/pause
+        setupCenterOverlay()
         
         // Create loading indicator
         setupLoadingIndicator()
@@ -193,6 +204,24 @@ class VideoPlayerView: NSView {
         trackSelectionPanel?.delegate = self
         trackSelectionPanel?.isHidden = true
         addSubview(trackSelectionPanel!)
+    }
+    
+    private func setupCenterOverlay() {
+        centerOverlayView = VideoCenterOverlayView(frame: bounds)
+        centerOverlayView?.autoresizingMask = [.width, .height]
+        centerOverlayView?.alphaValue = 0
+        centerOverlayView?.isHidden = true
+        centerOverlayView?.onPlayPause = { [weak self] in
+            if let callback = self?.onPlayPauseToggled {
+                callback()
+            } else {
+                self?.togglePlayPause()
+            }
+        }
+        centerOverlayView?.onClose = { [weak self] in
+            self?.onStop?()
+        }
+        addSubview(centerOverlayView!)
     }
     
     private func setupLoadingIndicator() {
@@ -362,6 +391,53 @@ class VideoPlayerView: NSView {
         showControls()
         // Make this view the first responder to capture keyboard events
         window?.makeFirstResponder(self)
+        
+        // Show center overlay on single click
+        if event.clickCount == 1 {
+            showCenterOverlay()
+        } else if event.clickCount == 2 {
+            // Double-click toggles play/pause
+            if let callback = onPlayPauseToggled {
+                callback()
+            } else {
+                togglePlayPause()
+            }
+        }
+    }
+    
+    // MARK: - Center Overlay
+    
+    private func showCenterOverlay() {
+        guard let overlay = centerOverlayView else { return }
+        
+        // Update overlay state
+        overlay.updatePlayState(isPlaying: playerLayer?.state.isPlaying ?? false)
+        
+        // Show with animation
+        overlay.isHidden = false
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            overlay.animator().alphaValue = 1.0
+        }
+        
+        // Auto-hide after delay
+        centerOverlayHideTimer?.invalidate()
+        centerOverlayHideTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.hideCenterOverlay()
+            }
+        }
+    }
+    
+    private func hideCenterOverlay() {
+        guard let overlay = centerOverlayView else { return }
+        
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.2
+            overlay.animator().alphaValue = 0
+        }, completionHandler: {
+            overlay.isHidden = true
+        })
     }
     
     override func mouseMoved(with event: NSEvent) {
@@ -476,10 +552,12 @@ class VideoPlayerView: NSView {
         if layer.state.isPlaying {
             layer.pause()
             controlBarView.updatePlayState(isPlaying: false)
+            centerOverlayView?.updatePlayState(isPlaying: false)
             showControls()
         } else {
             layer.play()
             controlBarView.updatePlayState(isPlaying: true)
+            centerOverlayView?.updatePlayState(isPlaying: true)
             resetControlsHideTimer()
         }
     }
@@ -753,6 +831,7 @@ class VideoPlayerView: NSView {
     ///   - deviceName: Name of the device being cast to, or nil if not casting
     func updateCastState(isPlaying: Bool, deviceName: String?) {
         controlBarView.updateCastState(isPlaying: isPlaying, deviceName: deviceName)
+        centerOverlayView?.updatePlayState(isPlaying: isPlaying)
     }
 }
 
@@ -852,14 +931,118 @@ extension VideoPlayerView: KSPlayerLayerDelegate {
     }
 }
 
+// MARK: - VideoCenterOverlayView
+
+/// Center overlay with large play/pause button and close button for click-to-control
+class VideoCenterOverlayView: NSView {
+    
+    // MARK: - Properties
+    
+    var onPlayPause: (() -> Void)?
+    var onClose: (() -> Void)?
+    
+    private var playPauseButton: NSButton!
+    private var closeButton: NSButton!
+    private var isPlaying: Bool = false
+    
+    // MARK: - Initialization
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupView()
+    }
+    
+    private func setupView() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(white: 0, alpha: 0.4).cgColor
+        
+        // Large center play/pause button
+        playPauseButton = NSButton(frame: .zero)
+        playPauseButton.translatesAutoresizingMaskIntoConstraints = false
+        playPauseButton.bezelStyle = .regularSquare
+        playPauseButton.isBordered = false
+        playPauseButton.target = self
+        playPauseButton.action = #selector(playPauseClicked)
+        if let image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play") {
+            let config = NSImage.SymbolConfiguration(pointSize: 60, weight: .regular)
+            playPauseButton.image = image.withSymbolConfiguration(config)
+            playPauseButton.contentTintColor = .white
+        }
+        addSubview(playPauseButton)
+        
+        // Close button in top-right corner
+        closeButton = NSButton(frame: .zero)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.bezelStyle = .regularSquare
+        closeButton.isBordered = false
+        closeButton.target = self
+        closeButton.action = #selector(closeClicked)
+        if let image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close") {
+            let config = NSImage.SymbolConfiguration(pointSize: 28, weight: .regular)
+            closeButton.image = image.withSymbolConfiguration(config)
+            closeButton.contentTintColor = NSColor.white.withAlphaComponent(0.8)
+        }
+        addSubview(closeButton)
+        
+        setupConstraints()
+    }
+    
+    private func setupConstraints() {
+        NSLayoutConstraint.activate([
+            // Center play/pause button
+            playPauseButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            playPauseButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            playPauseButton.widthAnchor.constraint(equalToConstant: 80),
+            playPauseButton.heightAnchor.constraint(equalToConstant: 80),
+            
+            // Close button in top-right
+            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            closeButton.widthAnchor.constraint(equalToConstant: 36),
+            closeButton.heightAnchor.constraint(equalToConstant: 36),
+        ])
+    }
+    
+    // MARK: - Actions
+    
+    @objc private func playPauseClicked() {
+        onPlayPause?()
+    }
+    
+    @objc private func closeClicked() {
+        onClose?()
+    }
+    
+    // MARK: - Update State
+    
+    func updatePlayState(isPlaying: Bool) {
+        self.isPlaying = isPlaying
+        let symbol = isPlaying ? "pause.fill" : "play.fill"
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: isPlaying ? "Pause" : "Play") {
+            let config = NSImage.SymbolConfiguration(pointSize: 60, weight: .regular)
+            playPauseButton.image = image.withSymbolConfiguration(config)
+        }
+    }
+    
+    // MARK: - Flipped coordinate system for macOS
+    
+    override var isFlipped: Bool { true }
+}
+
 // MARK: - VideoControlBarView
 
-/// Control bar with play/pause, seek bar, time display, and fullscreen toggle
+/// Control bar with play/pause, stop, seek bar, time display, and fullscreen toggle
 class VideoControlBarView: NSView {
     
     // MARK: - Properties
     
     var onPlayPause: (() -> Void)?
+    var onStop: (() -> Void)?
     var onSeek: ((Double) -> Void)?
     var onSkipBackward: (() -> Void)?
     var onSkipForward: (() -> Void)?
@@ -868,6 +1051,7 @@ class VideoControlBarView: NSView {
     var onCast: (() -> Void)?
     
     private var playButton: NSButton!
+    private var stopButton: NSButton!
     private var skipBackButton: NSButton!
     private var skipForwardButton: NSButton!
     private var fullscreenButton: NSButton!
@@ -897,6 +1081,10 @@ class VideoControlBarView: NSView {
     private func setupView() {
         wantsLayer = true
         layer?.backgroundColor = NSColor(white: 0, alpha: 0.7).cgColor
+        
+        // Stop button
+        stopButton = createButton(symbol: "stop.fill", action: #selector(stopClicked))
+        stopButton.toolTip = "Stop"
         
         // Skip backward button
         skipBackButton = createButton(symbol: "gobackward.10", action: #selector(skipBackwardClicked))
@@ -935,6 +1123,7 @@ class VideoControlBarView: NSView {
         castingLabel.alignment = .center
         castingLabel.isHidden = true
         
+        addSubview(stopButton)
         addSubview(skipBackButton)
         addSubview(playButton)
         addSubview(skipForwardButton)
@@ -976,8 +1165,14 @@ class VideoControlBarView: NSView {
     
     private func setupConstraints() {
         NSLayoutConstraint.activate([
+            // Stop button
+            stopButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            stopButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stopButton.widthAnchor.constraint(equalToConstant: 30),
+            stopButton.heightAnchor.constraint(equalToConstant: 30),
+            
             // Skip back button
-            skipBackButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            skipBackButton.leadingAnchor.constraint(equalTo: stopButton.trailingAnchor, constant: 5),
             skipBackButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             skipBackButton.widthAnchor.constraint(equalToConstant: 30),
             skipBackButton.heightAnchor.constraint(equalToConstant: 30),
@@ -1037,6 +1232,10 @@ class VideoControlBarView: NSView {
     
     @objc private func playPauseClicked() {
         onPlayPause?()
+    }
+    
+    @objc private func stopClicked() {
+        onStop?()
     }
     
     @objc private func skipBackwardClicked() {
