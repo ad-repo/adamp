@@ -689,10 +689,10 @@ class AudioEngine {
         // Cancel any in-progress crossfade
         cancelCrossfade()
         
-        // If casting is active, stop casting as well
+        // If casting is active, handle stop based on device type
         if isCastingActive {
             Task {
-                await CastManager.shared.stopCasting()
+                await CastManager.shared.handleStopForActiveDevice()
             }
         }
         
@@ -1064,6 +1064,15 @@ class AudioEngine {
         state = .paused
     }
     
+    /// Reset cast time to 0 but keep cast session active
+    /// Used when user presses stop - allows playing another track without re-selecting device
+    func resetCastTime() {
+        castStartPosition = 0
+        castPlaybackStartDate = nil
+        // Keep castHasReceivedStatus true so UI updates work when playing again
+        state = .stopped
+    }
+    
     /// Resume cast playback time tracking
     func resumeCastPlayback() {
         castPlaybackStartDate = Date()
@@ -1113,6 +1122,9 @@ class AudioEngine {
     /// Stop cast playback and resume local playback at current position
     /// - Parameter resumeLocally: If true, resume local playback from current cast position
     func stopCastPlayback(resumeLocally: Bool = false) {
+        // Stop timer FIRST to prevent any flashing during state transition
+        stopTimeUpdates()
+        
         // Save current position before clearing cast state
         let currentPosition = castStartPosition
         if let startDate = castPlaybackStartDate {
@@ -1142,7 +1154,6 @@ class AudioEngine {
         castStartPosition = 0
         castHasReceivedStatus = false
         state = .stopped
-        stopTimeUpdates()
     }
     
     /// Decay spectrum to empty when not playing locally

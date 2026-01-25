@@ -396,8 +396,15 @@ class CastManager {
                 
                 NSLog("CastManager: Video cast state initialized (waiting for playback) - title='%@', duration=%.1f, startPosition=%.1f", metadata.title, self.videoCastDuration, startPosition)
             } else {
-                // Audio casting - initialize tracking but wait for PLAYING status to start timer
-                WindowManager.shared.audioEngine.initializeCastPlayback(from: startPosition)
+                // Audio casting - use different tracking based on device type
+                if device.type == .chromecast {
+                    // Chromecast provides status updates - wait for PLAYING status to start timer
+                    // This prevents clock sync issues when buffering on slow networks
+                    WindowManager.shared.audioEngine.initializeCastPlayback(from: startPosition)
+                } else {
+                    // Sonos/DLNA don't provide status updates - start timer immediately
+                    WindowManager.shared.audioEngine.startCastPlayback(from: startPosition)
+                }
             }
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
@@ -521,9 +528,14 @@ class CastManager {
         }
         
         // Reset cast playback time tracking from position 0 for new track
-        // Use initializeCastPlayback - timer starts when Chromecast reports PLAYING (after buffering)
         await MainActor.run {
-            WindowManager.shared.audioEngine.initializeCastPlayback(from: 0)
+            if session.device.type == .chromecast {
+                // Chromecast provides status updates - wait for PLAYING status to start timer
+                WindowManager.shared.audioEngine.initializeCastPlayback(from: 0)
+            } else {
+                // Sonos/DLNA don't provide status updates - start timer immediately
+                WindowManager.shared.audioEngine.startCastPlayback(from: 0)
+            }
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
         }
     }
@@ -708,25 +720,69 @@ class CastManager {
         // Unregister all files from local media server
         LocalMediaServer.shared.unregisterAll()
         
-        // Clear video casting state and resume local playback
+        // Clear casting state
         await MainActor.run {
             // Stop video cast update timer
             self.stopVideoCastUpdateTimer()
             
-            // Clear video cast state
-            self.isVideoCasting = false
-            self.videoCastTitle = nil
-            self.videoCastDuration = 0
-            self.videoCastStartPosition = 0
-            self.videoCastStartDate = nil
-            self.isVideoCastPlaying = false
-            self.videoCastHasReceivedStatus = false
+            // Only clear video-specific state if we were video casting
+            if self.isVideoCasting {
+                // Clear video cast state
+                self.isVideoCasting = false
+                self.videoCastTitle = nil
+                self.videoCastDuration = 0
+                self.videoCastStartPosition = 0
+                self.videoCastStartDate = nil
+                self.isVideoCastPlaying = false
+                self.videoCastHasReceivedStatus = false
+                
+                // Clear video title from main window
+                WindowManager.shared.mainWindowController?.clearVideoTrackInfo()
+            }
             
-            // Clear video title from main window
-            WindowManager.shared.mainWindowController?.clearVideoTrackInfo()
-            
-            WindowManager.shared.audioEngine.stopCastPlayback(resumeLocally: true)
+            WindowManager.shared.audioEngine.stopCastPlayback(resumeLocally: false)
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
+            NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
+        }
+    }
+    
+    /// Handle stop button based on active device type
+    /// - Sonos/DLNA: Stop keeps session active (can play another track)
+    /// - Chromecast: Stop disconnects completely
+    func handleStopForActiveDevice() async {
+        if let session = activeSession {
+            switch session.device.type {
+            case .sonos, .dlnaTV:
+                // Sonos/DLNA: Stop but keep session active
+                try? await stopPlayback()
+            case .chromecast:
+                // Chromecast: Full disconnect on stop
+                await stopCasting()
+            }
+        }
+    }
+    
+    /// Stop playback on the cast device but keep the session active
+    /// Used for Sonos/DLNA - allows playing another track without re-selecting device
+    func stopPlayback() async throws {
+        if chromecastManager.activeSession != nil {
+            chromecastManager.stop()
+        } else if upnpManager.activeSession != nil {
+            try await upnpManager.stop()
+        } else {
+            throw CastError.sessionNotActive
+        }
+        
+        // Reset time to 0 but keep cast session active
+        await MainActor.run {
+            if self.isVideoCasting {
+                self.videoCastStartPosition = 0
+                self.videoCastStartDate = nil
+                self.isVideoCastPlaying = false
+            } else {
+                // Reset time to 0 but keep cast session active
+                WindowManager.shared.audioEngine.resetCastTime()
+            }
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
         }
     }

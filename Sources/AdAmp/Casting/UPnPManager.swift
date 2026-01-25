@@ -1294,7 +1294,7 @@ class UPnPManager {
         NotificationCenter.default.post(name: CastManager.playbackStateDidChangeNotification, object: nil)
     }
     
-    /// Stop playback
+    /// Stop playback (keeps session in casting state for easy resume)
     func stop() async throws {
         guard let session = activeSession,
               let controlURL = session.device.avTransportControlURL else {
@@ -1309,9 +1309,8 @@ class UPnPManager {
             arguments: [("InstanceID", "0")]
         )
         
-        session.state = .connected
-        session.currentURL = nil
-        session.metadata = nil
+        // Keep session in .casting state so user can play another track
+        // Don't clear currentURL/metadata - they stay until a new track is cast
         
         NotificationCenter.default.post(name: CastManager.playbackStateDidChangeNotification, object: nil)
     }
