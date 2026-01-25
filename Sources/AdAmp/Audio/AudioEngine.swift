@@ -966,6 +966,8 @@ class AudioEngine {
     private var castPlaybackStartDate: Date?
     /// Position when cast playback started
     private var castStartPosition: TimeInterval = 0
+    /// Whether we've received the first status update from Chromecast (prevents UI flash before sync)
+    private var castHasReceivedStatus: Bool = false
     
     var currentTime: TimeInterval {
         // When casting, interpolate from start position
@@ -1013,9 +1015,11 @@ class AudioEngine {
     }
     
     /// Start cast playback time tracking (called when cast playback begins)
+    /// Note: Prefer initializeCastPlayback() for new casts to avoid flash on slow networks
     func startCastPlayback(from position: TimeInterval = 0) {
         castStartPosition = position
         castPlaybackStartDate = Date()
+        castHasReceivedStatus = true  // Immediate start means we skip waiting for status
         _currentTime = position
         lastReportedTime = position
         
@@ -1026,6 +1030,26 @@ class AudioEngine {
         // Notify delegate of track change
         delegate?.audioEngineDidChangeTrack(currentTrack)
         delegate?.audioEngineDidUpdateTime(current: position, duration: duration)
+    }
+    
+    /// Initialize cast playback tracking without starting the timer
+    /// Called when casting starts - actual playback timer begins when Chromecast reports PLAYING state
+    /// This prevents clock sync issues when buffering (especially for 4K on slow networks)
+    func initializeCastPlayback(from position: TimeInterval = 0) {
+        castStartPosition = position
+        // Don't set castPlaybackStartDate yet - wait for PLAYING status from Chromecast
+        castPlaybackStartDate = nil
+        // Reset status flag - UI won't update time until we receive first Chromecast status
+        castHasReceivedStatus = false
+        _currentTime = position
+        lastReportedTime = position
+        
+        // Set state to playing so UI shows cast mode, but timer won't advance until we get PLAYING status
+        state = .playing
+        startTimeUpdates()
+        
+        // Notify delegate of track change (but not time - wait for Chromecast status)
+        delegate?.audioEngineDidChangeTrack(currentTrack)
     }
     
     /// Pause cast playback time tracking
@@ -1053,22 +1077,37 @@ class AudioEngine {
     func updateCastPosition(currentTime: TimeInterval, isPlaying: Bool, isBuffering: Bool) {
         guard isCastingActive else { return }
         
+        // Mark that we've received status from Chromecast (enables UI time updates)
+        let isFirstStatus = !castHasReceivedStatus
+        castHasReceivedStatus = true
+        
         // Sync position from Chromecast
         castStartPosition = currentTime
         
         if isBuffering {
             // During buffering, pause interpolation to prevent drift
+            // This is critical for 4K on slow networks where buffering can take a long time
             castPlaybackStartDate = nil
+            // Keep state as .playing so UI shows cast mode, but timer won't advance
         } else if isPlaying {
-            // Playing - restart interpolation from this position
+            // Playing - start/restart interpolation from this position
+            // This is when we actually start the timer (may be first time after buffering completes)
             castPlaybackStartDate = Date()
+            state = .playing
         } else {
             // Paused - stop interpolation
             castPlaybackStartDate = nil
+            state = .paused
         }
         
         // Update reported time for UI sync
+        _currentTime = currentTime
         lastReportedTime = currentTime
+        
+        // On first status, immediately update delegate with correct position
+        if isFirstStatus {
+            delegate?.audioEngineDidUpdateTime(current: currentTime, duration: duration)
+        }
     }
     
     /// Stop cast playback and resume local playback at current position
@@ -1085,6 +1124,7 @@ class AudioEngine {
                 // Resume local playback from current position
                 castPlaybackStartDate = nil
                 castStartPosition = 0
+                castHasReceivedStatus = false
                 
                 // Load and seek to position
                 if let index = playlist.firstIndex(where: { $0.id == track.id }) {
@@ -1100,6 +1140,7 @@ class AudioEngine {
         // Default behavior - just stop
         castPlaybackStartDate = nil
         castStartPosition = 0
+        castHasReceivedStatus = false
         state = .stopped
         stopTimeUpdates()
     }
@@ -1143,6 +1184,13 @@ class AudioEngine {
     private func startTimeUpdates() {
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
+            
+            // When casting, skip time updates until we've received first status from Chromecast
+            // This prevents showing stale/incorrect time before sync (flash issue on slow networks)
+            if self.isCastingActive && !self.castHasReceivedStatus {
+                return
+            }
+            
             let current = self.currentTime
             let trackDuration = self.duration
             self.lastReportedTime = current

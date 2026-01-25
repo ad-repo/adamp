@@ -119,6 +119,9 @@ class CastManager {
     private var videoCastStartPosition: TimeInterval = 0
     private var videoCastStartDate: Date?
     
+    /// Whether we've received the first status update from Chromecast (prevents UI flash before sync)
+    private var videoCastHasReceivedStatus: Bool = false
+    
     /// Current video cast playback time (interpolated)
     var videoCastCurrentTime: TimeInterval {
         guard isVideoCasting else { return 0 }
@@ -136,16 +139,19 @@ class CastManager {
     private var videoCastUpdateTimer: Timer?
     
     /// Start the video cast update timer (updates main window with progress)
+    /// Note: Timer only updates UI after first status received from Chromecast
     private func startVideoCastUpdateTimer() {
         videoCastUpdateTimer?.invalidate()
         videoCastUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self = self, self.isVideoCasting else { return }
+            // Don't update UI until we've received first status from Chromecast
+            // This prevents showing stale/incorrect time before sync
+            guard self.videoCastHasReceivedStatus else { return }
             let current = self.videoCastCurrentTime
             let duration = self.videoCastDuration
             WindowManager.shared.videoDidUpdateTime(current: current, duration: duration)
         }
-        // Fire immediately
-        WindowManager.shared.videoDidUpdateTime(current: videoCastCurrentTime, duration: videoCastDuration)
+        // Don't fire immediately - wait for first Chromecast status update
     }
     
     /// Stop the video cast update timer
@@ -205,12 +211,17 @@ class CastManager {
         
         // Update video cast tracking if video casting
         if isVideoCasting {
+            // Mark that we've received status from Chromecast (enables UI updates)
+            let isFirstStatus = !videoCastHasReceivedStatus
+            videoCastHasReceivedStatus = true
+            
             // Sync position from Chromecast
             videoCastStartPosition = status.currentTime
             
             if isBuffering {
                 // Pause interpolation during buffering
                 videoCastStartDate = nil
+                isVideoCastPlaying = false
             } else if isPlaying {
                 videoCastStartDate = Date()
                 isVideoCastPlaying = true
@@ -223,6 +234,11 @@ class CastManager {
             // Update duration if provided
             if let duration = status.duration, duration > 0 {
                 videoCastDuration = duration
+            }
+            
+            // On first status, immediately update UI with correct position
+            if isFirstStatus {
+                WindowManager.shared.videoDidUpdateTime(current: videoCastCurrentTime, duration: videoCastDuration)
             }
         } else if isCasting {
             // Audio casting - forward position sync to AudioEngine
@@ -359,6 +375,8 @@ class CastManager {
         }
         
         // Track video casting state
+        // Note: Don't start the timer immediately - wait for Chromecast to report PLAYING state
+        // This prevents clock sync issues when buffering (especially for 4K on slow networks)
         let isVideo = metadata.mediaType == .video
         await MainActor.run {
             if isVideo {
@@ -366,17 +384,20 @@ class CastManager {
                 self.videoCastTitle = metadata.title
                 self.videoCastDuration = metadata.duration ?? 0
                 self.videoCastStartPosition = startPosition
-                self.videoCastStartDate = Date()
-                self.isVideoCastPlaying = true
+                // Don't set videoCastStartDate yet - wait for PLAYING status from Chromecast
+                self.videoCastStartDate = nil
+                self.isVideoCastPlaying = false
+                // Reset status flag - UI won't update until we receive first Chromecast status
+                self.videoCastHasReceivedStatus = false
                 self.startVideoCastUpdateTimer()
                 
                 // Update main window with video title (for casts from library browser menu)
                 WindowManager.shared.mainWindowController?.updateVideoTrackInfo(title: metadata.title)
                 
-                NSLog("CastManager: Video cast state set - title='%@', duration=%.1f, startPosition=%.1f", metadata.title, self.videoCastDuration, startPosition)
+                NSLog("CastManager: Video cast state initialized (waiting for playback) - title='%@', duration=%.1f, startPosition=%.1f", metadata.title, self.videoCastDuration, startPosition)
             } else {
-                // Audio casting - use AudioEngine tracking
-                WindowManager.shared.audioEngine.startCastPlayback(from: startPosition)
+                // Audio casting - initialize tracking but wait for PLAYING status to start timer
+                WindowManager.shared.audioEngine.initializeCastPlayback(from: startPosition)
             }
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
@@ -500,8 +521,9 @@ class CastManager {
         }
         
         // Reset cast playback time tracking from position 0 for new track
+        // Use initializeCastPlayback - timer starts when Chromecast reports PLAYING (after buffering)
         await MainActor.run {
-            WindowManager.shared.audioEngine.startCastPlayback(from: 0)
+            WindowManager.shared.audioEngine.initializeCastPlayback(from: 0)
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
         }
     }
@@ -698,6 +720,7 @@ class CastManager {
             self.videoCastStartPosition = 0
             self.videoCastStartDate = nil
             self.isVideoCastPlaying = false
+            self.videoCastHasReceivedStatus = false
             
             // Clear video title from main window
             WindowManager.shared.mainWindowController?.clearVideoTrackInfo()

@@ -48,6 +48,9 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     /// Timer for updating main window with cast progress
     private var castUpdateTimer: Timer?
     
+    /// Whether we've received the first status update from Chromecast (prevents UI flash before sync)
+    private var castHasReceivedStatus: Bool = false
+    
     /// Current cast playback time (interpolated from start position)
     var castCurrentTime: TimeInterval {
         if let startDate = castPlaybackStartDate {
@@ -58,16 +61,19 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     }
     
     /// Start the cast update timer (updates main window with progress)
+    /// Note: Timer only updates UI after first status received from Chromecast
     private func startCastUpdateTimer() {
         castUpdateTimer?.invalidate()
         castUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self = self, self.isCastingVideo else { return }
+            // Don't update UI until we've received first status from Chromecast
+            // This prevents showing stale/incorrect time before sync (especially for 4K on slow networks)
+            guard self.castHasReceivedStatus else { return }
             let current = self.castCurrentTime
             let duration = self.castDuration
             WindowManager.shared.videoDidUpdateTime(current: current, duration: duration)
         }
-        // Fire immediately
-        WindowManager.shared.videoDidUpdateTime(current: castCurrentTime, duration: castDuration)
+        // Don't fire immediately - wait for first Chromecast status update
     }
     
     /// Stop the cast update timer
@@ -76,15 +82,59 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         castUpdateTimer = nil
     }
     
+    /// Handle Chromecast media status updates for position syncing
+    @objc private func handleChromecastMediaStatusUpdate(_ notification: Notification) {
+        guard isCastingVideo else { return }
+        guard let status = notification.userInfo?["status"] as? CastMediaStatus else { return }
+        
+        let isPlaying = status.playerState == .playing
+        let isBuffering = status.playerState == .buffering
+        
+        // Mark that we've received status from Chromecast (enables UI updates)
+        let isFirstStatus = !castHasReceivedStatus
+        castHasReceivedStatus = true
+        
+        // Sync position from Chromecast
+        castStartPosition = status.currentTime
+        
+        if isBuffering {
+            // Pause interpolation during buffering
+            castPlaybackStartDate = nil
+        } else if isPlaying {
+            // Playing - start/restart interpolation from this position
+            castPlaybackStartDate = Date()
+        } else {
+            // Paused or idle
+            castPlaybackStartDate = nil
+        }
+        
+        // Update duration if provided
+        if let duration = status.duration, duration > 0 {
+            castDuration = duration
+        }
+        
+        // On first status, immediately update UI with correct position
+        if isFirstStatus {
+            WindowManager.shared.videoDidUpdateTime(current: castCurrentTime, duration: castDuration)
+        }
+    }
+    
     /// Reset cast state when starting a new video
     /// This ensures the player doesn't think it's still casting from a previous session
     private func resetCastState() {
         if isCastingVideo {
             stopCastUpdateTimer()
+            // Unsubscribe from Chromecast status updates
+            NotificationCenter.default.removeObserver(
+                self,
+                name: ChromecastManager.mediaStatusDidUpdateNotification,
+                object: nil
+            )
             isCastingVideo = false
             castTargetDevice = nil
             castStartPosition = 0
             castPlaybackStartDate = nil
+            castHasReceivedStatus = false
             castDuration = 0
         }
     }
@@ -786,9 +836,20 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
                     self.castTargetDevice = device
                     self.isPlaying = true
                     self.castStartPosition = currentPosition
-                    self.castPlaybackStartDate = Date()
+                    // Don't set castPlaybackStartDate yet - wait for PLAYING status from Chromecast
+                    self.castPlaybackStartDate = nil
+                    self.castHasReceivedStatus = false
                     self.castDuration = videoDuration
                     self.videoPlayerView.updateCastState(isPlaying: true, deviceName: device.name)
+                    
+                    // Subscribe to Chromecast status updates for position syncing
+                    NotificationCenter.default.addObserver(
+                        self,
+                        selector: #selector(self.handleChromecastMediaStatusUpdate),
+                        name: ChromecastManager.mediaStatusDidUpdateNotification,
+                        object: nil
+                    )
+                    
                     self.startCastUpdateTimer()
                 }
                 
