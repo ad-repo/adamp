@@ -218,6 +218,7 @@ struct PlexTrack: Identifiable, Equatable {
     let genre: String?          // Primary genre tag
     let parentYear: Int?        // Album release year
     let ratingCount: Int?       // Last.fm scrobble count (global popularity)
+    let userRating: Double?     // User's star rating (0-10 scale, 10 = 5 stars)
     
     /// Get the streaming part key for this track
     var partKey: String? {
@@ -762,6 +763,7 @@ struct PlexMetadataDTO: Decodable {
     // Track-specific fields for radio
     let parentYear: Int?        // Album release year (for decade radio)
     let ratingCount: Int?       // Last.fm scrobble count (for hits/deep cuts)
+    let userRating: Double?     // User's star rating (0-10 scale, 10 = 5 stars)
     // Extra/bonus content identification
     let extraType: Int?         // Non-nil means this is an extra (trailer, deleted scene, etc.)
     let subtype: String?        // Additional type info (e.g., "trailer", "clip")
@@ -797,7 +799,7 @@ struct PlexMetadataDTO: Decodable {
         case genre = "Genre"
         case studio, contentRating
         case playlistType, smart, composite
-        case parentYear, ratingCount
+        case parentYear, ratingCount, userRating
         case extraType, subtype
         case guids = "Guid"
     }
@@ -858,7 +860,8 @@ struct PlexMetadataDTO: Decodable {
             updatedAt: updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             genre: genre?.first?.tag,
             parentYear: parentYear,
-            ratingCount: ratingCount
+            ratingCount: ratingCount,
+            userRating: userRating
         )
     }
     

@@ -576,6 +576,13 @@ class AudioEngine {
             return
         }
         
+        // If local video playback is active, don't start audio playback
+        // (video has its own playback controls via the video player window)
+        if WindowManager.shared.isVideoActivePlayback {
+            NSLog("play(): Local video is active - ignoring audio play request")
+            return
+        }
+        
         // If audio casting is active, forward command to CastManager
         if isCastingActive {
             Task {

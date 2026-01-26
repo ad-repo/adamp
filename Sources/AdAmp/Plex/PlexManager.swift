@@ -1296,4 +1296,60 @@ class PlexManager {
             return []
         }
     }
+    
+    // MARK: - Rating Radio
+    
+    /// Rating Radio - Non-Sonic
+    /// Plays tracks the user has rated at or above the minimum rating threshold
+    /// - Parameters:
+    ///   - minRating: Minimum user rating (0-10 scale, where 10 = 5 stars)
+    ///   - limit: Maximum number of tracks to return
+    func createRatingRadio(minRating: Double, limit: Int = RadioConfig.defaultLimit) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create rating radio - no server or library connected")
+            return []
+        }
+        
+        do {
+            let fetchLimit = limit * RadioConfig.overFetchMultiplier
+            let plexTracks = try await client.createRatingRadio(minRating: minRating, libraryID: library.id, limit: fetchLimit)
+            let allTracks = convertToTracks(plexTracks)
+            let tracks = filterForArtistVariety(allTracks, limit: limit)
+            NSLog("PlexManager: Rating radio (%.1f+ stars) created with %d tracks", minRating / 2, tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create rating radio: %@", error.localizedDescription)
+            return []
+        }
+    }
+    
+    /// Rating Radio - Sonic
+    /// Plays tracks sonically similar to the seed that are rated at or above the minimum rating
+    /// - Parameters:
+    ///   - minRating: Minimum user rating (0-10 scale, where 10 = 5 stars)
+    ///   - limit: Maximum number of tracks to return
+    func createRatingRadioSonic(minRating: Double, limit: Int = RadioConfig.defaultLimit) async -> [Track] {
+        guard let client = serverClient, let library = currentLibrary else {
+            NSLog("PlexManager: Cannot create rating radio (sonic) - no server or library connected")
+            return []
+        }
+        
+        guard let seedTrackID = await getSonicSeedTrackID() else {
+            NSLog("PlexManager: Cannot create rating radio (sonic) - no seed track available")
+            return []
+        }
+        
+        do {
+            let fetchLimit = limit * RadioConfig.overFetchMultiplier
+            let plexTracks = try await client.createRatingRadioSonic(minRating: minRating, trackID: seedTrackID, libraryID: library.id, limit: fetchLimit)
+            let allTracks = convertToTracks(plexTracks)
+            // Sonic: limit to 1 track per artist for maximum variety
+            let tracks = filterForArtistVariety(allTracks, limit: limit, maxPerArtist: 1)
+            NSLog("PlexManager: Rating radio (sonic, %.1f+ stars) created with %d tracks", minRating / 2, tracks.count)
+            return tracks
+        } catch {
+            NSLog("PlexManager: Failed to create rating radio (sonic): %@", error.localizedDescription)
+            return []
+        }
+    }
 }

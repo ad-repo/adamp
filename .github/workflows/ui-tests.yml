@@ -103,14 +103,11 @@ jobs:
             -parallel-testing-enabled YES \
             -disableAutomaticPackageResolution \
             -resultBundlePath TestResults.xcresult \
-            -quiet || {
-              echo "UI tests completed with issues"
-              exit 0
-            }
+            -quiet
       
       - name: Upload test results
         uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: test-results
           path: TestResults.xcresult

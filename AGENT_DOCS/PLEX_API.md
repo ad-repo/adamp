@@ -288,6 +288,7 @@ GET /library/metadata/{trackID}?X-Plex-Token={token}
 | `addedAt` | Unix timestamp when added |
 | `musicAnalysisVersion` | Present if sonically analyzed |
 | `ratingCount` | Global popularity from Last.fm (scrobble count) - used to identify "hit" tracks |
+| `userRating` | User's personal star rating (0-10 scale, where 10 = 5 stars) - used for rating-based radio |
 | `Media[].Part[].key` | Streaming URL path |
 | `Media[].Part[].file` | Original file path on server |
 | `Media[].audioCodec` | Audio format (flac, mp3, etc.) |
@@ -415,6 +416,29 @@ GET /library/sections/{libID}/all?type=10&track.sonicallySimilar={trackID}&sort=
 GET /library/sections/{libID}/all?type=10&sort=random&limit=100
 ```
 
+### Rating Radio (My Ratings)
+Plays tracks based on the user's personal star ratings. Users can select from multiple rating thresholds:
+
+| Station | Min Rating | Description |
+|---------|------------|-------------|
+| 5 Stars Radio | 10 (5★) | Only tracks rated exactly 5 stars |
+| 4+ Stars Radio | 8 (4★+) | Highly rated tracks (4-5 stars) |
+| 3+ Stars Radio | 6 (3★+) | Good tracks (3-5 stars) |
+| 2+ Stars Radio | 4 (2★+) | Any track rated 2 stars or higher |
+| All Rated Radio | 0.1 | Any track with a rating |
+
+**Note**: Plex stores ratings on a 0-10 scale internally (10 = 5 stars, 8 = 4 stars, etc.)
+
+**Sonic Version** - Sonically similar rated tracks:
+```
+GET /library/sections/{libID}/all?type=10&track.sonicallySimilar={trackID}&userRating>=8&sort=random&limit=100
+```
+
+**Non-Sonic Version** - All rated tracks at threshold:
+```
+GET /library/sections/{libID}/all?type=10&userRating>=8&sort=random&limit=100
+```
+
 ## Configuration
 
 Radio station thresholds are defined in `RadioConfig` enum (`PlexServerClient.swift`):
@@ -428,6 +452,7 @@ Radio station thresholds are defined in `RadioConfig` enum (`PlexServerClient.sw
 | `overFetchMultiplier` | 3 | Multiplier for over-fetching to allow deduplication |
 | `fallbackGenres` | Pop/Rock, Jazz, Classical, Electronic, R&B, Rap, Country, Blues | Fallback if genre fetch fails |
 | `decades` | 1920s-2020s | Available decade stations |
+| `ratingStations` | 5★, 4+★, 3+★, 2+★, All Rated | Available user rating thresholds |
 
 ### Dynamic Genre Fetching
 

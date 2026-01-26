@@ -6658,6 +6658,27 @@ class PlexBrowserView: NSView {
         
         menu.addItem(NSMenuItem.separator())
         
+        // Rating Stations submenu - based on user's star ratings
+        let ratingSubmenu = NSMenu()
+        for station in RadioConfig.ratingStations {
+            let ratingItem = NSMenuItem(title: "\(station.name) Radio", action: #selector(radioMenuRatingRadio(_:)), keyEquivalent: "")
+            ratingItem.target = self
+            ratingItem.representedObject = station.minRating
+            ratingItem.toolTip = station.description
+            ratingSubmenu.addItem(ratingItem)
+            
+            let ratingSonicItem = NSMenuItem(title: "\(station.name) Radio (Sonic)", action: #selector(radioMenuRatingRadioSonic(_:)), keyEquivalent: "")
+            ratingSonicItem.target = self
+            ratingSonicItem.representedObject = station.minRating
+            ratingSonicItem.toolTip = station.description
+            ratingSubmenu.addItem(ratingSonicItem)
+        }
+        let ratingMenuItem = NSMenuItem(title: "My Ratings", action: nil, keyEquivalent: "")
+        ratingMenuItem.submenu = ratingSubmenu
+        menu.addItem(ratingMenuItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
         // Genre Stations submenu - populated async
         let genreMenuItem = NSMenuItem(title: "Genre Stations", action: nil, keyEquivalent: "")
         let genreSubmenu = NSMenu()
@@ -6841,6 +6862,40 @@ class PlexBrowserView: NSView {
                 audioEngine.loadTracks(tracks)
                 audioEngine.play()
                 NSLog("%@ Radio (Sonic) started with %d tracks", decade.name, tracks.count)
+            }
+        }
+    }
+    
+    @objc private func radioMenuRatingRadio(_ sender: NSMenuItem) {
+        guard let minRating = sender.representedObject as? Double else { return }
+        Task { @MainActor in
+            let tracks = await PlexManager.shared.createRatingRadio(minRating: minRating)
+            if !tracks.isEmpty {
+                let audioEngine = WindowManager.shared.audioEngine
+                audioEngine.clearPlaylist()
+                audioEngine.loadTracks(tracks)
+                audioEngine.play()
+                let stars = minRating / 2
+                NSLog("Rating Radio (%.1f+ stars) started with %d tracks", stars, tracks.count)
+            } else {
+                NSLog("Rating Radio: No tracks found with %.1f+ stars rating", minRating / 2)
+            }
+        }
+    }
+    
+    @objc private func radioMenuRatingRadioSonic(_ sender: NSMenuItem) {
+        guard let minRating = sender.representedObject as? Double else { return }
+        Task { @MainActor in
+            let tracks = await PlexManager.shared.createRatingRadioSonic(minRating: minRating)
+            if !tracks.isEmpty {
+                let audioEngine = WindowManager.shared.audioEngine
+                audioEngine.clearPlaylist()
+                audioEngine.loadTracks(tracks)
+                audioEngine.play()
+                let stars = minRating / 2
+                NSLog("Rating Radio (Sonic, %.1f+ stars) started with %d tracks", stars, tracks.count)
+            } else {
+                NSLog("Rating Radio (Sonic): No tracks found with %.1f+ stars rating", minRating / 2)
             }
         }
     }

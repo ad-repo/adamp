@@ -27,6 +27,18 @@ enum RadioConfig {
         (1980, 1989, "1980s"), (1990, 1999, "1990s"), (2000, 2009, "2000s"),
         (2010, 2019, "2010s"), (2020, 2029, "2020s")
     ]
+    
+    // MARK: - User Rating Thresholds (0-10 scale, 10 = 5 stars)
+    
+    /// Rating options for user rating-based radio stations
+    /// Each tuple: (minRating: Double, name: String, description: String)
+    static let ratingStations: [(minRating: Double, name: String, description: String)] = [
+        (10.0, "5 Stars", "Only your 5-star rated tracks"),
+        (8.0, "4+ Stars", "Your highly rated tracks (4+ stars)"),
+        (6.0, "3+ Stars", "Tracks you've rated 3 stars or higher"),
+        (4.0, "2+ Stars", "Any track you've rated 2 stars or higher"),
+        (0.1, "All Rated", "Any track you've rated")
+    ]
 }
 
 /// Client for communicating with a Plex Media Server
@@ -1129,6 +1141,62 @@ class PlexServerClient {
         let response: PlexResponse<PlexMetadataResponse> = try await performRequest(request)
         let tracks = response.mediaContainer.metadata?.map { $0.toTrack() } ?? []
         NSLog("PlexServerClient: Deep cuts radio (sonic) returned %d tracks", tracks.count)
+        return tracks
+    }
+    
+    // MARK: - Rating Radio
+    
+    /// Rating Radio - Non-Sonic
+    /// Plays tracks the user has rated at or above the minimum rating threshold
+    /// - Parameters:
+    ///   - minRating: Minimum user rating (0-10 scale, where 10 = 5 stars)
+    ///   - libraryID: The library section ID
+    ///   - limit: Maximum number of tracks to return
+    func createRatingRadio(minRating: Double, libraryID: String, limit: Int = RadioConfig.defaultLimit) async throws -> [PlexTrack] {
+        NSLog("PlexServerClient: Creating rating radio (non-sonic) with minRating %.1f in library %@", minRating, libraryID)
+        
+        let queryItems = [
+            URLQueryItem(name: "type", value: "10"),
+            URLQueryItem(name: "userRating>=", value: String(Int(minRating))),
+            URLQueryItem(name: "sort", value: "random"),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        
+        guard let request = buildRequest(path: "/library/sections/\(libraryID)/all", queryItems: queryItems) else {
+            throw PlexServerError.invalidURL
+        }
+        
+        let response: PlexResponse<PlexMetadataResponse> = try await performRequest(request)
+        let tracks = response.mediaContainer.metadata?.map { $0.toTrack() } ?? []
+        NSLog("PlexServerClient: Rating radio returned %d tracks", tracks.count)
+        return tracks
+    }
+    
+    /// Rating Radio - Sonic
+    /// Plays tracks sonically similar to the seed that are rated at or above the minimum rating
+    /// - Parameters:
+    ///   - minRating: Minimum user rating (0-10 scale, where 10 = 5 stars)
+    ///   - trackID: The seed track ID for sonic similarity
+    ///   - libraryID: The library section ID
+    ///   - limit: Maximum number of tracks to return
+    func createRatingRadioSonic(minRating: Double, trackID: String, libraryID: String, limit: Int = RadioConfig.defaultLimit) async throws -> [PlexTrack] {
+        NSLog("PlexServerClient: Creating rating radio (sonic) with minRating %.1f, seed %@ in library %@", minRating, trackID, libraryID)
+        
+        let queryItems = [
+            URLQueryItem(name: "type", value: "10"),
+            URLQueryItem(name: "userRating>=", value: String(Int(minRating))),
+            URLQueryItem(name: "track.sonicallySimilar", value: trackID),
+            URLQueryItem(name: "sort", value: "random"),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        
+        guard let request = buildRequest(path: "/library/sections/\(libraryID)/all", queryItems: queryItems) else {
+            throw PlexServerError.invalidURL
+        }
+        
+        let response: PlexResponse<PlexMetadataResponse> = try await performRequest(request)
+        let tracks = response.mediaContainer.metadata?.map { $0.toTrack() } ?? []
+        NSLog("PlexServerClient: Rating radio (sonic) returned %d tracks", tracks.count)
         return tracks
     }
     
