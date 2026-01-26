@@ -156,16 +156,18 @@ Location: `Tests/AdAmpUITests/`
 
 UI tests use Apple's XCUITest framework to test the application through its user interface.
 
+**Performance Note:** UI tests are consolidated to minimize app launches (the main bottleneck). Each test class has only 2-3 test methods that cover multiple related features, reducing total app launches from ~47 to ~13. This keeps CI execution under 5 minutes.
+
 **Test Classes:**
 
-| Class | Coverage |
-|-------|----------|
-| `MainWindowTests` | Transport controls, sliders, toggles, keyboard shortcuts |
-| `PlaylistTests` | Track list, buttons, drag-drop, scrolling |
-| `EqualizerTests` | On/off toggle, presets, band sliders, graph |
-| `PlexBrowserTests` | Tabs, content list, source selection, search |
-| `VisualizationTests` | Preset navigation, fullscreen, keyboard controls |
-| `IntegrationTests` | Multi-window workflows, docking, state persistence |
+| Class | Tests | Coverage |
+|-------|-------|----------|
+| `MainWindowTests` | 2 | Transport controls, sliders, toggles, keyboard shortcuts, drag, context menu |
+| `PlaylistTests` | 2 | Window, buttons, keyboard shortcuts, scrolling, drag, context menu |
+| `EqualizerTests` | 2 | On/off toggle, presets, sliders, drag, context menu, shade mode |
+| `PlexBrowserTests` | 2 | Tabs, content, scrolling, drag, resize, context menu, shade mode |
+| `VisualizationTests` | 2 | Preset navigation, fullscreen, hard cuts, drag, resize, context menu, shade mode |
+| `IntegrationTests` | 3 | Multi-window workflows, docking, keyboard shortcuts, toggle persistence |
 
 **Example Test:**
 

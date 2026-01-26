@@ -746,6 +746,31 @@ class CastManager {
         }
     }
     
+    /// Synchronous stop for app termination - stops cast devices without MainActor work
+    /// This avoids deadlock when called from applicationWillTerminate on the main thread
+    func stopCastingSync() {
+        NSLog("CastManager: Stopping casting (sync for termination)")
+        
+        // Stop Chromecast - these are synchronous
+        if chromecastManager.activeSession != nil {
+            chromecastManager.stop()
+            chromecastManager.disconnect()
+        }
+        
+        // Stop UPnP/Sonos - disconnect is synchronous, skip async stop()
+        if upnpManager.activeSession != nil {
+            upnpManager.disconnect()
+        }
+        
+        // Clear Sonos room selection
+        selectedSonosRooms.removeAll()
+        
+        // Unregister all files from local media server
+        LocalMediaServer.shared.unregisterAll()
+        
+        // Skip MainActor state cleanup - app is terminating anyway
+    }
+    
     /// Handle stop button based on active device type
     /// - Sonos/DLNA: Stop keeps session active (can play another track)
     /// - Chromecast: Stop disconnects completely
