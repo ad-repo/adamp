@@ -103,7 +103,7 @@ jobs:
             -destination 'platform=macOS' \
             -derivedDataPath DerivedData \
             -only-testing:AdAmpUITests \
-            -parallel-testing-enabled YES \
+            -parallel-testing-enabled NO \
             -disableAutomaticPackageResolution \
             -resultBundlePath TestResults.xcresult \
             -quiet
