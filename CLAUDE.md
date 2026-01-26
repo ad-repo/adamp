@@ -142,6 +142,14 @@ Sources/AdAmp/
   let slice = data[(data.startIndex + 4)..<(data.startIndex + total)]
   ```
 - **No Spotify/Apple/Amazon**: These integrations are explicitly not accepted
+- **Plex API filter operators**: `URLQueryItem` will URL-encode operators like `>=`, `<=`, `<` which breaks Plex filtering. Build URLs manually for filter params:
+  ```swift
+  // WRONG - URLQueryItem encodes >= as %3E%3D, Plex ignores the filter:
+  URLQueryItem(name: "userRating>=", value: "8")
+  
+  // CORRECT - manual URL with literal operators:
+  let url = "\(baseURL)/library/sections/\(id)/all?type=10&userRating>=8&..."
+  ```
 
 ## Testing
 

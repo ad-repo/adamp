@@ -439,6 +439,24 @@ GET /library/sections/{libID}/all?type=10&track.sonicallySimilar={trackID}&userR
 GET /library/sections/{libID}/all?type=10&userRating>=8&sort=random&limit=100
 ```
 
+### URL Encoding Warning
+
+**IMPORTANT**: Plex filter operators (`>=`, `<=`, `<`, `>`) must NOT be URL-encoded in query parameters.
+
+- **WRONG**: `userRating%3E%3D=8` (URLQueryItem encodes `>=` as `%3E%3D`)
+- **CORRECT**: `userRating>=8` (literal `>=` in the URL)
+
+When using Swift's `URLQueryItem`, it will incorrectly encode the operator. Build URLs manually for filter parameters:
+```swift
+// WRONG - URLQueryItem encodes >=
+URLQueryItem(name: "userRating>=", value: "8")  // produces userRating%3E%3D=8
+
+// CORRECT - manual URL construction
+let urlString = "\(baseURL)/library/sections/\(id)/all?type=10&userRating>=8&..."
+```
+
+This applies to all filter operators: `>=`, `<=`, `<`, `>`, `!=`
+
 ## Configuration
 
 Radio station thresholds are defined in `RadioConfig` enum (`PlexServerClient.swift`):
