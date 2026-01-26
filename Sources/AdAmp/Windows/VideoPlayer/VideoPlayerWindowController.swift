@@ -32,6 +32,15 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     /// Current local video URL (for non-Plex video casting)
     private var currentLocalURL: URL?
     
+    /// Public access to current Plex movie metadata (for About Playing)
+    var plexMovie: PlexMovie? { currentPlexMovie }
+    
+    /// Public access to current Plex episode metadata (for About Playing)
+    var plexEpisode: PlexEpisode? { currentPlexEpisode }
+    
+    /// Public access to current local video URL (for About Playing)
+    var localVideoURL: URL? { currentLocalURL }
+    
     /// Whether we're actively casting video from this player
     private(set) var isCastingVideo: Bool = false
     

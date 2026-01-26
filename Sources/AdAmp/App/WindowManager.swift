@@ -518,6 +518,11 @@ class WindowManager {
         return nil
     }
     
+    /// Public access to video player controller (for About Playing feature)
+    var currentVideoPlayerController: VideoPlayerWindowController? {
+        videoPlayerWindowController
+    }
+    
     func toggleVideoPlayer() {
         if let controller = videoPlayerWindowController, controller.window?.isVisible == true {
             controller.window?.orderOut(nil)

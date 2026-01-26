@@ -458,6 +458,16 @@ class PlexServerClient {
         return response.mediaContainer.metadata?.first?.toEpisode()
     }
     
+    /// Fetch detailed metadata for a track (includes media info, genre, year, ratings)
+    func fetchTrackDetails(trackID: String) async throws -> PlexTrack? {
+        guard let request = buildRequest(path: "/library/metadata/\(trackID)") else {
+            throw PlexServerError.invalidURL
+        }
+        
+        let response: PlexResponse<PlexMetadataResponse> = try await performRequest(request)
+        return response.mediaContainer.metadata?.first?.toTrack()
+    }
+    
     // MARK: - Search
     
     /// Search for content in a library

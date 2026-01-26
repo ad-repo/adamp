@@ -789,6 +789,24 @@ Enable this option to keep the Library Browser and Milkdrop windows using the de
 
 Right-click anywhere on AdAmp windows to access:
 
+### About Playing
+
+Shows detailed metadata for the currently playing track or video. This option is disabled (grayed out) when nothing is playing.
+
+**For Audio Tracks:**
+- Title, Artist, Album
+- Duration, Bitrate, Sample Rate, Channels
+- File path (local) or server path (Plex)
+- Genre, Year, Track Number (Plex only)
+- Last.fm scrobble count and your rating (Plex only)
+
+**For Videos:**
+- Title, Year, Studio (movies)
+- Show name, Season, Episode (TV)
+- Resolution, Video/Audio codecs
+- Content rating, IMDB/TMDB IDs
+- Summary (truncated)
+
 ### Play
 - **File...** - Open file dialog
 - **Folder...** - Open folder dialog
