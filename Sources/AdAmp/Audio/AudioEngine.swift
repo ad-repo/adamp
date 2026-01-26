@@ -1405,12 +1405,13 @@ class AudioEngine {
             _currentTime = 0
             lastReportedTime = 0
             
-            // Stop any audio playback
+            // Stop any audio playback and reset streaming state
             if isStreamingPlayback {
                 streamingPlayer?.stop()
             } else {
                 playerNode.stop()
             }
+            isStreamingPlayback = false  // Reset to neutral state for video playback
             
             // Route to video player via WindowManager
             DispatchQueue.main.async {

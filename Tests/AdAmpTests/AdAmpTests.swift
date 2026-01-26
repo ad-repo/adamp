@@ -948,7 +948,8 @@ final class AdAmpTests: XCTestCase {
             updatedAt: nil,
             genre: nil,
             parentYear: nil,
-            ratingCount: nil
+            ratingCount: nil,
+            userRating: nil
         )
         
         XCTAssertEqual(track.formattedDuration, "3:05")
@@ -973,7 +974,8 @@ final class AdAmpTests: XCTestCase {
             updatedAt: nil,
             genre: nil,
             parentYear: nil,
-            ratingCount: nil
+            ratingCount: nil,
+            userRating: nil
         )
         
         XCTAssertEqual(track.durationInSeconds, 180.0)
@@ -1459,7 +1461,8 @@ final class AdAmpTests: XCTestCase {
             updatedAt: nil,
             genre: nil,
             parentYear: nil,
-            ratingCount: nil
+            ratingCount: nil,
+            userRating: nil
         )
         
         XCTAssertEqual(track.partKey, "/library/parts/123")
