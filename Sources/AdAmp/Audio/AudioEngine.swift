@@ -70,6 +70,9 @@ class AudioEngine {
         return AVAudioUnitEffect(audioComponentDescription: componentDescription)
     }()
     
+    /// Mixer node to combine player nodes (class property for graph rebuilding)
+    private let mixerNode = AVAudioMixerNode()
+    
     /// Current audio file (for local files)
     private var audioFile: AVAudioFile?
     
@@ -279,13 +282,21 @@ class AudioEngine {
     // MARK: - Initialization
     
     init() {
-        // NOTE: We intentionally do NOT restore saved output device here.
-        // setOutputDevice() changes the CoreAudio device but can cause format
-        // mismatches that break the audio graph. The system default device works
-        // correctly. Users can manually select a different device from the menu.
+        // Observe audio device configuration changes FIRST
+        // This handles format mismatches when output device changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioConfigChange),
+            name: .AVAudioEngineConfigurationChange,
+            object: engine
+        )
+        
         setupAudioEngine()
         setupEqualizer()
         setupSpectrumAnalyzer()
+        
+        // Restore saved output device (notification handler will rebuild graph if needed)
+        restoreSavedOutputDevice()
     }
     
     deinit {
@@ -304,16 +315,14 @@ class AudioEngine {
         engine.attach(crossfadePlayerNode)  // For Sweet Fades crossfade
         engine.attach(eqNode)
         engine.attach(limiterNode)
+        engine.attach(mixerNode)  // Class property for graph rebuilding
         
         // Get the standard format from the mixer
         let mixerFormat = engine.mainMixerNode.outputFormat(forBus: 0)
         
-        // Create a mixer node to combine both player nodes before EQ
         // Signal flow: playerNode ─┐
         //                          ├─► mixerNode ─► eqNode ─► limiter ─► output
         //  crossfadePlayerNode ────┘
-        let mixerNode = AVAudioMixerNode()
-        engine.attach(mixerNode)
         
         // Connect both players to the mixer
         engine.connect(playerNode, to: mixerNode, format: mixerFormat)
@@ -383,6 +392,100 @@ class AudioEngine {
         // Load sweet fade duration with default of 5.0 seconds
         let savedDuration = UserDefaults.standard.double(forKey: "sweetFadeDuration")
         sweetFadeDuration = savedDuration > 0 ? savedDuration : 5.0
+    }
+    
+    // MARK: - Audio Configuration Change Handling
+    
+    /// Handle audio configuration changes (device format changes)
+    /// Called when AVAudioEngine detects a configuration change (e.g., device sample rate changed)
+    @objc private func handleAudioConfigChange(_ notification: Notification) {
+        NSLog("AudioEngine: Configuration change detected, rebuilding audio graph")
+        // CRITICAL: Must use async to avoid deadlock
+        // The notification fires on an internal dispatch queue
+        DispatchQueue.main.async { [weak self] in
+            self?.rebuildAudioGraph()
+        }
+    }
+    
+    /// Rebuild the audio graph with the new output format
+    /// Called after a device change that affects the audio format
+    private func rebuildAudioGraph() {
+        let wasPlaying = state == .playing
+        let currentPosition = currentTime
+        
+        // Get new format from the updated output device
+        let mixerFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+        NSLog("AudioEngine: Rebuilding graph with format: %@", mixerFormat.description)
+        
+        // Reconnect all nodes with new format
+        engine.connect(playerNode, to: mixerNode, format: mixerFormat)
+        engine.connect(crossfadePlayerNode, to: mixerNode, format: mixerFormat)
+        engine.connect(mixerNode, to: eqNode, format: mixerFormat)
+        engine.connect(eqNode, to: limiterNode, format: mixerFormat)
+        engine.connect(limiterNode, to: engine.mainMixerNode, format: mixerFormat)
+        
+        // Re-schedule current audio if we were playing local files
+        if wasPlaying && !isStreamingPlayback, let file = audioFile {
+            do {
+                try engine.start()
+                
+                // Schedule from current position
+                let sampleRate = file.processingFormat.sampleRate
+                let framePosition = AVAudioFramePosition(currentPosition * sampleRate)
+                let remainingFrames = file.length - framePosition
+                
+                guard remainingFrames > 0 else {
+                    NSLog("AudioEngine: No remaining frames after config change")
+                    return
+                }
+                
+                // Increment generation to invalidate old completion handlers
+                playbackGeneration += 1
+                let currentGeneration = playbackGeneration
+                
+                playerNode.scheduleSegment(file,
+                    startingFrame: framePosition,
+                    frameCount: AVAudioFrameCount(remainingFrames),
+                    at: nil) { [weak self] in
+                        DispatchQueue.main.async {
+                            self?.handlePlaybackComplete(generation: currentGeneration)
+                        }
+                    }
+                playerNode.play()
+                playbackStartDate = Date()
+                _currentTime = currentPosition
+                state = .playing
+                
+                NSLog("AudioEngine: Resumed playback from %.2fs after config change", currentPosition)
+            } catch {
+                NSLog("AudioEngine: Failed to restart after config change: %@", error.localizedDescription)
+            }
+        } else if wasPlaying && isStreamingPlayback {
+            // For streaming, just restart the engine - StreamingAudioPlayer manages its own state
+            do {
+                try engine.start()
+                NSLog("AudioEngine: Restarted engine for streaming after config change")
+            } catch {
+                NSLog("AudioEngine: Failed to restart engine for streaming: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    /// Restore saved output device preference
+    private func restoreSavedOutputDevice() {
+        guard let savedDeviceUID = UserDefaults.standard.string(forKey: "selectedOutputDeviceUID") else {
+            return
+        }
+        
+        // Find device by UID
+        let devices = AudioOutputManager.shared.outputDevices
+        guard let device = devices.first(where: { $0.uid == savedDeviceUID }) else {
+            NSLog("AudioEngine: Saved output device not found: %@", savedDeviceUID)
+            return
+        }
+        
+        NSLog("AudioEngine: Restoring saved output device: %@ (%@)", device.name, savedDeviceUID)
+        setOutputDevice(device.id)
     }
     
     private func setupEqualizer() {
@@ -2221,13 +2324,6 @@ class AudioEngine {
     /// - Returns: true if successful, false otherwise
     @discardableResult
     func setOutputDevice(_ deviceID: AudioDeviceID?) -> Bool {
-        let wasPlaying = state == .playing
-        
-        // Stop engine before changing output device
-        if engine.isRunning {
-            engine.stop()
-        }
-        
         // Get the actual device ID to use
         let targetDeviceID: AudioDeviceID
         if let deviceID = deviceID {
@@ -2235,7 +2331,7 @@ class AudioEngine {
         } else {
             // Use system default
             guard let defaultID = AudioOutputManager.shared.getDefaultOutputDeviceID() else {
-                print("Failed to get default output device")
+                NSLog("AudioEngine: Failed to get default output device")
                 return false
             }
             targetDeviceID = defaultID
@@ -2243,7 +2339,7 @@ class AudioEngine {
         
         // Get the audio unit from the output node
         guard let outputUnit = engine.outputNode.audioUnit else {
-            print("Failed to get output audio unit")
+            NSLog("AudioEngine: Failed to get output audio unit")
             return false
         }
         
@@ -2259,12 +2355,7 @@ class AudioEngine {
         )
         
         if status != noErr {
-            print("Failed to set output device: \(status)")
-            // Try to restart with previous device
-            if wasPlaying {
-                try? engine.start()
-                playerNode.play()
-            }
+            NSLog("AudioEngine: Failed to set output device: %d", status)
             return false
         }
         
@@ -2273,16 +2364,19 @@ class AudioEngine {
         // Update the AudioOutputManager's selection
         AudioOutputManager.shared.selectDevice(deviceID)
         
-        // Restart engine if it was playing
-        if wasPlaying {
-            do {
-                try engine.start()
-                playerNode.play()
-            } catch {
-                print("Failed to restart audio engine after device change: \(error)")
-                return false
-            }
+        // Save device UID for restoration on next launch
+        if let deviceID = deviceID,
+           let device = AudioOutputManager.shared.outputDevices.first(where: { $0.id == deviceID }) {
+            UserDefaults.standard.set(device.uid, forKey: "selectedOutputDeviceUID")
+            NSLog("AudioEngine: Saved output device preference: %@ (%@)", device.name, device.uid)
+        } else {
+            // System default - clear the preference
+            UserDefaults.standard.removeObject(forKey: "selectedOutputDeviceUID")
+            NSLog("AudioEngine: Cleared output device preference (using system default)")
         }
+        
+        // The AVAudioEngineConfigurationChange notification will fire if the format changed,
+        // and handleAudioConfigChange will rebuild the audio graph and resume playback
         
         return true
     }
@@ -2293,11 +2387,6 @@ class AudioEngine {
         return AudioOutputManager.shared.outputDevices.first { $0.id == deviceID }
     }
     
-    // NOTE: We intentionally do NOT auto-restore saved output device on startup.
-    // Changing the CoreAudio output device via setOutputDevice() can cause format
-    // mismatches that break the AVAudioEngine node connections. The system default
-    // device works correctly. Users can manually select a different device from
-    // the Output Device menu if needed.
     
     // MARK: - Playlist Management
     

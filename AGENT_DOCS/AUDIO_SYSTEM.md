@@ -455,6 +455,20 @@ func setOutputDevice(_ deviceID: AudioDeviceID?) -> Bool
 
 This uses CoreAudio's `AudioUnitSetProperty` with `kAudioOutputUnitProperty_CurrentDevice` on the engine's output node.
 
+### Configuration Change Handling
+
+When the output device changes (either programmatically or via system events like plugging in headphones), AVAudioEngine fires an `AVAudioEngineConfigurationChange` notification. AudioEngine observes this and:
+
+1. Reconnects all nodes with the new output format (sample rate may differ between devices)
+2. Re-schedules audio from the current position
+3. Resumes playback automatically
+
+This ensures seamless transitions between devices with different sample rates (e.g., 44.1kHz vs 48kHz).
+
+### Device Preference Persistence
+
+The selected output device UID is saved to UserDefaults and restored on app launch. If the saved device is no longer available, the system default is used.
+
 **Note:** Output device selection only affects local file playback. Streaming audio uses the system default output (AudioStreaming limitation).
 
 ## File Support
