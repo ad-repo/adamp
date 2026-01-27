@@ -325,9 +325,14 @@ class PlexBrowserView: NSView {
             if isArtOnlyMode {
                 // Fetch current track rating when entering art mode
                 fetchCurrentTrackRating()
+                // Load all artwork for cycling
+                loadAllArtworkForCurrentTrack()
             } else {
                 // Stop visualization when exiting art-only mode
                 isVisualizingArt = false
+                // Clear cycling state
+                artworkImages = []
+                artworkIndex = 0
             }
         }
     }
@@ -355,6 +360,12 @@ class PlexBrowserView: NSView {
     
     /// Task for debounced rating submission (cancels previous if rapid selection)
     private var ratingSubmitTask: Task<Void, Never>?
+    
+    /// All artwork images for the current track (for cycling in art mode)
+    private var artworkImages: [NSImage] = []
+    
+    /// Current index in artworkImages array
+    private var artworkIndex: Int = 0
     
     /// Current visualization effect (30 effects - all transform the image)
     enum VisEffect: String, CaseIterable {
@@ -3951,9 +3962,10 @@ class PlexBrowserView: NSView {
     // MARK: - Artwork Background
     
     @objc private func trackDidChange(_ notification: Notification) {
-        // Fetch new track's rating when in art mode
+        // Fetch new track's rating and reload artwork when in art mode
         if isArtOnlyMode {
             fetchCurrentTrackRating()
+            loadAllArtworkForCurrentTrack()
         }
         
         guard WindowManager.shared.showBrowserArtworkBackground else {
@@ -4311,6 +4323,120 @@ class PlexBrowserView: NSView {
         }
         
         return nil
+    }
+    
+    /// Extract all embedded artwork images from a local audio file
+    /// Returns array of images (deduped across different metadata formats)
+    private func loadAllLocalArtwork(url: URL) async -> [NSImage] {
+        var images: [NSImage] = []
+        var seenData: Set<Int> = []  // Track seen images by data hash
+        
+        let asset = AVURLAsset(url: url)
+        
+        do {
+            // Check common metadata
+            let metadata = try await asset.load(.metadata)
+            for item in metadata {
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        let hash = data.hashValue
+                        if !seenData.contains(hash) {
+                            seenData.insert(hash)
+                            images.append(image)
+                        }
+                    }
+                }
+            }
+            
+            // Check ID3 metadata (MP3 files - may have multiple APIC frames)
+            let id3Metadata = try await asset.loadMetadata(for: .id3Metadata)
+            for item in id3Metadata {
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        let hash = data.hashValue
+                        if !seenData.contains(hash) {
+                            seenData.insert(hash)
+                            images.append(image)
+                        }
+                    }
+                }
+            }
+            
+            // Check iTunes metadata (M4A/AAC files)
+            let itunesMetadata = try await asset.loadMetadata(for: .iTunesMetadata)
+            for item in itunesMetadata {
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        let hash = data.hashValue
+                        if !seenData.contains(hash) {
+                            seenData.insert(hash)
+                            images.append(image)
+                        }
+                    }
+                }
+            }
+        } catch {
+            NSLog("PlexBrowserView: Failed to load all local artwork: %@", error.localizedDescription)
+        }
+        
+        return images
+    }
+    
+    /// Cycle to the next artwork image in art-only mode
+    private func cycleToNextArtwork() {
+        guard artworkImages.count > 1 else {
+            // Only one image (or none) - nothing to cycle
+            return
+        }
+        
+        artworkIndex = (artworkIndex + 1) % artworkImages.count
+        currentArtwork = artworkImages[artworkIndex]
+        needsDisplay = true
+    }
+    
+    /// Load all available artwork for the currently playing track
+    private func loadAllArtworkForCurrentTrack() {
+        guard let currentTrack = WindowManager.shared.audioEngine.currentTrack else {
+            artworkImages = []
+            artworkIndex = 0
+            return
+        }
+        
+        Task { [weak self] in
+            guard let self = self else { return }
+            
+            var images: [NSImage] = []
+            
+            if currentTrack.url.isFileURL {
+                // Local file - extract all embedded artwork
+                images = await self.loadAllLocalArtwork(url: currentTrack.url)
+            } else if let plexRatingKey = currentTrack.plexRatingKey {
+                // Plex track - load track artwork using existing method
+                if let image = await self.loadPlexArtwork(ratingKey: plexRatingKey, albumName: currentTrack.album) {
+                    images.append(image)
+                }
+            } else if let subsonicId = currentTrack.subsonicId {
+                // Subsonic track - load cover art using existing method
+                if let image = await self.loadSubsonicArtwork(songId: subsonicId, albumName: currentTrack.album) {
+                    images.append(image)
+                }
+            }
+            
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+            
+            await MainActor.run {
+                self.artworkImages = images
+                self.artworkIndex = 0
+                if let first = images.first {
+                    self.currentArtwork = first
+                    self.needsDisplay = true
+                }
+            }
+        }
     }
     
     /// Load artwork based on the currently selected item in the browser
@@ -4972,6 +5098,12 @@ class PlexBrowserView: NSView {
         // In visualization mode, click anywhere in content to cycle effects
         if isArtOnlyMode && isVisualizingArt && hitTestContentArea(at: winampPoint) {
             nextVisEffect()
+            return
+        }
+        
+        // In art-only mode without visualization, cycle through artwork images
+        if isArtOnlyMode && !isVisualizingArt && hitTestContentArea(at: winampPoint) {
+            cycleToNextArtwork()
             return
         }
         
