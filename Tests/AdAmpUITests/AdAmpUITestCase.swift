@@ -16,8 +16,9 @@ class AdAmpUITestCase: XCTestCase {
         // Stop immediately on failure
         continueAfterFailure = false
         
-        // Initialize the application
-        app = XCUIApplication()
+        // Initialize the application with explicit bundle ID
+        // Required for SPM-based projects where XCTest can't auto-detect the target app
+        app = XCUIApplication(bundleIdentifier: "com.adamp.player")
         
         // Set UI testing launch argument
         app.launchArguments = ["--ui-testing"]
