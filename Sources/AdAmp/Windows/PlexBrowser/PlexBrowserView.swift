@@ -478,6 +478,9 @@ class PlexBrowserView: NSView {
     /// Async task for loading artwork (can be cancelled)
     private var artworkLoadTask: Task<Void, Never>?
     
+    /// Async task for loading all artwork images for cycling (can be cancelled)
+    private var artworkCyclingTask: Task<Void, Never>?
+    
     /// Static image cache shared across all browser instances
     private static let artworkCache = NSCache<NSString, NSImage>()
     
@@ -3999,6 +4002,11 @@ class PlexBrowserView: NSView {
         // Skip if same track
         guard track.id != artworkTrackId else { return }
         
+        // Clear immediately to prevent showing stale artwork during load
+        currentArtwork = nil
+        artworkTrackId = nil
+        needsDisplay = true
+        
         artworkLoadTask = Task { [weak self] in
             guard let self = self else { return }
             
@@ -4399,13 +4407,22 @@ class PlexBrowserView: NSView {
     
     /// Load all available artwork for the currently playing track
     private func loadAllArtworkForCurrentTrack() {
+        // Cancel any pending artwork cycling task
+        artworkCyclingTask?.cancel()
+        artworkCyclingTask = nil
+        
         guard let currentTrack = WindowManager.shared.audioEngine.currentTrack else {
             artworkImages = []
             artworkIndex = 0
             return
         }
         
-        Task { [weak self] in
+        // Clear cycling array immediately to prevent cycling through stale images
+        // Note: Don't clear currentArtwork here - loadArtwork(for:) handles the main display
+        artworkImages = []
+        artworkIndex = 0
+        
+        artworkCyclingTask = Task { [weak self] in
             guard let self = self else { return }
             
             var images: [NSImage] = []
@@ -7396,6 +7413,12 @@ class PlexBrowserView: NSView {
             default:
                 break
             }
+        }
+        
+        // Handle Escape in art-only mode (without visualization)
+        if isArtOnlyMode && !isVisualizingArt && event.keyCode == 53 {
+            isArtOnlyMode = false
+            return
         }
         
         switch event.keyCode {
