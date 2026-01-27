@@ -1526,6 +1526,13 @@ class AudioEngine {
             return
         }
         
+        // Stop video playback before loading audio track
+        // This ensures the user's intent to play audio takes precedence
+        if WindowManager.shared.isVideoActivePlayback {
+            NSLog("loadTrack: Stopping video playback before loading audio track")
+            WindowManager.shared.stopVideo()
+        }
+        
         // Check if this is a remote URL (streaming)
         if track.url.scheme == "http" || track.url.scheme == "https" {
             loadStreamingTrack(track)
