@@ -1,14 +1,18 @@
-
 import Foundation
 import Network
 
 /// Protocol for Chromecast discovery and playback control
 /// Uses mDNS to discover devices advertising _googlecast._tcp
-class ChromecastManager {
+class ChromecastManager: CastSessionControllerDelegate {
     
     // MARK: - Singleton
     
     static let shared = ChromecastManager()
+    
+    // MARK: - Notifications
+    
+    /// Posted when media status is updated from Chromecast (contains CastMediaStatus in userInfo)
+    static let mediaStatusDidUpdateNotification = Notification.Name("ChromecastMediaStatusDidUpdate")
     
     // MARK: - Properties
     
@@ -23,6 +27,9 @@ class ChromecastManager {
     
     /// Active cast session
     private(set) var activeSession: CastSession?
+    
+    /// Cast protocol session controller
+    private var sessionController: CastSessionController?
     
     /// Discovery state
     private(set) var isDiscovering: Bool = false
@@ -298,59 +305,30 @@ class ChromecastManager {
         
         NSLog("ChromecastManager: Connecting to %@ at %@:%d", device.name, device.address, device.port)
         
-        // Create TLS connection to the Chromecast
-        let host = NWEndpoint.Host(device.address)
-        let port = NWEndpoint.Port(integerLiteral: UInt16(device.port))
+        // Create session controller and connect
+        let controller = CastSessionController()
         
-        // Configure TLS parameters (Chromecast uses self-signed certs)
-        let tlsOptions = NWProtocolTLS.Options()
-        sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, complete in
-            // Accept any certificate (Chromecast uses self-signed)
-            complete(true)
-        }, .main)
+        // Strip interface suffix from address (e.g., "192.168.0.199%en0" -> "192.168.0.199")
+        let cleanAddress = device.address.components(separatedBy: "%").first ?? device.address
         
-        let parameters = NWParameters(tls: tlsOptions)
-        let connection = NWConnection(host: host, port: port, using: parameters)
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            var completed = false
-            
-            connection.stateUpdateHandler = { [weak self] state in
-                guard !completed else { return }
-                
-                switch state {
-                case .ready:
-                    completed = true
-                    NSLog("ChromecastManager: Connected to %@", device.name)
-                    self?.connections[device.id] = connection
-                    self?.activeSession = CastSession(device: device)
-                    self?.activeSession?.state = .connected
+        // Use continuation to bridge completion handler to async/await
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            controller.connect(host: cleanAddress, port: device.port) { result in
+                switch result {
+                case .success:
                     continuation.resume()
-                    
-                case .failed(let error):
-                    completed = true
-                    NSLog("ChromecastManager: Connection failed: %@", error.localizedDescription)
-                    continuation.resume(throwing: CastError.connectionFailed(error.localizedDescription))
-                    
-                case .cancelled:
-                    completed = true
-                    continuation.resume(throwing: CastError.connectionFailed("Connection cancelled"))
-                    
-                default:
-                    break
+                case .failure(let error):
+                    continuation.resume(throwing: error)
                 }
             }
-            
-            connection.start(queue: .main)
-            
-            // Timeout
-            DispatchQueue.main.asyncAfter(deadline: .now() + connectionTimeout) {
-                guard !completed else { return }
-                completed = true
-                connection.cancel()
-                continuation.resume(throwing: CastError.connectionTimeout)
-            }
         }
+        
+        sessionController = controller
+        sessionController?.delegate = self
+        activeSession = CastSession(device: device)
+        activeSession?.state = .connected
+        
+        NSLog("ChromecastManager: Connected to %@", device.name)
     }
     
     /// Disconnect from the current device
@@ -358,6 +336,11 @@ class ChromecastManager {
         guard let session = activeSession else { return }
         
         NSLog("ChromecastManager: Disconnecting from %@", session.device.name)
+        
+        // Stop status polling before disconnecting
+        sessionController?.stopStatusPolling()
+        sessionController?.disconnect()
+        sessionController = nil
         
         connections[session.device.id]?.cancel()
         connections.removeValue(forKey: session.device.id)
@@ -369,31 +352,53 @@ class ChromecastManager {
     // MARK: - Playback Control
     
     /// Cast media to the connected device
-    /// Note: Full Cast protocol implementation requires protobuf messaging.
-    /// This is a simplified version - for production, consider using OpenCastSwift
     func cast(url: URL, metadata: CastMetadata) async throws {
         guard let session = activeSession,
-              connections[session.device.id] != nil else {
+              let controller = sessionController else {
             throw CastError.sessionNotActive
         }
         
         NSLog("ChromecastManager: Casting %@ to %@", url.absoluteString, session.device.name)
         
+        // Launch the Default Media Receiver app
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            controller.launchApp { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+        
+        // Load the media
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            controller.loadMedia(
+                url: url,
+                contentType: metadata.contentType,
+                title: metadata.title,
+                artist: metadata.artist
+            ) { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+        
         // Update session state
-        session.state = .casting
-        session.currentURL = url
-        session.metadata = metadata
+        activeSession?.state = .casting
+        activeSession?.currentURL = url
+        activeSession?.metadata = metadata
         
-        // Note: Full implementation would require:
-        // 1. Send CONNECT message to receiver-0
-        // 2. Launch Default Media Receiver app
-        // 3. Send LOAD message with media URL
-        // For now, we'll use HTTP-based media loading which some Chromecasts support
+        // Start polling for status updates to keep position synced
+        controller.startStatusPolling(interval: 1.0)
         
-        // Simplified: Many Chromecasts support direct HTTP control
-        // This would need the full protobuf implementation for production
+        NSLog("ChromecastManager: Successfully started casting to %@", session.device.name)
         
-        NotificationCenter.default.post(name: CastManager.sessionDidChangeNotification, object: nil)
         NotificationCenter.default.post(name: CastManager.playbackStateDidChangeNotification, object: nil)
     }
     
@@ -402,6 +407,10 @@ class ChromecastManager {
         guard let session = activeSession else { return }
         
         NSLog("ChromecastManager: Stopping playback on %@", session.device.name)
+        
+        // Stop status polling
+        sessionController?.stopStatusPolling()
+        sessionController?.stop()
         
         session.state = .connected
         session.currentURL = nil
@@ -414,21 +423,21 @@ class ChromecastManager {
     func pause() {
         guard let session = activeSession else { return }
         NSLog("ChromecastManager: Pausing playback on %@", session.device.name)
-        // Full implementation would send PAUSE command
+        sessionController?.pause()
     }
     
     /// Resume playback
     func resume() {
         guard let session = activeSession else { return }
         NSLog("ChromecastManager: Resuming playback on %@", session.device.name)
-        // Full implementation would send PLAY command
+        sessionController?.play()
     }
     
     /// Seek to position
     func seek(to time: TimeInterval) {
         guard let session = activeSession else { return }
         NSLog("ChromecastManager: Seeking to %.1f on %@", time, session.device.name)
-        // Full implementation would send SEEK command
+        sessionController?.seek(to: time)
     }
     
     // MARK: - Volume Control
@@ -437,12 +446,11 @@ class ChromecastManager {
     func setVolume(_ volume: Float) {
         guard let session = activeSession else { return }
         NSLog("ChromecastManager: Setting volume to %.2f on %@", volume, session.device.name)
-        // Full implementation would send SET_VOLUME command via protobuf
+        sessionController?.setVolume(volume)
     }
     
     /// Get current volume
     func getVolume() -> Float {
-        // Full implementation would query device status
         return 1.0
     }
     
@@ -450,6 +458,33 @@ class ChromecastManager {
     func setMuted(_ muted: Bool) {
         guard let session = activeSession else { return }
         NSLog("ChromecastManager: Setting mute to %@ on %@", muted ? "ON" : "OFF", session.device.name)
-        // Full implementation would send SET_VOLUME command with muted flag
+        sessionController?.setMute(muted)
+    }
+    
+    // MARK: - CastSessionControllerDelegate
+    
+    func castSessionDidUpdateMediaStatus(_ status: CastMediaStatus) {
+        // Post notification so CastManager can update time tracking
+        NotificationCenter.default.post(
+            name: Self.mediaStatusDidUpdateNotification,
+            object: self,
+            userInfo: ["status": status]
+        )
+    }
+    
+    func castSessionDidClose() {
+        NSLog("ChromecastManager: Session closed unexpectedly")
+        
+        // Stop status polling
+        sessionController?.stopStatusPolling()
+        
+        // Update session state
+        if let session = activeSession {
+            session.state = .idle
+            session.currentURL = nil
+            session.metadata = nil
+        }
+        
+        NotificationCenter.default.post(name: CastManager.sessionDidChangeNotification, object: nil)
     }
 }

@@ -322,9 +322,17 @@ class PlexBrowserView: NSView {
     private var isArtOnlyMode: Bool = false {
         didSet {
             needsDisplay = true
-            // Stop visualization when exiting art-only mode
-            if !isArtOnlyMode {
+            if isArtOnlyMode {
+                // Fetch current track rating when entering art mode
+                fetchCurrentTrackRating()
+                // Load all artwork for cycling
+                loadAllArtworkForCurrentTrack()
+            } else {
+                // Stop visualization when exiting art-only mode
                 isVisualizingArt = false
+                // Clear cycling state
+                artworkImages = []
+                artworkIndex = 0
             }
         }
     }
@@ -340,6 +348,24 @@ class PlexBrowserView: NSView {
             needsDisplay = true
         }
     }
+    
+    /// Whether the rating overlay is visible
+    private var isRatingOverlayVisible: Bool = false
+    
+    /// Current user rating for the playing Plex track (0-10, nil if unrated)
+    private var currentTrackRating: Int? = nil
+    
+    /// Hit rect for the RATE button
+    private var rateButtonRect: NSRect = .zero
+    
+    /// Task for debounced rating submission (cancels previous if rapid selection)
+    private var ratingSubmitTask: Task<Void, Never>?
+    
+    /// All artwork images for the current track (for cycling in art mode)
+    private var artworkImages: [NSImage] = []
+    
+    /// Current index in artworkImages array
+    private var artworkIndex: Int = 0
     
     /// Current visualization effect (30 effects - all transform the image)
     enum VisEffect: String, CaseIterable {
@@ -678,6 +704,107 @@ class PlexBrowserView: NSView {
         isVisualizingArt.toggle()
     }
     
+    // MARK: - Rating Overlay
+    
+    /// Lazy rating overlay view
+    private lazy var ratingOverlay: RatingOverlayView = {
+        let overlay = RatingOverlayView(frame: bounds)
+        overlay.autoresizingMask = [.width, .height]
+        overlay.isHidden = true
+        overlay.onRatingSelected = { [weak self] rating in
+            self?.submitRating(rating)
+        }
+        overlay.onDismiss = { [weak self] in
+            self?.hideRatingOverlay()
+        }
+        addSubview(overlay)
+        return overlay
+    }()
+    
+    /// Show the rating overlay
+    private func showRatingOverlay() {
+        guard let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+              currentTrack.plexRatingKey != nil else { return }
+        
+        ratingOverlay.frame = bounds
+        ratingOverlay.setRating(currentTrackRating ?? 0)
+        ratingOverlay.isHidden = false
+        isRatingOverlayVisible = true
+        needsDisplay = true
+    }
+    
+    /// Hide the rating overlay
+    private func hideRatingOverlay() {
+        ratingOverlay.isHidden = true
+        isRatingOverlayVisible = false
+        ratingSubmitTask?.cancel()  // Cancel any pending submission
+        ratingSubmitTask = nil
+        needsDisplay = true
+    }
+    
+    /// Submit rating to Plex (debounced to prevent rapid API calls)
+    private func submitRating(_ rating: Int) {
+        guard let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+              let ratingKey = currentTrack.plexRatingKey else { return }
+        
+        // Update UI immediately for responsiveness
+        currentTrackRating = rating
+        needsDisplay = true
+        
+        // Cancel any pending submission
+        ratingSubmitTask?.cancel()
+        
+        // Debounce: wait 500ms before submitting to allow rapid selection changes
+        ratingSubmitTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
+                
+                // Check if cancelled during debounce
+                try Task.checkCancellation()
+                
+                try await PlexManager.shared.serverClient?.rateItem(ratingKey: ratingKey, rating: rating)
+                NSLog("PlexBrowser: Rated track %@ with %d stars", ratingKey, rating / 2)
+                
+                // Dismiss after short delay to show the selection
+                try await Task.sleep(nanoseconds: 300_000_000)  // 0.3s
+                await MainActor.run {
+                    hideRatingOverlay()
+                }
+            } catch is CancellationError {
+                // Cancelled by newer selection - ignore
+            } catch {
+                NSLog("PlexBrowser: Failed to rate track: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    /// Fetch current track's rating from Plex
+    private func fetchCurrentTrackRating() {
+        guard let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+              let ratingKey = currentTrack.plexRatingKey else {
+            currentTrackRating = nil
+            return
+        }
+        
+        Task {
+            do {
+                if let trackDetails = try await PlexManager.shared.serverClient?.fetchTrackDetails(trackID: ratingKey) {
+                    await MainActor.run {
+                        if let userRating = trackDetails.userRating {
+                            currentTrackRating = Int(userRating)
+                            NSLog("PlexBrowser: Fetched rating %d for track %@", Int(userRating), ratingKey)
+                        } else {
+                            currentTrackRating = nil
+                        }
+                        needsDisplay = true
+                    }
+                }
+            } catch {
+                NSLog("PlexBrowser: Failed to fetch track rating: %@", error.localizedDescription)
+            }
+        }
+    }
+    
     /// Called when source changes
     private func onSourceChanged() {
         // Clear all cached data for both sources
@@ -844,6 +971,7 @@ class PlexBrowserView: NSView {
             renderer.drawPlexBrowserWindow(in: context, bounds: drawBounds, isActive: isActive,
                                            pressedButton: pressedButton, scrollPosition: scrollPosition)
             
+            
             // Get skin colors for content areas
             let colors = skin.playlistColors
             
@@ -929,6 +1057,40 @@ class PlexBrowserView: NSView {
         let x = rect.midX - textWidth / 2
         let y = rect.midY - textHeight / 2
         drawScaledWhiteSkinText(text, at: NSPoint(x: x, y: y), scale: scale, renderer: renderer, in: context)
+    }
+    
+    /// Draw a low-res pixel-art star for server bar rating display
+    /// Uses a bitmap pattern for authentic retro look
+    private func drawPixelStar(in rect: NSRect, color: NSColor, context: CGContext) {
+        // 9x9 pixel art star pattern (1 = filled, 0 = empty)
+        // Classic chunky star shape (top-down for flipped Winamp context)
+        let pattern: [[Int]] = [
+            [0, 0, 0, 0, 1, 0, 0, 0, 0],
+            [0, 0, 0, 1, 1, 1, 0, 0, 0],
+            [0, 0, 0, 1, 1, 1, 0, 0, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 0, 1, 1, 1, 1, 1, 0, 0],
+            [0, 0, 1, 1, 0, 1, 1, 0, 0],
+            [0, 1, 1, 0, 0, 0, 1, 1, 0],
+            [1, 1, 0, 0, 0, 0, 0, 1, 1],
+        ]
+        
+        let patternSize = 9
+        let pixelW = rect.width / CGFloat(patternSize)
+        let pixelH = rect.height / CGFloat(patternSize)
+        
+        context.setFillColor(color.cgColor)
+        
+        for row in 0..<patternSize {
+            for col in 0..<patternSize {
+                if pattern[row][col] == 1 {
+                    let x = rect.minX + CGFloat(col) * pixelW
+                    let y = rect.minY + CGFloat(row) * pixelH
+                    context.fill(CGRect(x: x, y: y, width: ceil(pixelW), height: ceil(pixelH)))
+                }
+            }
+        }
     }
     
     private func drawServerBar(in context: CGContext, drawBounds: NSRect, colors: PlaylistColors, renderer: SkinRenderer) {
@@ -1104,49 +1266,105 @@ class PlexBrowserView: NSView {
                     visX = artX  // No VIS button
                 }
                 
-                // Item count (positioned from right side) - tighter spacing in art-only mode
-                // Show top-level item count (artists/albums/tracks), not expanded tree count
-                let itemCount: Int
-                if manager.currentLibrary?.type == "artist" {
-                    itemCount = cachedArtists.count
-                } else if manager.currentLibrary?.type == "album" {
-                    itemCount = cachedAlbums.count
-                } else if manager.currentLibrary?.type == "track" {
-                    itemCount = cachedTracks.count
-                } else if manager.currentLibrary?.type == "movie" {
-                    itemCount = cachedMovies.count
-                } else if manager.currentLibrary?.type == "show" {
-                    itemCount = cachedShows.count
-                } else {
-                    itemCount = displayItems.count
-                }
-                let countNumber = "\(itemCount)"
-                let countLabel = " ITEMS"
-                let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
+                // Item count or RATE button (positioned from right side)
+                // In art-only mode with Plex track playing, show RATE instead of item count
                 let countSpacing: CGFloat = isArtOnlyMode ? 12 : 24
-                let countX = visX - countWidth - countSpacing
-                drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
-                let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
-                drawScaledWhiteSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
                 
-                // Draw radio icon with padding from item count (only for music libraries)
-                if manager.currentLibrary?.type == "artist" {
-                    // Tint radio icon with skin's text color
-                    let skinColor = renderer.skin.playlistColors.normalText
-                    if let radioIcon = tintedRadioIcon(with: skinColor) {
-                        let iconSize: CGFloat = 18
-                        // Position radio icon with fixed padding before item count
-                        let radioPadding: CGFloat = isArtOnlyMode ? 14 : 10
-                        let radioX = countX - iconSize - radioPadding
-                        let radioY = barRect.minY + (barRect.height - iconSize) / 2
-                        let iconRect = NSRect(x: radioX, y: radioY, width: iconSize, height: iconSize)
-                        radioButtonRect = iconRect  // Store for hit testing
-                        radioIcon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                if isArtOnlyMode,
+                   let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+                   currentTrack.plexRatingKey != nil {
+                    // Draw star rating in server bar - larger green stars
+                    let starSize: CGFloat = 12
+                    let starSpacing: CGFloat = 2
+                    let totalStars = 5
+                    let starsWidth = CGFloat(totalStars) * starSize + CGFloat(totalStars - 1) * starSpacing
+                    let starsX = visX - starsWidth - countSpacing
+                    let starY = barRect.minY + (barRect.height - starSize) / 2
+                    
+                    // Get current rating (0-10 scale -> 0-5 filled stars)
+                    let rating = currentTrackRating ?? 0
+                    let filledCount = rating / 2
+                    
+                    // Use skin's actual text.bmp color for stars (sampled from font bitmap)
+                    let greenColor = renderer.skinTextColor()
+                    let dimGreen = NSColor(red: greenColor.redComponent * 0.4,
+                                          green: greenColor.greenComponent * 0.4,
+                                          blue: greenColor.blueComponent * 0.4,
+                                          alpha: 0.6)
+                    
+                    // Draw 5 stars
+                    for i in 0..<totalStars {
+                        let x = starsX + CGFloat(i) * (starSize + starSpacing)
+                        let starRect = NSRect(x: x, y: starY, width: starSize, height: starSize)
+                        let isFilled = i < filledCount
+                        drawPixelStar(in: starRect, color: isFilled ? greenColor : dimGreen, context: context)
+                    }
+                    
+                    // Store hit rect for click detection (covers all stars)
+                    rateButtonRect = NSRect(x: starsX, y: barRect.minY, width: starsWidth, height: barRect.height)
+                    
+                    // Draw radio icon to the left of stars (only for music libraries)
+                    if manager.currentLibrary?.type == "artist" {
+                        if let radioIcon = tintedRadioIcon(with: greenColor) {
+                            let iconSize: CGFloat = 18
+                            let radioPadding: CGFloat = 10
+                            let radioX = starsX - iconSize - radioPadding
+                            let radioY = barRect.minY + (barRect.height - iconSize) / 2
+                            let iconRect = NSRect(x: radioX, y: radioY, width: iconSize, height: iconSize)
+                            radioButtonRect = iconRect
+                            radioIcon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                        } else {
+                            radioButtonRect = .zero
+                        }
                     } else {
                         radioButtonRect = .zero
                     }
                 } else {
-                    radioButtonRect = .zero
+                    // Normal item count display
+                    rateButtonRect = .zero
+                    
+                    // Show top-level item count (artists/albums/tracks), not expanded tree count
+                    let itemCount: Int
+                    if manager.currentLibrary?.type == "artist" {
+                        itemCount = cachedArtists.count
+                    } else if manager.currentLibrary?.type == "album" {
+                        itemCount = cachedAlbums.count
+                    } else if manager.currentLibrary?.type == "track" {
+                        itemCount = cachedTracks.count
+                    } else if manager.currentLibrary?.type == "movie" {
+                        itemCount = cachedMovies.count
+                    } else if manager.currentLibrary?.type == "show" {
+                        itemCount = cachedShows.count
+                    } else {
+                        itemCount = displayItems.count
+                    }
+                    let countNumber = "\(itemCount)"
+                    let countLabel = " ITEMS"
+                    let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
+                    let countX = visX - countWidth - countSpacing
+                    drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
+                    let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
+                    drawScaledWhiteSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
+                    
+                    // Draw radio icon with padding from item count (only for music libraries)
+                    if manager.currentLibrary?.type == "artist" {
+                        // Tint radio icon with skin's text color
+                        let skinColor = renderer.skin.playlistColors.normalText
+                        if let radioIcon = tintedRadioIcon(with: skinColor) {
+                            let iconSize: CGFloat = 18
+                            // Position radio icon with fixed padding before item count
+                            let radioPadding: CGFloat = isArtOnlyMode ? 14 : 10
+                            let radioX = countX - iconSize - radioPadding
+                            let radioY = barRect.minY + (barRect.height - iconSize) / 2
+                            let iconRect = NSRect(x: radioX, y: radioY, width: iconSize, height: iconSize)
+                            radioButtonRect = iconRect  // Store for hit testing
+                            radioIcon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                        } else {
+                            radioButtonRect = .zero
+                        }
+                    } else {
+                        radioButtonRect = .zero
+                    }
                 }
             } else {
                 // Plex not linked and no servers - show link message
@@ -3744,6 +3962,12 @@ class PlexBrowserView: NSView {
     // MARK: - Artwork Background
     
     @objc private func trackDidChange(_ notification: Notification) {
+        // Fetch new track's rating and reload artwork when in art mode
+        if isArtOnlyMode {
+            fetchCurrentTrackRating()
+            loadAllArtworkForCurrentTrack()
+        }
+        
         guard WindowManager.shared.showBrowserArtworkBackground else {
             // Clear artwork if feature is disabled
             if currentArtwork != nil {
@@ -4099,6 +4323,120 @@ class PlexBrowserView: NSView {
         }
         
         return nil
+    }
+    
+    /// Extract all embedded artwork images from a local audio file
+    /// Returns array of images (deduped across different metadata formats)
+    private func loadAllLocalArtwork(url: URL) async -> [NSImage] {
+        var images: [NSImage] = []
+        var seenData: Set<Int> = []  // Track seen images by data hash
+        
+        let asset = AVURLAsset(url: url)
+        
+        do {
+            // Check common metadata
+            let metadata = try await asset.load(.metadata)
+            for item in metadata {
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        let hash = data.hashValue
+                        if !seenData.contains(hash) {
+                            seenData.insert(hash)
+                            images.append(image)
+                        }
+                    }
+                }
+            }
+            
+            // Check ID3 metadata (MP3 files - may have multiple APIC frames)
+            let id3Metadata = try await asset.loadMetadata(for: .id3Metadata)
+            for item in id3Metadata {
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        let hash = data.hashValue
+                        if !seenData.contains(hash) {
+                            seenData.insert(hash)
+                            images.append(image)
+                        }
+                    }
+                }
+            }
+            
+            // Check iTunes metadata (M4A/AAC files)
+            let itunesMetadata = try await asset.loadMetadata(for: .iTunesMetadata)
+            for item in itunesMetadata {
+                if item.commonKey == .commonKeyArtwork {
+                    if let data = try await item.load(.dataValue),
+                       let image = NSImage(data: data) {
+                        let hash = data.hashValue
+                        if !seenData.contains(hash) {
+                            seenData.insert(hash)
+                            images.append(image)
+                        }
+                    }
+                }
+            }
+        } catch {
+            NSLog("PlexBrowserView: Failed to load all local artwork: %@", error.localizedDescription)
+        }
+        
+        return images
+    }
+    
+    /// Cycle to the next artwork image in art-only mode
+    private func cycleToNextArtwork() {
+        guard artworkImages.count > 1 else {
+            // Only one image (or none) - nothing to cycle
+            return
+        }
+        
+        artworkIndex = (artworkIndex + 1) % artworkImages.count
+        currentArtwork = artworkImages[artworkIndex]
+        needsDisplay = true
+    }
+    
+    /// Load all available artwork for the currently playing track
+    private func loadAllArtworkForCurrentTrack() {
+        guard let currentTrack = WindowManager.shared.audioEngine.currentTrack else {
+            artworkImages = []
+            artworkIndex = 0
+            return
+        }
+        
+        Task { [weak self] in
+            guard let self = self else { return }
+            
+            var images: [NSImage] = []
+            
+            if currentTrack.url.isFileURL {
+                // Local file - extract all embedded artwork
+                images = await self.loadAllLocalArtwork(url: currentTrack.url)
+            } else if let plexRatingKey = currentTrack.plexRatingKey {
+                // Plex track - load track artwork using existing method
+                if let image = await self.loadPlexArtwork(ratingKey: plexRatingKey, albumName: currentTrack.album) {
+                    images.append(image)
+                }
+            } else if let subsonicId = currentTrack.subsonicId {
+                // Subsonic track - load cover art using existing method
+                if let image = await self.loadSubsonicArtwork(songId: subsonicId, albumName: currentTrack.album) {
+                    images.append(image)
+                }
+            }
+            
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+            
+            await MainActor.run {
+                self.artworkImages = images
+                self.artworkIndex = 0
+                if let first = images.first {
+                    self.currentArtwork = first
+                    self.needsDisplay = true
+                }
+            }
+        }
     }
     
     /// Load artwork based on the currently selected item in the browser
@@ -4763,6 +5101,12 @@ class PlexBrowserView: NSView {
             return
         }
         
+        // In art-only mode without visualization, cycle through artwork images
+        if isArtOnlyMode && !isVisualizingArt && hitTestContentArea(at: winampPoint) {
+            cycleToNextArtwork()
+            return
+        }
+        
         // Check for double-click on title bar to toggle shade mode
         if event.clickCount == 2 && hitTestTitleBar(at: winampPoint) {
             toggleShadeMode()
@@ -4943,6 +5287,17 @@ class PlexBrowserView: NSView {
             let libLabelWidth: CGFloat = 4 * charWidth + 4  // "Lib:" + spacing
             let libraryZoneStart = serverZoneEnd + 12  // includes "Lib:" label
             let libraryZoneEnd = libraryZoneStart + libLabelWidth + maxLibraryWidth
+            
+            // Check for RATE button click (in art-only mode with Plex track playing)
+            if !rateButtonRect.isEmpty {
+                let rateRelativeStart = rateButtonRect.minX - Layout.leftBorder
+                let rateRelativeEnd = rateButtonRect.maxX - Layout.leftBorder
+                if relativeX >= rateRelativeStart && relativeX <= rateRelativeEnd {
+                    // RATE button click - show rating overlay
+                    showRatingOverlay()
+                    return
+                }
+            }
             
             // Check for radio button click (right before item count, use stored rect)
             if !radioButtonRect.isEmpty {
@@ -5604,6 +5959,25 @@ class PlexBrowserView: NSView {
             addItem.representedObject = movie
             menu.addItem(addItem)
             
+            // Cast submenu (for video-capable devices)
+            let videoDevices = CastManager.shared.videoCapableDevices
+            if !videoDevices.isEmpty {
+                menu.addItem(NSMenuItem.separator())
+                
+                let castItem = NSMenuItem(title: "Cast to...", action: nil, keyEquivalent: "")
+                let castMenu = NSMenu()
+                
+                for device in videoDevices {
+                    let deviceItem = NSMenuItem(title: device.name, action: #selector(contextMenuCastMovie(_:)), keyEquivalent: "")
+                    deviceItem.target = self
+                    deviceItem.representedObject = (movie, device)
+                    castMenu.addItem(deviceItem)
+                }
+                
+                castItem.submenu = castMenu
+                menu.addItem(castItem)
+            }
+            
             // External links submenu
             menu.addItem(NSMenuItem.separator())
             
@@ -5684,6 +6058,25 @@ class PlexBrowserView: NSView {
             addItem.target = self
             addItem.representedObject = episode
             menu.addItem(addItem)
+            
+            // Cast submenu (for video-capable devices)
+            let videoDevicesEpisode = CastManager.shared.videoCapableDevices
+            if !videoDevicesEpisode.isEmpty {
+                menu.addItem(NSMenuItem.separator())
+                
+                let castItem = NSMenuItem(title: "Cast to...", action: nil, keyEquivalent: "")
+                let castMenu = NSMenu()
+                
+                for device in videoDevicesEpisode {
+                    let deviceItem = NSMenuItem(title: device.name, action: #selector(contextMenuCastEpisode(_:)), keyEquivalent: "")
+                    deviceItem.target = self
+                    deviceItem.representedObject = (episode, device)
+                    castMenu.addItem(deviceItem)
+                }
+                
+                castItem.submenu = castMenu
+                menu.addItem(castItem)
+            }
             
             // External links submenu
             menu.addItem(NSMenuItem.separator())
@@ -6285,6 +6678,74 @@ class PlexBrowserView: NSView {
         playEpisode(episode)
     }
     
+    @objc private func contextMenuCastMovie(_ sender: NSMenuItem) {
+        NSLog("PlexBrowserView: contextMenuCastMovie ENTER")
+        guard let (movie, device) = sender.representedObject as? (PlexMovie, CastDevice) else {
+            NSLog("PlexBrowserView: Failed to get movie/device from menu item")
+            return
+        }
+        
+        NSLog("PlexBrowserView: Casting movie '%@' to device '%@' (type: %@)", movie.title, device.name, device.type.rawValue)
+        
+        // Prevent dual casting - check if already casting
+        if WindowManager.shared.isVideoCastingActive {
+            NSLog("PlexBrowserView: Cannot cast - already casting")
+            let alert = NSAlert()
+            alert.messageText = "Already Casting"
+            alert.informativeText = "Stop the current cast before starting a new one."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+        
+        Task { @MainActor in
+            NSLog("PlexBrowserView: Starting cast Task")
+            do {
+                try await CastManager.shared.castPlexMovie(movie, to: device)
+                NSLog("PlexBrowserView: Cast movie '%@' to %@ - SUCCESS", movie.title, device.name)
+            } catch {
+                NSLog("PlexBrowserView: Failed to cast movie: %@", error.localizedDescription)
+                let alert = NSAlert()
+                alert.messageText = "Cast Failed"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+        NSLog("PlexBrowserView: contextMenuCastMovie EXIT (Task launched)")
+    }
+    
+    @objc private func contextMenuCastEpisode(_ sender: NSMenuItem) {
+        guard let (episode, device) = sender.representedObject as? (PlexEpisode, CastDevice) else { return }
+        
+        // Prevent dual casting - check if already casting
+        if WindowManager.shared.isVideoCastingActive {
+            NSLog("PlexBrowserView: Cannot cast - already casting")
+            let alert = NSAlert()
+            alert.messageText = "Already Casting"
+            alert.informativeText = "Stop the current cast before starting a new one."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+        
+        Task {
+            do {
+                try await CastManager.shared.castPlexEpisode(episode, to: device)
+                NSLog("PlexBrowserView: Cast episode '%@' to %@", episode.title, device.name)
+            } catch {
+                NSLog("PlexBrowserView: Failed to cast episode: %@", error.localizedDescription)
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "Cast Failed"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
+            }
+        }
+    }
+    
     // MARK: - External Links Context Menu Actions
     
     @objc private func contextMenuOpenIMDB(_ sender: NSMenuItem) {
@@ -6552,6 +7013,27 @@ class PlexBrowserView: NSView {
         
         menu.addItem(NSMenuItem.separator())
         
+        // Rating Stations submenu - based on user's star ratings
+        let ratingSubmenu = NSMenu()
+        for station in RadioConfig.ratingStations {
+            let ratingItem = NSMenuItem(title: "\(station.name) Radio", action: #selector(radioMenuRatingRadio(_:)), keyEquivalent: "")
+            ratingItem.target = self
+            ratingItem.representedObject = station.minRating
+            ratingItem.toolTip = station.description
+            ratingSubmenu.addItem(ratingItem)
+            
+            let ratingSonicItem = NSMenuItem(title: "\(station.name) Radio (Sonic)", action: #selector(radioMenuRatingRadioSonic(_:)), keyEquivalent: "")
+            ratingSonicItem.target = self
+            ratingSonicItem.representedObject = station.minRating
+            ratingSonicItem.toolTip = station.description
+            ratingSubmenu.addItem(ratingSonicItem)
+        }
+        let ratingMenuItem = NSMenuItem(title: "My Ratings", action: nil, keyEquivalent: "")
+        ratingMenuItem.submenu = ratingSubmenu
+        menu.addItem(ratingMenuItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
         // Genre Stations submenu - populated async
         let genreMenuItem = NSMenuItem(title: "Genre Stations", action: nil, keyEquivalent: "")
         let genreSubmenu = NSMenu()
@@ -6739,6 +7221,40 @@ class PlexBrowserView: NSView {
         }
     }
     
+    @objc private func radioMenuRatingRadio(_ sender: NSMenuItem) {
+        guard let minRating = sender.representedObject as? Double else { return }
+        Task { @MainActor in
+            let tracks = await PlexManager.shared.createRatingRadio(minRating: minRating)
+            if !tracks.isEmpty {
+                let audioEngine = WindowManager.shared.audioEngine
+                audioEngine.clearPlaylist()
+                audioEngine.loadTracks(tracks)
+                audioEngine.play()
+                let stars = minRating / 2
+                NSLog("Rating Radio (%.1f+ stars) started with %d tracks", stars, tracks.count)
+            } else {
+                NSLog("Rating Radio: No tracks found with %.1f+ stars rating", minRating / 2)
+            }
+        }
+    }
+    
+    @objc private func radioMenuRatingRadioSonic(_ sender: NSMenuItem) {
+        guard let minRating = sender.representedObject as? Double else { return }
+        Task { @MainActor in
+            let tracks = await PlexManager.shared.createRatingRadioSonic(minRating: minRating)
+            if !tracks.isEmpty {
+                let audioEngine = WindowManager.shared.audioEngine
+                audioEngine.clearPlaylist()
+                audioEngine.loadTracks(tracks)
+                audioEngine.play()
+                let stars = minRating / 2
+                NSLog("Rating Radio (Sonic, %.1f+ stars) started with %d tracks", stars, tracks.count)
+            } else {
+                NSLog("Rating Radio (Sonic): No tracks found with %.1f+ stars rating", minRating / 2)
+            }
+        }
+    }
+    
     @objc private func selectServer(_ sender: NSMenuItem) {
         guard let serverID = sender.representedObject as? String,
               let server = PlexManager.shared.servers.first(where: { $0.id == serverID }) else {
@@ -6808,6 +7324,24 @@ class PlexBrowserView: NSView {
     override var acceptsFirstResponder: Bool { true }
     
     override func keyDown(with event: NSEvent) {
+        // ESC key dismisses rating overlay
+        if isRatingOverlayVisible && event.keyCode == 53 {
+            hideRatingOverlay()
+            return
+        }
+        
+        // Number keys 1-5 set rating when overlay is visible
+        if isRatingOverlayVisible {
+            let keyCode = event.keyCode
+            // 1-5 keys are keycodes 18-23 (1, 2, 3, 4, 5)
+            if keyCode >= 18 && keyCode <= 22 {
+                let starRating = Int(keyCode - 17)  // 1-5
+                ratingOverlay.setRating(starRating * 2)
+                submitRating(starRating * 2)
+                return
+            }
+        }
+        
         // Handle visualizer controls when in visualization mode
         if isVisualizingArt && isArtOnlyMode {
             switch event.keyCode {
@@ -8697,6 +9231,176 @@ extension PlexBrowserView: NSWindowDelegate {
            closingWindow === activeTagsPanel {
             activeTagsPanel = nil
         }
+    }
+}
+
+// MARK: - Rating Overlay
+
+/// Semi-transparent glass-style star rating overlay for rating Plex tracks
+class RatingOverlayView: NSView {
+    
+    var onRatingSelected: ((Int) -> Void)?
+    var onDismiss: (() -> Void)?
+    
+    private var hoveredStar: Int = 0
+    private var selectedRating: Int = 0
+    private let starCount = 5
+    private let starSize: CGFloat = 48
+    private let starSpacing: CGFloat = 12
+    
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setupView()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupView()
+    }
+    
+    private func setupView() {
+        wantsLayer = true
+        // Semi-transparent dark background for the full overlay
+        layer?.backgroundColor = NSColor(white: 0, alpha: 0.5).cgColor
+    }
+    
+    func setRating(_ rating: Int) {
+        // rating is on Plex 0-10 scale, convert to 1-5 stars
+        selectedRating = rating / 2
+        needsDisplay = true
+    }
+    
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        
+        // Calculate centered position for star container
+        let totalWidth = CGFloat(starCount) * starSize + CGFloat(starCount - 1) * starSpacing
+        let containerWidth = totalWidth + 40  // padding
+        let containerHeight = starSize + 40
+        let containerX = (bounds.width - containerWidth) / 2
+        let containerY = (bounds.height - containerHeight) / 2
+        let containerRect = NSRect(x: containerX, y: containerY, width: containerWidth, height: containerHeight)
+        
+        // Draw frosted glass background for star container
+        context.saveGState()
+        let path = NSBezierPath(roundedRect: containerRect, xRadius: 16, yRadius: 16)
+        NSColor(white: 1.0, alpha: 0.15).setFill()
+        path.fill()
+        
+        // Draw subtle border
+        NSColor(white: 1.0, alpha: 0.3).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+        context.restoreGState()
+        
+        // Draw stars
+        let startX = containerX + 20
+        let starY = containerY + 20
+        
+        for i in 0..<starCount {
+            let starX = startX + CGFloat(i) * (starSize + starSpacing)
+            let starRect = NSRect(x: starX, y: starY, width: starSize, height: starSize)
+            
+            let starNumber = i + 1
+            let isFilled = starNumber <= max(hoveredStar, selectedRating)
+            let isHovered = starNumber <= hoveredStar && hoveredStar > 0
+            
+            drawStar(in: starRect, filled: isFilled, hovered: isHovered, context: context)
+        }
+    }
+    
+    private func drawStar(in rect: NSRect, filled: Bool, hovered: Bool, context: CGContext) {
+        // Star path (5-pointed star)
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        let outerRadius = rect.width / 2
+        let innerRadius = outerRadius * 0.4
+        
+        let path = NSBezierPath()
+        for i in 0..<10 {
+            let radius = i % 2 == 0 ? outerRadius : innerRadius
+            let angle = CGFloat(i) * .pi / 5 - .pi / 2
+            let point = NSPoint(
+                x: center.x + radius * cos(angle),
+                y: center.y + radius * sin(angle)
+            )
+            if i == 0 {
+                path.move(to: point)
+            } else {
+                path.line(to: point)
+            }
+        }
+        path.close()
+        
+        // Glass effect colors
+        if filled {
+            // Filled star: white with subtle transparency
+            NSColor(white: 1.0, alpha: hovered ? 0.95 : 0.85).setFill()
+            path.fill()
+        } else {
+            // Empty star: outline only with glass effect
+            NSColor(white: 1.0, alpha: 0.3).setFill()
+            path.fill()
+        }
+        
+        // Subtle outline
+        NSColor(white: 1.0, alpha: 0.5).setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+    }
+    
+    // MARK: - Mouse Handling
+    
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        hoveredStar = starAtPoint(point)
+        needsDisplay = true
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let clickedStar = starAtPoint(point)
+        
+        if clickedStar > 0 {
+            selectedRating = clickedStar
+            needsDisplay = true
+            // Convert 1-5 stars to Plex 0-10 scale (each star = 2 points)
+            onRatingSelected?(clickedStar * 2)
+        } else {
+            // Clicked outside stars - dismiss
+            onDismiss?()
+        }
+    }
+    
+    private func starAtPoint(_ point: NSPoint) -> Int {
+        let totalWidth = CGFloat(starCount) * starSize + CGFloat(starCount - 1) * starSpacing
+        let containerWidth = totalWidth + 40
+        let containerHeight = starSize + 40
+        let containerX = (bounds.width - containerWidth) / 2
+        let containerY = (bounds.height - containerHeight) / 2
+        let startX = containerX + 20
+        let starY = containerY + 20
+        
+        for i in 0..<starCount {
+            let starX = startX + CGFloat(i) * (starSize + starSpacing)
+            let starRect = NSRect(x: starX, y: starY, width: starSize, height: starSize)
+            if starRect.contains(point) {
+                return i + 1
+            }
+        }
+        return 0
+    }
+    
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeInKeyWindow],
+            owner: self,
+            userInfo: nil
+        ))
     }
 }
 

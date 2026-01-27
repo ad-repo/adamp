@@ -100,6 +100,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        // Stop any active casting (video or audio)
+        // Use sync version to avoid deadlock - async stopCasting() uses MainActor.run
+        // which can't execute while main thread is blocked waiting for completion
+        CastManager.shared.stopCastingSync()
+        
         // Save app state if "Remember State" is enabled
         AppStateManager.shared.saveState()
         
@@ -239,7 +244,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         y -= 28
         
         // Tagline
-        let taglineLabel = NSTextField(wrappingLabelWithString: "Winamp 2 says 👋 to Plex")
+        let taglineLabel = NSTextField(wrappingLabelWithString: "Winamp 2 says 👋 to Plex and Sonos")
         taglineLabel.font = NSFont.systemFont(ofSize: 14)
         taglineLabel.textColor = NSColor(white: 0.85, alpha: 1.0)
         taglineLabel.alignment = .center

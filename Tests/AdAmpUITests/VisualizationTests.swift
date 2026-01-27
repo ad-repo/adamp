@@ -1,6 +1,7 @@
 import XCTest
 
 /// Tests for the visualization (Milkdrop) window
+/// Consolidated to minimize app launches for faster CI execution
 final class VisualizationTests: AdAmpUITestCase {
     
     override func setUpWithError() throws {
@@ -16,14 +17,15 @@ final class VisualizationTests: AdAmpUITestCase {
         }
     }
     
-    // MARK: - Core Tests
+    // MARK: - Window and Controls Test
     
-    func testVisualizationWindow() {
+    /// Tests visualization window existence, preset navigation, and keyboard shortcuts
+    func testVisualizationWindowAndControls() {
+        // Window existence
         XCTAssertTrue(visualizationWindow.exists, "Visualization window should exist")
         XCTAssertTrue(visualizationWindow.isHittable, "Visualization window should be hittable")
-    }
-    
-    func testPresetNavigation() {
+        
+        // Preset navigation
         visualizationWindow.click()
         
         app.pressRightArrow()  // Next preset
@@ -36,50 +38,46 @@ final class VisualizationTests: AdAmpUITestCase {
         app.typeKey("c", modifierFlags: [])
         
         XCTAssertTrue(visualizationWindow.exists)
-    }
-    
-    func testHardCuts() {
-        visualizationWindow.click()
         
+        // Hard cuts
         app.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: .shift)
         app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: .shift)
         
         XCTAssertTrue(visualizationWindow.exists)
-    }
-    
-    func testFullscreen() {
-        visualizationWindow.click()
         
+        // Fullscreen toggle
         app.typeKey("f", modifierFlags: [])
-        Thread.sleep(forTimeInterval: 0.5)  // Minimal wait for fullscreen transition
+        // Brief wait for fullscreen transition
+        _ = XCTWaiter.wait(for: [XCTestExpectation()], timeout: 0.3)
         app.pressEscape()
-        Thread.sleep(forTimeInterval: 0.5)
+        _ = XCTWaiter.wait(for: [XCTestExpectation()], timeout: 0.3)
         
         XCTAssertTrue(visualizationWindow.exists || mainWindow.exists)
     }
     
-    func testWindowDrag() {
+    // MARK: - Interaction Test
+    
+    /// Tests window drag, resize, context menu, and shade mode
+    func testVisualizationInteractions() {
+        // Window drag
         let startPoint = visualizationWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
         let endPoint = visualizationWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.1))
         startPoint.click(forDuration: 0.1, thenDragTo: endPoint)
         XCTAssertTrue(visualizationWindow.exists)
-    }
-    
-    func testWindowResize() {
+        
+        // Window resize
         let resizeStart = visualizationWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.99))
         let resizeEnd = visualizationWindow.coordinate(withNormalizedOffset: CGVector(dx: 1.1, dy: 1.1))
         resizeStart.click(forDuration: 0.1, thenDragTo: resizeEnd)
         XCTAssertTrue(visualizationWindow.exists)
-    }
-    
-    func testContextMenu() {
+        
+        // Context menu
         visualizationWindow.rightClick()
         let menu = app.menus.firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 1))
         app.pressEscape()
-    }
-    
-    func testShadeMode() {
+        
+        // Shade mode
         let titleBar = visualizationWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
         titleBar.doubleTap()
         XCTAssertTrue(visualizationWindow.exists)

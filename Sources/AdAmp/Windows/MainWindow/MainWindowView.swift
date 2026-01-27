@@ -476,7 +476,6 @@ class MainWindowView: NSView {
     // MARK: - Public Methods
     
     func updateTime(current: TimeInterval, duration: TimeInterval) {
-        self.duration = duration
         // Don't update currentTime or redraw if user is dragging the position slider
         if draggingSlider == .position {
             return
@@ -485,7 +484,13 @@ class MainWindowView: NSView {
         if let lastSeek = lastSeekTime, Date().timeIntervalSince(lastSeek) < 0.3 {
             return
         }
+        // Only update if values actually changed (prevents flashing from redundant updates)
+        let timeChanged = abs(self.currentTime - current) > 0.05
+        let durationChanged = abs(self.duration - duration) > 0.1
+        guard timeChanged || durationChanged else { return }
+        
         self.currentTime = current
+        self.duration = duration
         needsDisplay = true
     }
     

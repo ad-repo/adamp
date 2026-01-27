@@ -288,6 +288,7 @@ GET /library/metadata/{trackID}?X-Plex-Token={token}
 | `addedAt` | Unix timestamp when added |
 | `musicAnalysisVersion` | Present if sonically analyzed |
 | `ratingCount` | Global popularity from Last.fm (scrobble count) - used to identify "hit" tracks |
+| `userRating` | User's personal star rating (0-10 scale, where 10 = 5 stars) - used for rating-based radio |
 | `Media[].Part[].key` | Streaming URL path |
 | `Media[].Part[].file` | Original file path on server |
 | `Media[].audioCodec` | Audio format (flac, mp3, etc.) |
@@ -415,6 +416,47 @@ GET /library/sections/{libID}/all?type=10&track.sonicallySimilar={trackID}&sort=
 GET /library/sections/{libID}/all?type=10&sort=random&limit=100
 ```
 
+### Rating Radio (My Ratings)
+Plays tracks based on the user's personal star ratings. Users can select from multiple rating thresholds:
+
+| Station | Min Rating | Description |
+|---------|------------|-------------|
+| 5 Stars Radio | 10 (5★) | Only tracks rated exactly 5 stars |
+| 4+ Stars Radio | 8 (4★+) | Highly rated tracks (4-5 stars) |
+| 3+ Stars Radio | 6 (3★+) | Good tracks (3-5 stars) |
+| 2+ Stars Radio | 4 (2★+) | Any track rated 2 stars or higher |
+| All Rated Radio | 0.1 | Any track with a rating |
+
+**Note**: Plex stores ratings on a 0-10 scale internally (10 = 5 stars, 8 = 4 stars, etc.)
+
+**Sonic Version** - Sonically similar rated tracks:
+```
+GET /library/sections/{libID}/all?type=10&track.sonicallySimilar={trackID}&userRating>=8&sort=random&limit=100
+```
+
+**Non-Sonic Version** - All rated tracks at threshold:
+```
+GET /library/sections/{libID}/all?type=10&userRating>=8&sort=random&limit=100
+```
+
+### URL Encoding Warning
+
+**IMPORTANT**: Plex filter operators (`>=`, `<=`, `<`, `>`) must NOT be URL-encoded in query parameters.
+
+- **WRONG**: `userRating%3E%3D=8` (URLQueryItem encodes `>=` as `%3E%3D`)
+- **CORRECT**: `userRating>=8` (literal `>=` in the URL)
+
+When using Swift's `URLQueryItem`, it will incorrectly encode the operator. Build URLs manually for filter parameters:
+```swift
+// WRONG - URLQueryItem encodes >=
+URLQueryItem(name: "userRating>=", value: "8")  // produces userRating%3E%3D=8
+
+// CORRECT - manual URL construction
+let urlString = "\(baseURL)/library/sections/\(id)/all?type=10&userRating>=8&..."
+```
+
+This applies to all filter operators: `>=`, `<=`, `<`, `>`, `!=`
+
 ## Configuration
 
 Radio station thresholds are defined in `RadioConfig` enum (`PlexServerClient.swift`):
@@ -428,6 +470,7 @@ Radio station thresholds are defined in `RadioConfig` enum (`PlexServerClient.sw
 | `overFetchMultiplier` | 3 | Multiplier for over-fetching to allow deduplication |
 | `fallbackGenres` | Pop/Rock, Jazz, Classical, Electronic, R&B, Rap, Country, Blues | Fallback if genre fetch fails |
 | `decades` | 1920s-2020s | Available decade stations |
+| `ratingStations` | 5★, 4+★, 3+★, 2+★, All Rated | Available user rating thresholds |
 
 ### Dynamic Genre Fetching
 
@@ -516,6 +559,42 @@ Movies, TV shows, and episodes include external service IDs in the `Guid` array:
 | TVDB | `https://www.thetvdb.com/series/{id}` | TV Shows |
 
 AdAmp uses these IDs to provide "View Online" context menu links for IMDB, TMDB, and Rotten Tomatoes (search).
+
+## Setting User Ratings
+
+### Rate an Item
+
+```
+PUT /:/rate?key={ratingKey}&identifier=com.plexapp.plugins.library&rating={rating}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| key | The item's ratingKey |
+| identifier | Always `com.plexapp.plugins.library` |
+| rating | 0-10 scale (2 per star), or -1 to clear |
+
+**HTTP Method**: PUT
+
+**Response**: HTTP 200 with empty body on success
+
+**Rating Scale**:
+- 2 = 1 star (★☆☆☆☆)
+- 4 = 2 stars (★★☆☆☆)
+- 6 = 3 stars (★★★☆☆)
+- 8 = 4 stars (★★★★☆)
+- 10 = 5 stars (★★★★★)
+- -1 = Clear rating
+
+**Side Effects**: Updates `userRating` and `lastRatedAt` fields in track metadata.
+
+### Test Script
+
+Run `scripts/test_plex_rate.swift` to validate the API:
+
+```bash
+PLEX_URL=http://192.168.1.x:32400 PLEX_TOKEN=xxx swift scripts/test_plex_rate.swift
+```
 
 ## Requirements
 

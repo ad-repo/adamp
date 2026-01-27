@@ -3,12 +3,12 @@ import Foundation
 // MARK: - Cast Device Types
 
 /// Type of cast device
-enum CastDeviceType: String, Codable, Equatable {
+public enum CastDeviceType: String, Codable, Equatable, Sendable {
     case chromecast = "chromecast"
     case sonos = "sonos"
     case dlnaTV = "dlnaTV"
     
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .chromecast:
             return "Chromecast"
@@ -21,7 +21,7 @@ enum CastDeviceType: String, Codable, Equatable {
 }
 
 /// State of a cast session
-enum CastState: String, Equatable {
+public enum CastState: String, Equatable, Sendable {
     case idle
     case connecting
     case connected
@@ -32,25 +32,25 @@ enum CastState: String, Equatable {
 // MARK: - Cast Device
 
 /// Represents a discovered cast device
-struct CastDevice: Identifiable, Equatable, Hashable {
-    let id: String
-    let name: String
-    let type: CastDeviceType
-    let address: String
-    let port: Int
-    let manufacturer: String?
-    let modelName: String?
+public struct CastDevice: Identifiable, Equatable, Hashable, Sendable {
+    public let id: String
+    public let name: String
+    public let type: CastDeviceType
+    public let address: String
+    public let port: Int
+    public let manufacturer: String?
+    public let modelName: String?
     
     /// Whether this device supports video casting (Sonos is audio-only)
-    let supportsVideo: Bool
+    public let supportsVideo: Bool
     
     /// URL for UPnP AVTransport control (for Sonos/DLNA)
-    var avTransportControlURL: URL?
+    public var avTransportControlURL: URL?
     
     /// URL for UPnP device description (for Sonos/DLNA)
-    var descriptionURL: URL?
+    public var descriptionURL: URL?
     
-    init(
+    public init(
         id: String,
         name: String,
         type: CastDeviceType,
@@ -75,11 +75,11 @@ struct CastDevice: Identifiable, Equatable, Hashable {
         self.descriptionURL = descriptionURL
     }
     
-    static func == (lhs: CastDevice, rhs: CastDevice) -> Bool {
+    public static func == (lhs: CastDevice, rhs: CastDevice) -> Bool {
         lhs.id == rhs.id
     }
     
-    func hash(into hasher: inout Hasher) {
+    public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
 }
@@ -87,16 +87,16 @@ struct CastDevice: Identifiable, Equatable, Hashable {
 // MARK: - Cast Session
 
 /// Represents an active cast session
-class CastSession {
-    let device: CastDevice
-    var state: CastState = .idle
-    var currentURL: URL?
-    var metadata: CastMetadata?
-    var position: TimeInterval = 0
-    var duration: TimeInterval = 0
-    var volume: Float = 1.0
+public final class CastSession: @unchecked Sendable {
+    public let device: CastDevice
+    public var state: CastState = .idle
+    public var currentURL: URL?
+    public var metadata: CastMetadata?
+    public var position: TimeInterval = 0
+    public var duration: TimeInterval = 0
+    public var volume: Float = 1.0
     
-    init(device: CastDevice) {
+    public init(device: CastDevice) {
         self.device = device
     }
 }
@@ -104,21 +104,21 @@ class CastSession {
 // MARK: - Cast Metadata
 
 /// Metadata for the currently casting media
-struct CastMetadata {
-    let title: String
-    let artist: String?
-    let album: String?
-    let artworkURL: URL?
-    let duration: TimeInterval?
-    let contentType: String
-    let mediaType: MediaType  // .audio or .video
+public struct CastMetadata: Sendable {
+    public let title: String
+    public let artist: String?
+    public let album: String?
+    public let artworkURL: URL?
+    public let duration: TimeInterval?
+    public let contentType: String
+    public let mediaType: MediaType  // .audio or .video
     
     // Video-specific metadata (optional)
-    let resolution: String?   // e.g., "1920x1080"
-    let year: Int?
-    let summary: String?
+    public let resolution: String?   // e.g., "1920x1080"
+    public let year: Int?
+    public let summary: String?
     
-    init(
+    public init(
         title: String,
         artist: String? = nil,
         album: String? = nil,
@@ -143,7 +143,7 @@ struct CastMetadata {
     }
     
     /// Generate DIDL-Lite metadata for UPnP devices
-    func toDIDLLite(streamURL: URL) -> String {
+    public func toDIDLLite(streamURL: URL) -> String {
         let escapedTitle = title.xmlEscaped
         let durationStr = duration.map { formatDuration($0) } ?? "00:00:00"
         
@@ -207,7 +207,7 @@ struct CastMetadata {
 // MARK: - Cast Errors
 
 /// Errors that can occur during casting
-enum CastError: Error, LocalizedError {
+public enum CastError: Error, LocalizedError, Sendable {
     case deviceNotFound
     case connectionFailed(String)
     case connectionTimeout
@@ -221,7 +221,7 @@ enum CastError: Error, LocalizedError {
     case deviceOffline
     case authenticationRequired
     
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .deviceNotFound:
             return "Cast device not found"
@@ -251,47 +251,9 @@ enum CastError: Error, LocalizedError {
     }
 }
 
-// MARK: - Content Type Helpers
-
-/// Detect content type from URL and return appropriate MIME type and media type
-func detectContentType(for url: URL) -> (contentType: String, mediaType: MediaType) {
-    let ext = url.pathExtension.lowercased()
-    
-    // Video extensions
-    let videoExtensions = ["mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "m2ts", "mts", "wmv", "flv"]
-    if videoExtensions.contains(ext) {
-        let mimeType: String
-        switch ext {
-        case "mp4", "m4v": mimeType = "video/mp4"
-        case "mkv": mimeType = "video/x-matroska"
-        case "webm": mimeType = "video/webm"
-        case "avi": mimeType = "video/x-msvideo"
-        case "mov": mimeType = "video/quicktime"
-        case "ts", "m2ts", "mts": mimeType = "video/mp2t"
-        case "wmv": mimeType = "video/x-ms-wmv"
-        case "flv": mimeType = "video/x-flv"
-        default: mimeType = "video/mp4"
-        }
-        return (mimeType, .video)
-    }
-    
-    // Audio extensions (default)
-    let mimeType: String
-    switch ext {
-    case "mp3": mimeType = "audio/mpeg"
-    case "m4a", "aac": mimeType = "audio/mp4"
-    case "flac": mimeType = "audio/flac"
-    case "wav": mimeType = "audio/wav"
-    case "ogg": mimeType = "audio/ogg"
-    case "opus": mimeType = "audio/opus"
-    default: mimeType = "audio/mpeg"
-    }
-    return (mimeType, .audio)
-}
-
 // MARK: - String Extensions
 
-private extension String {
+extension String {
     /// XML-escape special characters
     var xmlEscaped: String {
         self.replacingOccurrences(of: "&", with: "&amp;")

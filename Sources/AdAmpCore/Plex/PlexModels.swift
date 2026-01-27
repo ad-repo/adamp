@@ -4,10 +4,10 @@ import Foundation
 
 /// A type that can decode either a String or a numeric value into a String
 /// Used for Plex fields that inconsistently return strings vs numbers
-struct FlexibleString: Decodable {
-    let value: String
+public struct FlexibleString: Decodable {
+    public let value: String
     
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let stringValue = try? container.decode(String.self) {
             value = stringValue
@@ -26,10 +26,10 @@ struct FlexibleString: Decodable {
 
 /// A type that can decode either a String or a numeric value into a Double
 /// Used for Plex fields that inconsistently return strings vs numbers (like frameRate)
-struct FlexibleDouble: Codable, Equatable {
-    let value: Double?
+public struct FlexibleDouble: Codable, Equatable {
+    public let value: Double?
     
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let doubleValue = try? container.decode(Double.self) {
             value = doubleValue
@@ -42,7 +42,7 @@ struct FlexibleDouble: Codable, Equatable {
         }
     }
     
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(value)
     }
@@ -51,14 +51,14 @@ struct FlexibleDouble: Codable, Equatable {
 // MARK: - Plex Account & Authentication
 
 /// Plex account info obtained via PIN authentication
-struct PlexAccount: Codable, Equatable {
-    let id: Int
-    let uuid: String
-    let username: String
-    let email: String?
-    let thumb: String?          // Avatar URL
-    let authToken: String
-    let title: String?          // Display name
+public struct PlexAccount: Codable, Equatable {
+    public let id: Int
+    public let uuid: String
+    public let username: String
+    public let email: String?
+    public let thumb: String?          // Avatar URL
+    public let authToken: String
+    public let title: String?          // Display name
     
     enum CodingKeys: String, CodingKey {
         case id, uuid, username, email, thumb, title
@@ -67,15 +67,15 @@ struct PlexAccount: Codable, Equatable {
 }
 
 /// PIN for device linking flow
-struct PlexPIN: Codable {
-    let id: Int
-    let code: String            // 4-character code shown to user
-    let authToken: String?      // Populated once user authorizes
-    let expiresAt: Date?
-    let trusted: Bool?
-    let clientIdentifier: String?
+public struct PlexPIN: Codable {
+    public let id: Int
+    public let code: String            // 4-character code shown to user
+    public let authToken: String?      // Populated once user authorizes
+    public let expiresAt: Date?
+    public let trusted: Bool?
+    public let clientIdentifier: String?
     
-    var isExpired: Bool {
+    public var isExpired: Bool {
         guard let expiresAt = expiresAt else { return false }
         return Date() > expiresAt
     }
@@ -84,20 +84,20 @@ struct PlexPIN: Codable {
 // MARK: - Plex Server & Connections
 
 /// A Plex server discovered from the account
-struct PlexServer: Codable, Identifiable, Equatable {
-    let id: String              // clientIdentifier
-    let name: String
-    let product: String?
-    let productVersion: String?
-    let platform: String?
-    let platformVersion: String?
-    let device: String?
-    let owned: Bool
-    let connections: [PlexConnection]
-    let accessToken: String?    // Server-specific token
+public struct PlexServer: Codable, Identifiable, Equatable {
+    public let id: String              // clientIdentifier
+    public let name: String
+    public let product: String?
+    public let productVersion: String?
+    public let platform: String?
+    public let platformVersion: String?
+    public let device: String?
+    public let owned: Bool
+    public let connections: [PlexConnection]
+    public let accessToken: String?    // Server-specific token
     
     /// Best available connection (prefers local)
-    var preferredConnection: PlexConnection? {
+    public var preferredConnection: PlexConnection? {
         // Prefer local connections over relay
         connections.first(where: { $0.local && !$0.relay }) ??
         connections.first(where: { !$0.relay }) ??
@@ -111,15 +111,15 @@ struct PlexServer: Codable, Identifiable, Equatable {
 }
 
 /// Server connection info (local or remote)
-struct PlexConnection: Codable, Equatable {
-    let uri: String             // Full URL e.g., "http://192.168.1.100:32400"
-    let local: Bool             // true if on same network
-    let relay: Bool             // true if using Plex relay
-    let address: String?
-    let port: Int?
-    let `protocol`: String?
+public struct PlexConnection: Codable, Equatable {
+    public let uri: String             // Full URL e.g., "http://192.168.1.100:32400"
+    public let local: Bool             // true if on same network
+    public let relay: Bool             // true if using Plex relay
+    public let address: String?
+    public let port: Int?
+    public let `protocol`: String?
     
-    var url: URL? {
+    public var url: URL? {
         URL(string: uri)
     }
 }
@@ -127,66 +127,66 @@ struct PlexConnection: Codable, Equatable {
 // MARK: - Plex Library Content
 
 /// A library on a Plex server
-struct PlexLibrary: Identifiable, Equatable {
-    let id: String              // Section key/ID
-    let uuid: String?
-    let title: String
-    let type: String            // "artist" for music, "movie" for movies, "show" for TV
-    let agent: String?
-    let scanner: String?
-    let language: String?
-    let refreshing: Bool
-    let contentCount: Int?
+public struct PlexLibrary: Identifiable, Equatable {
+    public let id: String              // Section key/ID
+    public let uuid: String?
+    public let title: String
+    public let type: String            // "artist" for music, "movie" for movies, "show" for TV
+    public let agent: String?
+    public let scanner: String?
+    public let language: String?
+    public let refreshing: Bool
+    public let contentCount: Int?
     
-    var isMusicLibrary: Bool {
+    public var isMusicLibrary: Bool {
         type == "artist"
     }
     
-    var isMovieLibrary: Bool {
+    public var isMovieLibrary: Bool {
         type == "movie"
     }
     
-    var isShowLibrary: Bool {
+    public var isShowLibrary: Bool {
         type == "show"
     }
     
-    var isVideoLibrary: Bool {
+    public var isVideoLibrary: Bool {
         isMovieLibrary || isShowLibrary
     }
 }
 
 /// An artist in a Plex music library
-struct PlexArtist: Identifiable, Equatable {
-    let id: String              // ratingKey
-    let key: String             // API path for children
-    let title: String
-    let summary: String?
-    let thumb: String?          // Artwork path
-    let art: String?            // Background art path
-    let albumCount: Int
-    let genre: String?
-    let addedAt: Date?
-    let updatedAt: Date?
+public struct PlexArtist: Identifiable, Equatable {
+    public let id: String              // ratingKey
+    public let key: String             // API path for children
+    public let title: String
+    public let summary: String?
+    public let thumb: String?          // Artwork path
+    public let art: String?            // Background art path
+    public let albumCount: Int
+    public let genre: String?
+    public let addedAt: Date?
+    public let updatedAt: Date?
 }
 
 /// An album in a Plex music library
-struct PlexAlbum: Identifiable, Equatable {
-    let id: String              // ratingKey
-    let key: String             // API path for tracks
-    let title: String
-    let parentTitle: String?    // Artist name
-    let parentKey: String?      // Artist key
-    let summary: String?
-    let year: Int?
-    let thumb: String?          // Album art path
-    let trackCount: Int
-    let duration: Int?          // Total duration in milliseconds
-    let genre: String?
-    let studio: String?         // Record label
-    let addedAt: Date?
-    let originallyAvailableAt: Date?
+public struct PlexAlbum: Identifiable, Equatable {
+    public let id: String              // ratingKey
+    public let key: String             // API path for tracks
+    public let title: String
+    public let parentTitle: String?    // Artist name
+    public let parentKey: String?      // Artist key
+    public let summary: String?
+    public let year: Int?
+    public let thumb: String?          // Album art path
+    public let trackCount: Int
+    public let duration: Int?          // Total duration in milliseconds
+    public let genre: String?
+    public let studio: String?         // Record label
+    public let addedAt: Date?
+    public let originallyAvailableAt: Date?
     
-    var formattedDuration: String {
+    public var formattedDuration: String {
         guard let duration = duration else { return "" }
         let seconds = duration / 1000
         let minutes = seconds / 60
@@ -199,39 +199,39 @@ struct PlexAlbum: Identifiable, Equatable {
 }
 
 /// A track in a Plex music library
-struct PlexTrack: Identifiable, Equatable {
-    let id: String              // ratingKey
-    let key: String             // API path
-    let title: String
-    let parentTitle: String?    // Album name
-    let grandparentTitle: String?  // Artist name
-    let parentKey: String?      // Album key
-    let grandparentKey: String? // Artist key
-    let summary: String?
-    let duration: Int           // Duration in milliseconds
-    let index: Int?             // Track number
-    let parentIndex: Int?       // Disc number
-    let thumb: String?          // Album art (inherited)
-    let media: [PlexMedia]      // Media files/parts
-    let addedAt: Date?
-    let updatedAt: Date?
-    let genre: String?          // Primary genre tag
-    let parentYear: Int?        // Album release year
-    let ratingCount: Int?       // Last.fm scrobble count (global popularity)
-    let userRating: Double?     // User's star rating (0-10 scale, 10 = 5 stars)
+public struct PlexTrack: Identifiable, Equatable {
+    public let id: String              // ratingKey
+    public let key: String             // API path
+    public let title: String
+    public let parentTitle: String?    // Album name
+    public let grandparentTitle: String?  // Artist name
+    public let parentKey: String?      // Album key
+    public let grandparentKey: String? // Artist key
+    public let summary: String?
+    public let duration: Int           // Duration in milliseconds
+    public let index: Int?             // Track number
+    public let parentIndex: Int?       // Disc number
+    public let thumb: String?          // Album art (inherited)
+    public let media: [PlexMedia]      // Media files/parts
+    public let addedAt: Date?
+    public let updatedAt: Date?
+    public let genre: String?          // Primary genre tag
+    public let parentYear: Int?        // Album release year
+    public let ratingCount: Int?       // Last.fm scrobble count (global popularity)
+    public let userRating: Double?     // User's star rating (0-10 scale, 10 = 5 stars)
     
     /// Get the streaming part key for this track
-    var partKey: String? {
+    public var partKey: String? {
         media.first?.parts.first?.key
     }
     
-    var formattedDuration: String {
+    public var formattedDuration: String {
         let seconds = duration / 1000
         let minutes = seconds / 60
         return String(format: "%d:%02d", minutes, seconds % 60)
     }
     
-    var durationInSeconds: TimeInterval {
+    public var durationInSeconds: TimeInterval {
         TimeInterval(duration) / 1000.0
     }
 }
@@ -239,29 +239,29 @@ struct PlexTrack: Identifiable, Equatable {
 // MARK: - Playlist Models
 
 /// A playlist on a Plex server
-struct PlexPlaylist: Identifiable, Equatable {
-    let id: String              // ratingKey
-    let key: String             // API path for items
-    let title: String
-    let summary: String?
-    let playlistType: String    // "audio", "video", or "photo"
-    let smart: Bool             // Whether it's a smart playlist
-    let thumb: String?          // Playlist artwork
-    let composite: String?      // Composite image path
-    let duration: Int?          // Total duration in milliseconds
-    let leafCount: Int          // Number of items
-    let addedAt: Date?
-    let updatedAt: Date?
+public struct PlexPlaylist: Identifiable, Equatable {
+    public let id: String              // ratingKey
+    public let key: String             // API path for items
+    public let title: String
+    public let summary: String?
+    public let playlistType: String    // "audio", "video", or "photo"
+    public let smart: Bool             // Whether it's a smart playlist
+    public let thumb: String?          // Playlist artwork
+    public let composite: String?      // Composite image path
+    public let duration: Int?          // Total duration in milliseconds
+    public let leafCount: Int          // Number of items
+    public let addedAt: Date?
+    public let updatedAt: Date?
     
-    var isAudioPlaylist: Bool {
+    public var isAudioPlaylist: Bool {
         playlistType == "audio"
     }
     
-    var isVideoPlaylist: Bool {
+    public var isVideoPlaylist: Bool {
         playlistType == "video"
     }
     
-    var formattedDuration: String? {
+    public var formattedDuration: String? {
         guard let duration = duration else { return nil }
         let seconds = duration / 1000
         let minutes = seconds / 60
@@ -276,34 +276,34 @@ struct PlexPlaylist: Identifiable, Equatable {
 // MARK: - Video Models
 
 /// A movie in a Plex movie library
-struct PlexMovie: Identifiable, Equatable {
-    let id: String              // ratingKey
-    let key: String             // API path
-    let title: String
-    let year: Int?
-    let summary: String?
-    let duration: Int?          // Duration in milliseconds
-    let thumb: String?          // Poster art path
-    let art: String?            // Background art path
-    let contentRating: String?  // MPAA rating (PG, R, etc.)
-    let studio: String?
-    let media: [PlexMedia]
-    let addedAt: Date?
-    let originallyAvailableAt: Date?
-    let imdbId: String?         // IMDB ID (e.g., "tt1234567")
-    let tmdbId: String?         // TMDB ID
+public struct PlexMovie: Identifiable, Equatable {
+    public let id: String              // ratingKey
+    public let key: String             // API path
+    public let title: String
+    public let year: Int?
+    public let summary: String?
+    public let duration: Int?          // Duration in milliseconds
+    public let thumb: String?          // Poster art path
+    public let art: String?            // Background art path
+    public let contentRating: String?  // MPAA rating (PG, R, etc.)
+    public let studio: String?
+    public let media: [PlexMedia]
+    public let addedAt: Date?
+    public let originallyAvailableAt: Date?
+    public let imdbId: String?         // IMDB ID (e.g., "tt1234567")
+    public let tmdbId: String?         // TMDB ID
     
     /// Get the streaming part key for this movie (uses the longest/primary media)
-    var partKey: String? {
+    public var partKey: String? {
         primaryMedia?.parts.first?.key
     }
     
     /// Get the primary media (longest duration - the main movie, not bonus content)
-    var primaryMedia: PlexMedia? {
+    public var primaryMedia: PlexMedia? {
         media.max(by: { ($0.duration ?? 0) < ($1.duration ?? 0) })
     }
     
-    var formattedDuration: String {
+    public var formattedDuration: String {
         guard let duration = duration else { return "" }
         let seconds = duration / 1000
         let minutes = seconds / 60
@@ -314,13 +314,13 @@ struct PlexMovie: Identifiable, Equatable {
         return String(format: "%d:%02d", minutes, seconds % 60)
     }
     
-    var durationInSeconds: TimeInterval {
+    public var durationInSeconds: TimeInterval {
         guard let duration = duration else { return 0 }
         return TimeInterval(duration) / 1000.0
     }
     
     /// URL to the IMDB page for this movie (direct link if ID available, otherwise search)
-    var imdbURL: URL? {
+    public var imdbURL: URL? {
         if let imdbId = imdbId {
             return URL(string: "https://www.imdb.com/title/\(imdbId)/")
         }
@@ -331,7 +331,7 @@ struct PlexMovie: Identifiable, Equatable {
     }
     
     /// URL to the TMDB page for this movie (direct link if ID available, otherwise search)
-    var tmdbURL: URL? {
+    public var tmdbURL: URL? {
         if let tmdbId = tmdbId {
             return URL(string: "https://www.themoviedb.org/movie/\(tmdbId)")
         }
@@ -342,7 +342,7 @@ struct PlexMovie: Identifiable, Equatable {
     }
     
     /// URL to search for this movie on Rotten Tomatoes
-    var rottenTomatoesSearchURL: URL? {
+    public var rottenTomatoesSearchURL: URL? {
         let searchQuery = year != nil ? "\(title) (\(year!))" : title
         guard let encoded = searchQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
         return URL(string: "https://www.rottentomatoes.com/search?search=\(encoded)")
@@ -350,25 +350,25 @@ struct PlexMovie: Identifiable, Equatable {
 }
 
 /// A TV show in a Plex show library
-struct PlexShow: Identifiable, Equatable {
-    let id: String              // ratingKey
-    let key: String             // API path for children (seasons)
-    let title: String
-    let year: Int?
-    let summary: String?
-    let thumb: String?          // Poster art path
-    let art: String?            // Background art path
-    let contentRating: String?  // TV rating (TV-MA, etc.)
-    let studio: String?
-    let childCount: Int         // Number of seasons
-    let leafCount: Int          // Total number of episodes
-    let addedAt: Date?
-    let imdbId: String?         // IMDB ID (e.g., "tt1234567")
-    let tmdbId: String?         // TMDB ID
-    let tvdbId: String?         // TVDB ID
+public struct PlexShow: Identifiable, Equatable {
+    public let id: String              // ratingKey
+    public let key: String             // API path for children (seasons)
+    public let title: String
+    public let year: Int?
+    public let summary: String?
+    public let thumb: String?          // Poster art path
+    public let art: String?            // Background art path
+    public let contentRating: String?  // TV rating (TV-MA, etc.)
+    public let studio: String?
+    public let childCount: Int         // Number of seasons
+    public let leafCount: Int          // Total number of episodes
+    public let addedAt: Date?
+    public let imdbId: String?         // IMDB ID (e.g., "tt1234567")
+    public let tmdbId: String?         // TMDB ID
+    public let tvdbId: String?         // TVDB ID
     
     /// URL to the IMDB page for this show (direct link if ID available, otherwise search)
-    var imdbURL: URL? {
+    public var imdbURL: URL? {
         if let imdbId = imdbId {
             return URL(string: "https://www.imdb.com/title/\(imdbId)/")
         }
@@ -379,7 +379,7 @@ struct PlexShow: Identifiable, Equatable {
     }
     
     /// URL to the TMDB page for this show (direct link if ID available, otherwise search)
-    var tmdbURL: URL? {
+    public var tmdbURL: URL? {
         if let tmdbId = tmdbId {
             return URL(string: "https://www.themoviedb.org/tv/\(tmdbId)")
         }
@@ -390,7 +390,7 @@ struct PlexShow: Identifiable, Equatable {
     }
     
     /// URL to search for this show on Rotten Tomatoes
-    var rottenTomatoesSearchURL: URL? {
+    public var rottenTomatoesSearchURL: URL? {
         let searchQuery = year != nil ? "\(title) (\(year!))" : title
         guard let encoded = searchQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
         return URL(string: "https://www.rottentomatoes.com/search?search=\(encoded)")
@@ -398,44 +398,44 @@ struct PlexShow: Identifiable, Equatable {
 }
 
 /// A season of a TV show
-struct PlexSeason: Identifiable, Equatable {
-    let id: String              // ratingKey
-    let key: String             // API path for children (episodes)
-    let title: String           // Usually "Season X"
-    let index: Int              // Season number
-    let parentTitle: String?    // Show name
-    let parentKey: String?      // Show key
-    let thumb: String?
-    let leafCount: Int          // Number of episodes in this season
-    let addedAt: Date?
+public struct PlexSeason: Identifiable, Equatable {
+    public let id: String              // ratingKey
+    public let key: String             // API path for children (episodes)
+    public let title: String           // Usually "Season X"
+    public let index: Int              // Season number
+    public let parentTitle: String?    // Show name
+    public let parentKey: String?      // Show key
+    public let thumb: String?
+    public let leafCount: Int          // Number of episodes in this season
+    public let addedAt: Date?
 }
 
 /// An episode of a TV show
-struct PlexEpisode: Identifiable, Equatable {
-    let id: String              // ratingKey
-    let key: String             // API path
-    let title: String
-    let index: Int              // Episode number
-    let parentIndex: Int        // Season number
-    let parentTitle: String?    // Season name
-    let grandparentTitle: String? // Show name
-    let grandparentKey: String? // Show key
-    let summary: String?
-    let duration: Int?          // Duration in milliseconds
-    let thumb: String?          // Episode thumbnail
-    let media: [PlexMedia]
-    let addedAt: Date?
-    let originallyAvailableAt: Date?
-    let imdbId: String?         // IMDB ID (e.g., "tt1234567")
-    let tmdbId: String?         // TMDB ID
-    let tvdbId: String?         // TVDB ID
+public struct PlexEpisode: Identifiable, Equatable {
+    public let id: String              // ratingKey
+    public let key: String             // API path
+    public let title: String
+    public let index: Int              // Episode number
+    public let parentIndex: Int        // Season number
+    public let parentTitle: String?    // Season name
+    public let grandparentTitle: String? // Show name
+    public let grandparentKey: String? // Show key
+    public let summary: String?
+    public let duration: Int?          // Duration in milliseconds
+    public let thumb: String?          // Episode thumbnail
+    public let media: [PlexMedia]
+    public let addedAt: Date?
+    public let originallyAvailableAt: Date?
+    public let imdbId: String?         // IMDB ID (e.g., "tt1234567")
+    public let tmdbId: String?         // TMDB ID
+    public let tvdbId: String?         // TVDB ID
     
     /// Get the streaming part key for this episode
-    var partKey: String? {
+    public var partKey: String? {
         media.first?.parts.first?.key
     }
     
-    var formattedDuration: String {
+    public var formattedDuration: String {
         guard let duration = duration else { return "" }
         let seconds = duration / 1000
         let minutes = seconds / 60
@@ -447,7 +447,7 @@ struct PlexEpisode: Identifiable, Equatable {
     }
     
     /// URL to the IMDB page for this episode (direct link if ID available, otherwise search for show)
-    var imdbURL: URL? {
+    public var imdbURL: URL? {
         if let imdbId = imdbId {
             return URL(string: "https://www.imdb.com/title/\(imdbId)/")
         }
@@ -458,7 +458,7 @@ struct PlexEpisode: Identifiable, Equatable {
     }
     
     /// URL to search for this episode on TMDB
-    var tmdbSearchURL: URL? {
+    public var tmdbSearchURL: URL? {
         // Search for the show name
         let searchQuery = grandparentTitle ?? title
         guard let encoded = searchQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
@@ -466,20 +466,20 @@ struct PlexEpisode: Identifiable, Equatable {
     }
     
     /// URL to search for this episode on Rotten Tomatoes
-    var rottenTomatoesSearchURL: URL? {
+    public var rottenTomatoesSearchURL: URL? {
         // Search for the show name
         let searchQuery = grandparentTitle ?? title
         guard let encoded = searchQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
         return URL(string: "https://www.rottentomatoes.com/search?search=\(encoded)")
     }
     
-    var durationInSeconds: TimeInterval {
+    public var durationInSeconds: TimeInterval {
         guard let duration = duration else { return 0 }
         return TimeInterval(duration) / 1000.0
     }
     
     /// Formatted episode identifier (e.g., "S01E05")
-    var episodeIdentifier: String {
+    public var episodeIdentifier: String {
         String(format: "S%02dE%02d", parentIndex, index)
     }
 }
@@ -487,16 +487,16 @@ struct PlexEpisode: Identifiable, Equatable {
 // MARK: - Hubs (Related Content)
 
 /// A content hub containing related/similar items (for radio/mix generation)
-struct PlexHub: Identifiable {
-    let id: String
-    let type: String                // "artist", "album", "track"
-    let hubIdentifier: String       // "track.similar", "artist.similar", etc.
-    let title: String
-    let size: Int
-    let items: [PlexMetadataDTO]    // Raw metadata for flexibility
+public struct PlexHub: Identifiable {
+    public let id: String
+    public let type: String                // "artist", "album", "track"
+    public let hubIdentifier: String       // "track.similar", "artist.similar", etc.
+    public let title: String
+    public let size: Int
+    public let items: [PlexMetadataDTO]    // Raw metadata for flexibility
     
     /// Check if this hub contains similar/related content
-    var isSimilarContent: Bool {
+    public var isSimilarContent: Bool {
         hubIdentifier.contains("similar") || hubIdentifier.contains("related")
     }
 }
@@ -504,41 +504,41 @@ struct PlexHub: Identifiable {
 // MARK: - Media Info
 
 /// Media info for a Plex item
-struct PlexMedia: Codable, Equatable {
-    let id: Int
-    let duration: Int?
-    let bitrate: Int?
-    let audioChannels: Int?
-    let audioCodec: String?
-    let videoCodec: String?
-    let videoResolution: String?
-    let width: Int?
-    let height: Int?
-    let container: String?
-    let parts: [PlexPart]
+public struct PlexMedia: Codable, Equatable {
+    public let id: Int
+    public let duration: Int?
+    public let bitrate: Int?
+    public let audioChannels: Int?
+    public let audioCodec: String?
+    public let videoCodec: String?
+    public let videoResolution: String?
+    public let width: Int?
+    public let height: Int?
+    public let container: String?
+    public let parts: [PlexPart]
 }
 
 /// A media part (actual file) for streaming
-struct PlexPart: Codable, Equatable {
-    let id: Int
-    let key: String             // The streaming path
-    let duration: Int?
-    let file: String?           // Original file path on server
-    let size: Int64?
-    let container: String?
-    let audioProfile: String?
-    let streams: [PlexStream]   // Audio, video, and subtitle streams
+public struct PlexPart: Codable, Equatable {
+    public let id: Int
+    public let key: String             // The streaming path
+    public let duration: Int?
+    public let file: String?           // Original file path on server
+    public let size: Int64?
+    public let container: String?
+    public let audioProfile: String?
+    public let streams: [PlexStream]   // Audio, video, and subtitle streams
 }
 
 // MARK: - Stream Info
 
 /// Stream type enumeration for Plex media streams
-enum PlexStreamType: Int, Codable, Equatable {
+public enum PlexStreamType: Int, Codable, Equatable {
     case video = 1
     case audio = 2
     case subtitle = 3
     
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .video: return "Video"
         case .audio: return "Audio"
@@ -548,48 +548,48 @@ enum PlexStreamType: Int, Codable, Equatable {
 }
 
 /// A media stream (video, audio, or subtitle track) within a Plex media part
-struct PlexStream: Codable, Equatable, Identifiable {
-    let id: Int
-    let streamType: PlexStreamType  // 1=video, 2=audio, 3=subtitle
-    let index: Int?                  // Stream index in container
-    let codec: String?               // e.g., "aac", "ac3", "srt", "ass"
-    let language: String?            // ISO language code (e.g., "en", "es")
-    let languageTag: String?         // Full language tag (e.g., "en-US")
-    let languageCode: String?        // Three-letter code (e.g., "eng")
-    let displayTitle: String?        // Human-readable title (e.g., "English (AC3 5.1)")
-    let extendedDisplayTitle: String? // Extended title with more details
-    let title: String?               // Custom track title
-    let selected: Bool               // Whether this is the default/selected track
-    let `default`: Bool?             // Whether this is marked as default in the file
-    let forced: Bool?                // Whether this is a forced subtitle track
-    let hearingImpaired: Bool?       // Whether this is for hearing impaired (SDH)
-    let key: String?                 // URL path for external subtitles
+public struct PlexStream: Codable, Equatable, Identifiable {
+    public let id: Int
+    public let streamType: PlexStreamType  // 1=video, 2=audio, 3=subtitle
+    public let index: Int?                  // Stream index in container
+    public let codec: String?               // e.g., "aac", "ac3", "srt", "ass"
+    public let language: String?            // ISO language code (e.g., "en", "es")
+    public let languageTag: String?         // Full language tag (e.g., "en-US")
+    public let languageCode: String?        // Three-letter code (e.g., "eng")
+    public let displayTitle: String?        // Human-readable title (e.g., "English (AC3 5.1)")
+    public let extendedDisplayTitle: String? // Extended title with more details
+    public let title: String?               // Custom track title
+    public let selected: Bool               // Whether this is the default/selected track
+    public let `default`: Bool?             // Whether this is marked as default in the file
+    public let forced: Bool?                // Whether this is a forced subtitle track
+    public let hearingImpaired: Bool?       // Whether this is for hearing impaired (SDH)
+    public let key: String?                 // URL path for external subtitles
     
     // Audio-specific properties
-    let channels: Int?               // Number of audio channels
-    let channelLayout: String?       // e.g., "5.1", "stereo"
-    let bitrate: Int?                // Audio bitrate
-    let samplingRate: Int?           // Audio sample rate
-    let bitDepth: Int?               // Audio bit depth
+    public let channels: Int?               // Number of audio channels
+    public let channelLayout: String?       // e.g., "5.1", "stereo"
+    public let bitrate: Int?                // Audio bitrate
+    public let samplingRate: Int?           // Audio sample rate
+    public let bitDepth: Int?               // Audio bit depth
     
     // Video-specific properties
-    let width: Int?
-    let height: Int?
-    let frameRate: Double?
-    let profile: String?             // e.g., "main", "high"
-    let level: Int?
-    let colorSpace: String?
+    public let width: Int?
+    public let height: Int?
+    public let frameRate: Double?
+    public let profile: String?             // e.g., "main", "high"
+    public let level: Int?
+    public let colorSpace: String?
     
     // Subtitle-specific properties
-    let format: String?              // Subtitle format (e.g., "srt", "ass", "pgs")
+    public let format: String?              // Subtitle format (e.g., "srt", "ass", "pgs")
     
     /// Whether this is an external subtitle (has a download URL)
-    var isExternal: Bool {
+    public var isExternal: Bool {
         key != nil && streamType == .subtitle
     }
     
     /// User-friendly display name for the stream
-    var localizedDisplayTitle: String {
+    public var localizedDisplayTitle: String {
         if let displayTitle = displayTitle, !displayTitle.isEmpty {
             return displayTitle
         }
@@ -639,17 +639,17 @@ struct PlexStream: Codable, Equatable, Identifiable {
 // MARK: - API Response Containers
 
 /// Generic container for Plex API responses
-struct PlexMediaContainer<T: Decodable>: Decodable {
-    let size: Int?
-    let totalSize: Int?
-    let offset: Int?
-    let allowSync: Bool?
-    let identifier: String?
-    let mediaTagPrefix: String?
-    let mediaTagVersion: Int?
-    let title1: String?
-    let title2: String?
-    let items: T
+public struct PlexMediaContainer<T: Decodable>: Decodable {
+    public let size: Int?
+    public let totalSize: Int?
+    public let offset: Int?
+    public let allowSync: Bool?
+    public let identifier: String?
+    public let mediaTagPrefix: String?
+    public let mediaTagVersion: Int?
+    public let title1: String?
+    public let title2: String?
+    public let items: T
     
     enum CodingKeys: String, CodingKey {
         case size, totalSize, offset, allowSync, identifier
@@ -657,7 +657,7 @@ struct PlexMediaContainer<T: Decodable>: Decodable {
         // Items will be decoded separately based on context
     }
     
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         size = try container.decodeIfPresent(Int.self, forKey: .size)
         totalSize = try container.decodeIfPresent(Int.self, forKey: .totalSize)
@@ -673,8 +673,8 @@ struct PlexMediaContainer<T: Decodable>: Decodable {
 }
 
 /// Response wrapper for Plex API
-struct PlexResponse<T: Decodable>: Decodable {
-    let mediaContainer: T
+public struct PlexResponse<T: Decodable>: Decodable {
+    public let mediaContainer: T
     
     enum CodingKeys: String, CodingKey {
         case mediaContainer = "MediaContainer"
@@ -683,9 +683,9 @@ struct PlexResponse<T: Decodable>: Decodable {
 
 // MARK: - API Response Structs
 
-struct PlexLibrariesResponse: Decodable {
-    let size: Int?
-    let directories: [PlexLibraryDTO]?
+public struct PlexLibrariesResponse: Decodable {
+    public let size: Int?
+    public let directories: [PlexLibraryDTO]?
     
     enum CodingKeys: String, CodingKey {
         case size
@@ -693,17 +693,17 @@ struct PlexLibrariesResponse: Decodable {
     }
 }
 
-struct PlexLibraryDTO: Decodable {
-    let key: String
-    let uuid: String?
-    let title: String
-    let type: String
-    let agent: String?
-    let scanner: String?
-    let language: String?
-    let refreshing: Bool?
+public struct PlexLibraryDTO: Decodable {
+    public let key: String
+    public let uuid: String?
+    public let title: String
+    public let type: String
+    public let agent: String?
+    public let scanner: String?
+    public let language: String?
+    public let refreshing: Bool?
     
-    func toLibrary() -> PlexLibrary {
+    public func toLibrary() -> PlexLibrary {
         PlexLibrary(
             id: key,
             uuid: uuid,
@@ -718,11 +718,11 @@ struct PlexLibraryDTO: Decodable {
     }
 }
 
-struct PlexMetadataResponse: Decodable {
-    let size: Int?
-    let totalSize: Int?
-    let offset: Int?
-    let metadata: [PlexMetadataDTO]?
+public struct PlexMetadataResponse: Decodable {
+    public let size: Int?
+    public let totalSize: Int?
+    public let offset: Int?
+    public let metadata: [PlexMetadataDTO]?
     
     enum CodingKeys: String, CodingKey {
         case size, totalSize, offset
@@ -730,63 +730,63 @@ struct PlexMetadataResponse: Decodable {
     }
 }
 
-struct PlexMetadataDTO: Decodable {
-    let ratingKey: String
-    let key: String
-    let type: String
-    let title: String
-    let parentTitle: String?
-    let grandparentTitle: String?
-    let parentKey: String?
-    let grandparentKey: String?
-    let summary: String?
-    let index: Int?
-    let parentIndex: Int?
-    let year: Int?
-    let thumb: String?
-    let art: String?
-    let duration: Int?
-    let addedAt: Int?
-    let updatedAt: Int?
-    let originallyAvailableAt: String?
-    let leafCount: Int?         // Track count for albums/artists, episode count for shows/seasons
-    let childCount: Int?        // Album count for artists, season count for shows
-    let albumCount: Int?        // Some Plex servers return albumCount directly for artists
-    let media: [PlexMediaDTO]?
-    let genre: [PlexTagDTO]?
-    let studio: String?
-    let contentRating: String?  // MPAA/TV rating
+public struct PlexMetadataDTO: Decodable {
+    public let ratingKey: String
+    public let key: String
+    public let type: String
+    public let title: String
+    public let parentTitle: String?
+    public let grandparentTitle: String?
+    public let parentKey: String?
+    public let grandparentKey: String?
+    public let summary: String?
+    public let index: Int?
+    public let parentIndex: Int?
+    public let year: Int?
+    public let thumb: String?
+    public let art: String?
+    public let duration: Int?
+    public let addedAt: Int?
+    public let updatedAt: Int?
+    public let originallyAvailableAt: String?
+    public let leafCount: Int?         // Track count for albums/artists, episode count for shows/seasons
+    public let childCount: Int?        // Album count for artists, season count for shows
+    public let albumCount: Int?        // Some Plex servers return albumCount directly for artists
+    public let media: [PlexMediaDTO]?
+    public let genre: [PlexTagDTO]?
+    public let studio: String?
+    public let contentRating: String?  // MPAA/TV rating
     // Playlist-specific fields
-    let playlistType: String?   // "audio", "video", or "photo"
-    let smart: Bool?            // Whether it's a smart playlist
-    let composite: String?      // Composite image path for playlists
+    public let playlistType: String?   // "audio", "video", or "photo"
+    public let smart: Bool?            // Whether it's a smart playlist
+    public let composite: String?      // Composite image path for playlists
     // Track-specific fields for radio
-    let parentYear: Int?        // Album release year (for decade radio)
-    let ratingCount: Int?       // Last.fm scrobble count (for hits/deep cuts)
-    let userRating: Double?     // User's star rating (0-10 scale, 10 = 5 stars)
+    public let parentYear: Int?        // Album release year (for decade radio)
+    public let ratingCount: Int?       // Last.fm scrobble count (for hits/deep cuts)
+    public let userRating: Double?     // User's star rating (0-10 scale, 10 = 5 stars)
     // Extra/bonus content identification
-    let extraType: Int?         // Non-nil means this is an extra (trailer, deleted scene, etc.)
-    let subtype: String?        // Additional type info (e.g., "trailer", "clip")
+    public let extraType: Int?         // Non-nil means this is an extra (trailer, deleted scene, etc.)
+    public let subtype: String?        // Additional type info (e.g., "trailer", "clip")
     // External IDs (IMDB, TMDB, TVDB)
-    let guids: [PlexGuidDTO]?   // External ID references
+    public let guids: [PlexGuidDTO]?   // External ID references
     
     /// Returns true if this item is an extra/bonus content (not the main movie/episode)
-    var isExtra: Bool {
+    public var isExtra: Bool {
         extraType != nil || subtype != nil
     }
     
     /// Extract IMDB ID from guids array
-    var imdbId: String? {
+    public var imdbId: String? {
         guids?.compactMap { $0.imdbId }.first
     }
     
     /// Extract TMDB ID from guids array
-    var tmdbId: String? {
+    public var tmdbId: String? {
         guids?.compactMap { $0.tmdbId }.first
     }
     
     /// Extract TVDB ID from guids array
-    var tvdbId: String? {
+    public var tvdbId: String? {
         guids?.compactMap { $0.tvdbId }.first
     }
     
@@ -804,7 +804,7 @@ struct PlexMetadataDTO: Decodable {
         case guids = "Guid"
     }
     
-    func toArtist() -> PlexArtist {
+    public func toArtist() -> PlexArtist {
         // Use childCount, albumCount, or leafCount (some servers use different fields)
         let albumCountValue = childCount ?? albumCount ?? 0
         
@@ -822,7 +822,7 @@ struct PlexMetadataDTO: Decodable {
         )
     }
     
-    func toAlbum() -> PlexAlbum {
+    public func toAlbum() -> PlexAlbum {
         PlexAlbum(
             id: ratingKey,
             key: key,
@@ -841,7 +841,7 @@ struct PlexMetadataDTO: Decodable {
         )
     }
     
-    func toTrack() -> PlexTrack {
+    public func toTrack() -> PlexTrack {
         PlexTrack(
             id: ratingKey,
             key: key,
@@ -865,7 +865,7 @@ struct PlexMetadataDTO: Decodable {
         )
     }
     
-    func toMovie() -> PlexMovie {
+    public func toMovie() -> PlexMovie {
         var releaseDate: Date? = nil
         if let dateStr = originallyAvailableAt {
             let formatter = DateFormatter()
@@ -901,7 +901,7 @@ struct PlexMetadataDTO: Decodable {
         )
     }
     
-    func toShow() -> PlexShow {
+    public func toShow() -> PlexShow {
         PlexShow(
             id: ratingKey,
             key: key,
@@ -921,7 +921,7 @@ struct PlexMetadataDTO: Decodable {
         )
     }
     
-    func toSeason() -> PlexSeason {
+    public func toSeason() -> PlexSeason {
         PlexSeason(
             id: ratingKey,
             key: key,
@@ -935,7 +935,7 @@ struct PlexMetadataDTO: Decodable {
         )
     }
     
-    func toEpisode() -> PlexEpisode {
+    public func toEpisode() -> PlexEpisode {
         var airDate: Date? = nil
         if let dateStr = originallyAvailableAt {
             let formatter = DateFormatter()
@@ -964,7 +964,7 @@ struct PlexMetadataDTO: Decodable {
         )
     }
     
-    func toPlaylist() -> PlexPlaylist {
+    public func toPlaylist() -> PlexPlaylist {
         PlexPlaylist(
             id: ratingKey,
             key: key,
@@ -982,18 +982,18 @@ struct PlexMetadataDTO: Decodable {
     }
 }
 
-struct PlexMediaDTO: Decodable {
-    let id: Int
-    let duration: Int?
-    let bitrate: Int?
-    let audioChannels: Int?
-    let audioCodec: String?
-    let videoCodec: String?
-    let videoResolution: String?
-    let width: Int?
-    let height: Int?
-    let container: String?
-    let parts: [PlexPartDTO]?
+public struct PlexMediaDTO: Decodable {
+    public let id: Int
+    public let duration: Int?
+    public let bitrate: Int?
+    public let audioChannels: Int?
+    public let audioCodec: String?
+    public let videoCodec: String?
+    public let videoResolution: String?
+    public let width: Int?
+    public let height: Int?
+    public let container: String?
+    public let parts: [PlexPartDTO]?
     
     enum CodingKeys: String, CodingKey {
         case id, duration, bitrate, audioChannels, audioCodec
@@ -1001,7 +1001,7 @@ struct PlexMediaDTO: Decodable {
         case parts = "Part"
     }
     
-    func toMedia() -> PlexMedia {
+    public func toMedia() -> PlexMedia {
         PlexMedia(
             id: id,
             duration: duration,
@@ -1018,22 +1018,22 @@ struct PlexMediaDTO: Decodable {
     }
 }
 
-struct PlexPartDTO: Decodable {
-    let id: Int
-    let key: String
-    let duration: Int?
-    let file: String?
-    let size: Int64?
-    let container: String?
-    let audioProfile: String?
-    let streams: [PlexStreamDTO]?
+public struct PlexPartDTO: Decodable {
+    public let id: Int
+    public let key: String
+    public let duration: Int?
+    public let file: String?
+    public let size: Int64?
+    public let container: String?
+    public let audioProfile: String?
+    public let streams: [PlexStreamDTO]?
     
     enum CodingKeys: String, CodingKey {
         case id, key, duration, file, size, container, audioProfile
         case streams = "Stream"
     }
     
-    func toPart() -> PlexPart {
+    public func toPart() -> PlexPart {
         PlexPart(
             id: id,
             key: key,
@@ -1047,42 +1047,42 @@ struct PlexPartDTO: Decodable {
     }
 }
 
-struct PlexStreamDTO: Decodable {
-    let id: Int
-    let streamType: Int
-    let index: Int?
-    let codec: String?
-    let language: String?
-    let languageTag: String?
-    let languageCode: String?
-    let displayTitle: String?
-    let extendedDisplayTitle: String?
-    let title: String?
-    let selected: Bool?
-    let `default`: Bool?
-    let forced: Bool?
-    let hearingImpaired: Bool?
-    let key: String?
+public struct PlexStreamDTO: Decodable {
+    public let id: Int
+    public let streamType: Int
+    public let index: Int?
+    public let codec: String?
+    public let language: String?
+    public let languageTag: String?
+    public let languageCode: String?
+    public let displayTitle: String?
+    public let extendedDisplayTitle: String?
+    public let title: String?
+    public let selected: Bool?
+    public let `default`: Bool?
+    public let forced: Bool?
+    public let hearingImpaired: Bool?
+    public let key: String?
     
     // Audio-specific
-    let channels: Int?
-    let channelLayout: String?
-    let bitrate: Int?
-    let samplingRate: Int?
-    let bitDepth: Int?
+    public let channels: Int?
+    public let channelLayout: String?
+    public let bitrate: Int?
+    public let samplingRate: Int?
+    public let bitDepth: Int?
     
     // Video-specific
-    let width: Int?
-    let height: Int?
-    let frameRate: FlexibleString?  // Plex returns this as either string or number
-    let profile: String?
-    let level: Int?
-    let colorSpace: String?
+    public let width: Int?
+    public let height: Int?
+    public let frameRate: FlexibleString?  // Plex returns this as either string or number
+    public let profile: String?
+    public let level: Int?
+    public let colorSpace: String?
     
     // Subtitle-specific
-    let format: String?
+    public let format: String?
     
-    func toStream() -> PlexStream {
+    public func toStream() -> PlexStream {
         PlexStream(
             id: id,
             streamType: PlexStreamType(rawValue: streamType) ?? .video,
@@ -1115,28 +1115,28 @@ struct PlexStreamDTO: Decodable {
     }
 }
 
-struct PlexTagDTO: Decodable {
-    let tag: String
+public struct PlexTagDTO: Decodable {
+    public let tag: String
 }
 
 /// External ID reference (IMDB, TMDB, TVDB, etc.)
-struct PlexGuidDTO: Decodable {
-    let id: String
+public struct PlexGuidDTO: Decodable {
+    public let id: String
     
     /// Extract the IMDB ID if this is an IMDB guid
-    var imdbId: String? {
+    public var imdbId: String? {
         guard id.hasPrefix("imdb://") else { return nil }
         return String(id.dropFirst("imdb://".count))
     }
     
     /// Extract the TMDB ID if this is a TMDB guid
-    var tmdbId: String? {
+    public var tmdbId: String? {
         guard id.hasPrefix("tmdb://") else { return nil }
         return String(id.dropFirst("tmdb://".count))
     }
     
     /// Extract the TVDB ID if this is a TVDB guid
-    var tvdbId: String? {
+    public var tvdbId: String? {
         guard id.hasPrefix("tvdb://") else { return nil }
         return String(id.dropFirst("tvdb://".count))
     }
@@ -1145,9 +1145,9 @@ struct PlexGuidDTO: Decodable {
 // MARK: - Genre Response DTOs
 
 /// Response container for genre endpoints
-struct PlexGenreResponse: Decodable {
-    let size: Int?
-    let directory: [PlexGenreDTO]?
+public struct PlexGenreResponse: Decodable {
+    public let size: Int?
+    public let directory: [PlexGenreDTO]?
     
     enum CodingKeys: String, CodingKey {
         case size
@@ -1156,16 +1156,16 @@ struct PlexGenreResponse: Decodable {
 }
 
 /// A genre entry from the library
-struct PlexGenreDTO: Decodable {
-    let key: String
-    let title: String
+public struct PlexGenreDTO: Decodable {
+    public let key: String
+    public let title: String
 }
 
 // MARK: - Hub Response DTOs
 
 /// Response container for hub endpoints
-struct PlexHubsResponse: Decodable {
-    let hubs: [PlexHubDTO]?
+public struct PlexHubsResponse: Decodable {
+    public let hubs: [PlexHubDTO]?
     
     enum CodingKeys: String, CodingKey {
         case hubs = "Hub"
@@ -1173,24 +1173,24 @@ struct PlexHubsResponse: Decodable {
 }
 
 /// A hub containing related content
-struct PlexHubDTO: Decodable {
-    let hubKey: String?
-    let key: String?
-    let type: String
-    let hubIdentifier: String
-    let title: String
-    let size: Int?
-    let more: Bool?
-    let style: String?
-    let promoted: Bool?
-    let metadata: [PlexMetadataDTO]?
+public struct PlexHubDTO: Decodable {
+    public let hubKey: String?
+    public let key: String?
+    public let type: String
+    public let hubIdentifier: String
+    public let title: String
+    public let size: Int?
+    public let more: Bool?
+    public let style: String?
+    public let promoted: Bool?
+    public let metadata: [PlexMetadataDTO]?
     
     enum CodingKeys: String, CodingKey {
         case hubKey, key, type, hubIdentifier, title, size, more, style, promoted
         case metadata = "Metadata"
     }
     
-    func toHub() -> PlexHub {
+    public func toHub() -> PlexHub {
         PlexHub(
             id: hubKey ?? hubIdentifier,
             type: type,
@@ -1204,33 +1204,33 @@ struct PlexHubDTO: Decodable {
 
 // MARK: - Resources/Servers Response
 
-struct PlexResourcesResponse: Decodable {
-    let resources: [PlexResourceDTO]
+public struct PlexResourcesResponse: Decodable {
+    public let resources: [PlexResourceDTO]
     
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         resources = try container.decode([PlexResourceDTO].self)
     }
 }
 
-struct PlexResourceDTO: Decodable {
-    let name: String
-    let product: String?
-    let productVersion: String?
-    let platform: String?
-    let platformVersion: String?
-    let device: String?
-    let clientIdentifier: String
-    let createdAt: String?
-    let lastSeenAt: String?
-    let provides: String?
-    let owned: Bool?
-    let accessToken: String?
-    let publicAddress: String?
-    let httpsRequired: Bool?
-    let connections: [PlexConnectionDTO]?
+public struct PlexResourceDTO: Decodable {
+    public let name: String
+    public let product: String?
+    public let productVersion: String?
+    public let platform: String?
+    public let platformVersion: String?
+    public let device: String?
+    public let clientIdentifier: String
+    public let createdAt: String?
+    public let lastSeenAt: String?
+    public let provides: String?
+    public let owned: Bool?
+    public let accessToken: String?
+    public let publicAddress: String?
+    public let httpsRequired: Bool?
+    public let connections: [PlexConnectionDTO]?
     
-    func toServer() -> PlexServer? {
+    public func toServer() -> PlexServer? {
         // Only return servers that provide "server" capability
         guard provides?.contains("server") == true else { return nil }
         
@@ -1249,15 +1249,15 @@ struct PlexResourceDTO: Decodable {
     }
 }
 
-struct PlexConnectionDTO: Decodable {
-    let uri: String
-    let local: Bool?
-    let relay: Bool?
-    let address: String?
-    let port: Int?
-    let `protocol`: String?
+public struct PlexConnectionDTO: Decodable {
+    public let uri: String
+    public let local: Bool?
+    public let relay: Bool?
+    public let address: String?
+    public let port: Int?
+    public let `protocol`: String?
     
-    func toConnection() -> PlexConnection {
+    public func toConnection() -> PlexConnection {
         PlexConnection(
             uri: uri,
             local: local ?? false,
@@ -1271,16 +1271,16 @@ struct PlexConnectionDTO: Decodable {
 
 // MARK: - User Response
 
-struct PlexUserResponse: Decodable {
-    let id: Int
-    let uuid: String
-    let username: String
-    let email: String?
-    let thumb: String?
-    let authToken: String
-    let title: String?
+public struct PlexUserResponse: Decodable {
+    public let id: Int
+    public let uuid: String
+    public let username: String
+    public let email: String?
+    public let thumb: String?
+    public let authToken: String
+    public let title: String?
     
-    func toAccount() -> PlexAccount {
+    public func toAccount() -> PlexAccount {
         PlexAccount(
             id: id,
             uuid: uuid,
@@ -1295,15 +1295,15 @@ struct PlexUserResponse: Decodable {
 
 // MARK: - PIN Response
 
-struct PlexPINResponse: Decodable {
-    let id: Int
-    let code: String
-    let authToken: String?
-    let expiresAt: String?
-    let trusted: Bool?
-    let clientIdentifier: String?
+public struct PlexPINResponse: Decodable {
+    public let id: Int
+    public let code: String
+    public let authToken: String?
+    public let expiresAt: String?
+    public let trusted: Bool?
+    public let clientIdentifier: String?
     
-    func toPIN() -> PlexPIN {
+    public func toPIN() -> PlexPIN {
         var expiresDate: Date? = nil
         if let expiresAt = expiresAt {
             let formatter = ISO8601DateFormatter()

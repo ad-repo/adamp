@@ -314,6 +314,7 @@ class LocalMediaServer {
     /// Detect content type from file extension
     private func contentType(for url: URL) -> String {
         switch url.pathExtension.lowercased() {
+        // Audio formats
         case "mp3":
             return "audio/mpeg"
         case "m4a", "aac":
@@ -330,6 +331,23 @@ class LocalMediaServer {
             return "audio/opus"
         case "wma":
             return "audio/x-ms-wma"
+        // Video formats
+        case "mp4", "m4v":
+            return "video/mp4"
+        case "mkv":
+            return "video/x-matroska"
+        case "webm":
+            return "video/webm"
+        case "avi":
+            return "video/x-msvideo"
+        case "mov":
+            return "video/quicktime"
+        case "ts", "m2ts", "mts":
+            return "video/mp2t"
+        case "wmv":
+            return "video/x-ms-wmv"
+        case "flv":
+            return "video/x-flv"
         default:
             return "application/octet-stream"
         }

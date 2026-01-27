@@ -70,6 +70,9 @@ class AudioEngine {
         return AVAudioUnitEffect(audioComponentDescription: componentDescription)
     }()
     
+    /// Mixer node to combine player nodes (class property for graph rebuilding)
+    private let mixerNode = AVAudioMixerNode()
+    
     /// Current audio file (for local files)
     private var audioFile: AVAudioFile?
     
@@ -121,8 +124,8 @@ class AudioEngine {
             // Apply volume to video player
             WindowManager.shared.setVideoVolume(volume)
             
-            // Also set volume on cast device if casting
-            if isCastingActive {
+            // Send volume to cast device if any casting is active (audio or video)
+            if isAnyCastingActive {
                 Task {
                     try? await CastManager.shared.setVolume(volume)
                 }
@@ -261,17 +264,38 @@ class AudioEngine {
     /// Current output device ID (nil = system default)
     private(set) var currentOutputDeviceID: AudioDeviceID?
     
-    /// Whether casting is currently active (playback controlled by CastManager)
+    /// Whether audio casting is currently active (playback controlled by CastManager)
     var isCastingActive: Bool {
         CastManager.shared.isCasting
+    }
+    
+    /// Whether video casting is active (from video player)
+    var isVideoCastingActive: Bool {
+        WindowManager.shared.isVideoCastingActive
+    }
+    
+    /// Whether any casting (audio or video) is active
+    var isAnyCastingActive: Bool {
+        isCastingActive || isVideoCastingActive
     }
     
     // MARK: - Initialization
     
     init() {
+        // Observe audio device configuration changes FIRST
+        // This handles format mismatches when output device changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioConfigChange),
+            name: .AVAudioEngineConfigurationChange,
+            object: engine
+        )
+        
         setupAudioEngine()
         setupEqualizer()
         setupSpectrumAnalyzer()
+        
+        // Restore saved output device (notification handler will rebuild graph if needed)
         restoreSavedOutputDevice()
     }
     
@@ -291,16 +315,14 @@ class AudioEngine {
         engine.attach(crossfadePlayerNode)  // For Sweet Fades crossfade
         engine.attach(eqNode)
         engine.attach(limiterNode)
+        engine.attach(mixerNode)  // Class property for graph rebuilding
         
         // Get the standard format from the mixer
         let mixerFormat = engine.mainMixerNode.outputFormat(forBus: 0)
         
-        // Create a mixer node to combine both player nodes before EQ
         // Signal flow: playerNode ─┐
         //                          ├─► mixerNode ─► eqNode ─► limiter ─► output
         //  crossfadePlayerNode ────┘
-        let mixerNode = AVAudioMixerNode()
-        engine.attach(mixerNode)
         
         // Connect both players to the mixer
         engine.connect(playerNode, to: mixerNode, format: mixerFormat)
@@ -370,6 +392,100 @@ class AudioEngine {
         // Load sweet fade duration with default of 5.0 seconds
         let savedDuration = UserDefaults.standard.double(forKey: "sweetFadeDuration")
         sweetFadeDuration = savedDuration > 0 ? savedDuration : 5.0
+    }
+    
+    // MARK: - Audio Configuration Change Handling
+    
+    /// Handle audio configuration changes (device format changes)
+    /// Called when AVAudioEngine detects a configuration change (e.g., device sample rate changed)
+    @objc private func handleAudioConfigChange(_ notification: Notification) {
+        NSLog("AudioEngine: Configuration change detected, rebuilding audio graph")
+        // CRITICAL: Must use async to avoid deadlock
+        // The notification fires on an internal dispatch queue
+        DispatchQueue.main.async { [weak self] in
+            self?.rebuildAudioGraph()
+        }
+    }
+    
+    /// Rebuild the audio graph with the new output format
+    /// Called after a device change that affects the audio format
+    private func rebuildAudioGraph() {
+        let wasPlaying = state == .playing
+        let currentPosition = currentTime
+        
+        // Get new format from the updated output device
+        let mixerFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+        NSLog("AudioEngine: Rebuilding graph with format: %@", mixerFormat.description)
+        
+        // Reconnect all nodes with new format
+        engine.connect(playerNode, to: mixerNode, format: mixerFormat)
+        engine.connect(crossfadePlayerNode, to: mixerNode, format: mixerFormat)
+        engine.connect(mixerNode, to: eqNode, format: mixerFormat)
+        engine.connect(eqNode, to: limiterNode, format: mixerFormat)
+        engine.connect(limiterNode, to: engine.mainMixerNode, format: mixerFormat)
+        
+        // Re-schedule current audio if we were playing local files
+        if wasPlaying && !isStreamingPlayback, let file = audioFile {
+            do {
+                try engine.start()
+                
+                // Schedule from current position
+                let sampleRate = file.processingFormat.sampleRate
+                let framePosition = AVAudioFramePosition(currentPosition * sampleRate)
+                let remainingFrames = file.length - framePosition
+                
+                guard remainingFrames > 0 else {
+                    NSLog("AudioEngine: No remaining frames after config change")
+                    return
+                }
+                
+                // Increment generation to invalidate old completion handlers
+                playbackGeneration += 1
+                let currentGeneration = playbackGeneration
+                
+                playerNode.scheduleSegment(file,
+                    startingFrame: framePosition,
+                    frameCount: AVAudioFrameCount(remainingFrames),
+                    at: nil) { [weak self] in
+                        DispatchQueue.main.async {
+                            self?.handlePlaybackComplete(generation: currentGeneration)
+                        }
+                    }
+                playerNode.play()
+                playbackStartDate = Date()
+                _currentTime = currentPosition
+                state = .playing
+                
+                NSLog("AudioEngine: Resumed playback from %.2fs after config change", currentPosition)
+            } catch {
+                NSLog("AudioEngine: Failed to restart after config change: %@", error.localizedDescription)
+            }
+        } else if wasPlaying && isStreamingPlayback {
+            // For streaming, just restart the engine - StreamingAudioPlayer manages its own state
+            do {
+                try engine.start()
+                NSLog("AudioEngine: Restarted engine for streaming after config change")
+            } catch {
+                NSLog("AudioEngine: Failed to restart engine for streaming: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    /// Restore saved output device preference
+    private func restoreSavedOutputDevice() {
+        guard let savedDeviceUID = UserDefaults.standard.string(forKey: "selectedOutputDeviceUID") else {
+            return
+        }
+        
+        // Find device by UID
+        let devices = AudioOutputManager.shared.outputDevices
+        guard let device = devices.first(where: { $0.uid == savedDeviceUID }) else {
+            NSLog("AudioEngine: Saved output device not found: %@", savedDeviceUID)
+            return
+        }
+        
+        NSLog("AudioEngine: Restoring saved output device: %@ (%@)", device.name, savedDeviceUID)
+        setOutputDevice(device.id)
     }
     
     private func setupEqualizer() {
@@ -560,7 +676,20 @@ class AudioEngine {
     // MARK: - Playback Control
     
     func play() {
-        // If casting is active, forward command to CastManager
+        // If video casting is active, forward to video player
+        if isVideoCastingActive {
+            WindowManager.shared.toggleVideoCastPlayPause()
+            return
+        }
+        
+        // If local video playback is active, don't start audio playback
+        // (video has its own playback controls via the video player window)
+        if WindowManager.shared.isVideoActivePlayback {
+            NSLog("play(): Local video is active - ignoring audio play request")
+            return
+        }
+        
+        // If audio casting is active, forward command to CastManager
         if isCastingActive {
             Task {
                 try? await CastManager.shared.resume()
@@ -615,7 +744,7 @@ class AudioEngine {
                 startTimeUpdates()
                 
                 // Report resume to Plex (local files won't have plexRatingKey so this is a no-op)
-                if let track = currentTrack {
+                if currentTrack != nil {
                     PlexPlaybackReporter.shared.trackDidResume(at: currentTime)
                 }
                 
@@ -628,7 +757,13 @@ class AudioEngine {
     }
     
     func pause() {
-        // If casting is active, forward command to CastManager
+        // If video casting is active, forward to video player
+        if isVideoCastingActive {
+            WindowManager.shared.toggleVideoCastPlayPause()
+            return
+        }
+        
+        // If audio casting is active, forward command to CastManager
         if isCastingActive {
             Task {
                 try? await CastManager.shared.pause()
@@ -667,10 +802,10 @@ class AudioEngine {
         // Cancel any in-progress crossfade
         cancelCrossfade()
         
-        // If casting is active, stop casting as well
+        // If casting is active, handle stop based on device type
         if isCastingActive {
             Task {
-                await CastManager.shared.stopCasting()
+                await CastManager.shared.handleStopForActiveDevice()
             }
         }
         
@@ -944,6 +1079,8 @@ class AudioEngine {
     private var castPlaybackStartDate: Date?
     /// Position when cast playback started
     private var castStartPosition: TimeInterval = 0
+    /// Whether we've received the first status update from Chromecast (prevents UI flash before sync)
+    private var castHasReceivedStatus: Bool = false
     
     var currentTime: TimeInterval {
         // When casting, interpolate from start position
@@ -991,9 +1128,11 @@ class AudioEngine {
     }
     
     /// Start cast playback time tracking (called when cast playback begins)
+    /// Note: Prefer initializeCastPlayback() for new casts to avoid flash on slow networks
     func startCastPlayback(from position: TimeInterval = 0) {
         castStartPosition = position
         castPlaybackStartDate = Date()
+        castHasReceivedStatus = true  // Immediate start means we skip waiting for status
         _currentTime = position
         lastReportedTime = position
         
@@ -1004,6 +1143,26 @@ class AudioEngine {
         // Notify delegate of track change
         delegate?.audioEngineDidChangeTrack(currentTrack)
         delegate?.audioEngineDidUpdateTime(current: position, duration: duration)
+    }
+    
+    /// Initialize cast playback tracking without starting the timer
+    /// Called when casting starts - actual playback timer begins when Chromecast reports PLAYING state
+    /// This prevents clock sync issues when buffering (especially for 4K on slow networks)
+    func initializeCastPlayback(from position: TimeInterval = 0) {
+        castStartPosition = position
+        // Don't set castPlaybackStartDate yet - wait for PLAYING status from Chromecast
+        castPlaybackStartDate = nil
+        // Reset status flag - UI won't update time until we receive first Chromecast status
+        castHasReceivedStatus = false
+        _currentTime = position
+        lastReportedTime = position
+        
+        // Set state to playing so UI shows cast mode, but timer won't advance until we get PLAYING status
+        state = .playing
+        startTimeUpdates()
+        
+        // Notify delegate of track change (but not time - wait for Chromecast status)
+        delegate?.audioEngineDidChangeTrack(currentTrack)
     }
     
     /// Pause cast playback time tracking
@@ -1018,6 +1177,15 @@ class AudioEngine {
         state = .paused
     }
     
+    /// Reset cast time to 0 but keep cast session active
+    /// Used when user presses stop - allows playing another track without re-selecting device
+    func resetCastTime() {
+        castStartPosition = 0
+        castPlaybackStartDate = nil
+        // Keep castHasReceivedStatus true so UI updates work when playing again
+        state = .stopped
+    }
+    
     /// Resume cast playback time tracking
     func resumeCastPlayback() {
         castPlaybackStartDate = Date()
@@ -1026,9 +1194,50 @@ class AudioEngine {
         state = .playing
     }
     
+    /// Update cast position from Chromecast status updates
+    /// This syncs the local time tracking with the actual position from the cast device
+    func updateCastPosition(currentTime: TimeInterval, isPlaying: Bool, isBuffering: Bool) {
+        guard isCastingActive else { return }
+        
+        // Mark that we've received status from Chromecast (enables UI time updates)
+        let isFirstStatus = !castHasReceivedStatus
+        castHasReceivedStatus = true
+        
+        // Sync position from Chromecast
+        castStartPosition = currentTime
+        
+        if isBuffering {
+            // During buffering, pause interpolation to prevent drift
+            // This is critical for 4K on slow networks where buffering can take a long time
+            castPlaybackStartDate = nil
+            // Keep state as .playing so UI shows cast mode, but timer won't advance
+        } else if isPlaying {
+            // Playing - start/restart interpolation from this position
+            // This is when we actually start the timer (may be first time after buffering completes)
+            castPlaybackStartDate = Date()
+            state = .playing
+        } else {
+            // Paused - stop interpolation
+            castPlaybackStartDate = nil
+            state = .paused
+        }
+        
+        // Update reported time for UI sync
+        _currentTime = currentTime
+        lastReportedTime = currentTime
+        
+        // On first status, immediately update delegate with correct position
+        if isFirstStatus {
+            delegate?.audioEngineDidUpdateTime(current: currentTime, duration: duration)
+        }
+    }
+    
     /// Stop cast playback and resume local playback at current position
     /// - Parameter resumeLocally: If true, resume local playback from current cast position
     func stopCastPlayback(resumeLocally: Bool = false) {
+        // Stop timer FIRST to prevent any flashing during state transition
+        stopTimeUpdates()
+        
         // Save current position before clearing cast state
         let currentPosition = castStartPosition
         if let startDate = castPlaybackStartDate {
@@ -1040,6 +1249,7 @@ class AudioEngine {
                 // Resume local playback from current position
                 castPlaybackStartDate = nil
                 castStartPosition = 0
+                castHasReceivedStatus = false
                 
                 // Load and seek to position
                 if let index = playlist.firstIndex(where: { $0.id == track.id }) {
@@ -1055,8 +1265,8 @@ class AudioEngine {
         // Default behavior - just stop
         castPlaybackStartDate = nil
         castStartPosition = 0
+        castHasReceivedStatus = false
         state = .stopped
-        stopTimeUpdates()
     }
     
     /// Decay spectrum to empty when not playing locally
@@ -1098,6 +1308,13 @@ class AudioEngine {
     private func startTimeUpdates() {
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
+            
+            // When casting, skip time updates until we've received first status from Chromecast
+            // This prevents showing stale/incorrect time before sync (flash issue on slow networks)
+            if self.isCastingActive && !self.castHasReceivedStatus {
+                return
+            }
+            
             let current = self.currentTime
             let trackDuration = self.duration
             self.lastReportedTime = current
@@ -1294,12 +1511,13 @@ class AudioEngine {
             _currentTime = 0
             lastReportedTime = 0
             
-            // Stop any audio playback
+            // Stop any audio playback and reset streaming state
             if isStreamingPlayback {
                 streamingPlayer?.stop()
             } else {
                 playerNode.stop()
             }
+            isStreamingPlayback = false  // Reset to neutral state for video playback
             
             // Route to video player via WindowManager
             DispatchQueue.main.async {
@@ -2106,13 +2324,6 @@ class AudioEngine {
     /// - Returns: true if successful, false otherwise
     @discardableResult
     func setOutputDevice(_ deviceID: AudioDeviceID?) -> Bool {
-        let wasPlaying = state == .playing
-        
-        // Stop engine before changing output device
-        if engine.isRunning {
-            engine.stop()
-        }
-        
         // Get the actual device ID to use
         let targetDeviceID: AudioDeviceID
         if let deviceID = deviceID {
@@ -2120,7 +2331,7 @@ class AudioEngine {
         } else {
             // Use system default
             guard let defaultID = AudioOutputManager.shared.getDefaultOutputDeviceID() else {
-                print("Failed to get default output device")
+                NSLog("AudioEngine: Failed to get default output device")
                 return false
             }
             targetDeviceID = defaultID
@@ -2128,7 +2339,7 @@ class AudioEngine {
         
         // Get the audio unit from the output node
         guard let outputUnit = engine.outputNode.audioUnit else {
-            print("Failed to get output audio unit")
+            NSLog("AudioEngine: Failed to get output audio unit")
             return false
         }
         
@@ -2144,12 +2355,7 @@ class AudioEngine {
         )
         
         if status != noErr {
-            print("Failed to set output device: \(status)")
-            // Try to restart with previous device
-            if wasPlaying {
-                try? engine.start()
-                playerNode.play()
-            }
+            NSLog("AudioEngine: Failed to set output device: %d", status)
             return false
         }
         
@@ -2158,16 +2364,19 @@ class AudioEngine {
         // Update the AudioOutputManager's selection
         AudioOutputManager.shared.selectDevice(deviceID)
         
-        // Restart engine if it was playing
-        if wasPlaying {
-            do {
-                try engine.start()
-                playerNode.play()
-            } catch {
-                print("Failed to restart audio engine after device change: \(error)")
-                return false
-            }
+        // Save device UID for restoration on next launch
+        if let deviceID = deviceID,
+           let device = AudioOutputManager.shared.outputDevices.first(where: { $0.id == deviceID }) {
+            UserDefaults.standard.set(device.uid, forKey: "selectedOutputDeviceUID")
+            NSLog("AudioEngine: Saved output device preference: %@ (%@)", device.name, device.uid)
+        } else {
+            // System default - clear the preference
+            UserDefaults.standard.removeObject(forKey: "selectedOutputDeviceUID")
+            NSLog("AudioEngine: Cleared output device preference (using system default)")
         }
+        
+        // The AVAudioEngineConfigurationChange notification will fire if the format changed,
+        // and handleAudioConfigChange will rebuild the audio graph and resume playback
         
         return true
     }
@@ -2178,16 +2387,6 @@ class AudioEngine {
         return AudioOutputManager.shared.outputDevices.first { $0.id == deviceID }
     }
     
-    /// Restore the saved output device from UserDefaults
-    private func restoreSavedOutputDevice() {
-        // Check if there's a saved device
-        if let savedDevice = AudioOutputManager.shared.currentDeviceID {
-            // Delay slightly to ensure engine is fully set up
-            DispatchQueue.main.async { [weak self] in
-                self?.setOutputDevice(savedDevice)
-            }
-        }
-    }
     
     // MARK: - Playlist Management
     

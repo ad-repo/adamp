@@ -106,6 +106,60 @@ class CastManager {
         activeSession?.state == .casting
     }
     
+    /// Whether video casting is currently active (as opposed to audio casting)
+    private(set) var isVideoCasting: Bool = false
+    
+    /// Title of the video being cast (for main window display when casting from menu)
+    private(set) var videoCastTitle: String?
+    
+    /// Duration of the video being cast (for seek calculations)
+    private(set) var videoCastDuration: TimeInterval = 0
+    
+    /// Video cast position tracking
+    private var videoCastStartPosition: TimeInterval = 0
+    private var videoCastStartDate: Date?
+    
+    /// Whether we've received the first status update from Chromecast (prevents UI flash before sync)
+    private var videoCastHasReceivedStatus: Bool = false
+    
+    /// Current video cast playback time (interpolated)
+    var videoCastCurrentTime: TimeInterval {
+        guard isVideoCasting else { return 0 }
+        if let startDate = videoCastStartDate {
+            let elapsed = Date().timeIntervalSince(startDate)
+            return min(videoCastStartPosition + elapsed, videoCastDuration)
+        }
+        return videoCastStartPosition
+    }
+    
+    /// Whether video cast is playing (not paused)
+    private(set) var isVideoCastPlaying: Bool = false
+    
+    /// Timer for updating main window with video cast progress
+    private var videoCastUpdateTimer: Timer?
+    
+    /// Start the video cast update timer (updates main window with progress)
+    /// Note: Timer only updates UI after first status received from Chromecast
+    private func startVideoCastUpdateTimer() {
+        videoCastUpdateTimer?.invalidate()
+        videoCastUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self = self, self.isVideoCasting else { return }
+            // Don't update UI until we've received first status from Chromecast
+            // This prevents showing stale/incorrect time before sync
+            guard self.videoCastHasReceivedStatus else { return }
+            let current = self.videoCastCurrentTime
+            let duration = self.videoCastDuration
+            WindowManager.shared.videoDidUpdateTime(current: current, duration: duration)
+        }
+        // Don't fire immediately - wait for first Chromecast status update
+    }
+    
+    /// Stop the video cast update timer
+    private func stopVideoCastUpdateTimer() {
+        videoCastUpdateTimer?.invalidate()
+        videoCastUpdateTimer = nil
+    }
+    
     /// Discovery state
     private(set) var isDiscovering: Bool = false
     
@@ -128,10 +182,72 @@ class CastManager {
         discoveryRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.refreshDevices()
         }
+        
+        // Subscribe to Chromecast status updates for position syncing
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleChromecastMediaStatusUpdate),
+            name: ChromecastManager.mediaStatusDidUpdateNotification,
+            object: nil
+        )
     }
     
     deinit {
         discoveryRefreshTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    // MARK: - Chromecast Status Updates
+    
+    /// Handle media status updates from Chromecast for position syncing
+    @objc private func handleChromecastMediaStatusUpdate(_ notification: Notification) {
+        guard let status = notification.userInfo?["status"] as? CastMediaStatus else { return }
+        
+        // Only process if we're actively casting
+        guard isCasting || isVideoCasting else { return }
+        
+        let isPlaying = status.playerState == .playing
+        let isBuffering = status.playerState == .buffering
+        
+        // Update video cast tracking if video casting
+        if isVideoCasting {
+            // Mark that we've received status from Chromecast (enables UI updates)
+            let isFirstStatus = !videoCastHasReceivedStatus
+            videoCastHasReceivedStatus = true
+            
+            // Sync position from Chromecast
+            videoCastStartPosition = status.currentTime
+            
+            if isBuffering {
+                // Pause interpolation during buffering
+                videoCastStartDate = nil
+                isVideoCastPlaying = false
+            } else if isPlaying {
+                videoCastStartDate = Date()
+                isVideoCastPlaying = true
+            } else {
+                // Paused or idle
+                videoCastStartDate = nil
+                isVideoCastPlaying = false
+            }
+            
+            // Update duration if provided
+            if let duration = status.duration, duration > 0 {
+                videoCastDuration = duration
+            }
+            
+            // On first status, immediately update UI with correct position
+            if isFirstStatus {
+                WindowManager.shared.videoDidUpdateTime(current: videoCastCurrentTime, duration: videoCastDuration)
+            }
+        } else if isCasting {
+            // Audio casting - forward position sync to AudioEngine
+            WindowManager.shared.audioEngine.updateCastPosition(
+                currentTime: status.currentTime,
+                isPlaying: isPlaying,
+                isBuffering: isBuffering
+            )
+        }
     }
     
     // MARK: - Discovery
@@ -234,8 +350,16 @@ class CastManager {
         // Connect and cast based on device type
         switch device.type {
         case .chromecast:
-            try await chromecastManager.connect(to: device)
-            try await chromecastManager.cast(url: url, metadata: metadata)
+            NSLog("CastManager: Connecting to Chromecast...")
+            do {
+                try await chromecastManager.connect(to: device)
+                NSLog("CastManager: Connected to Chromecast, now casting...")
+                try await chromecastManager.cast(url: url, metadata: metadata)
+                NSLog("CastManager: Cast started successfully")
+            } catch {
+                NSLog("CastManager: Chromecast error: %@", error.localizedDescription)
+                throw error
+            }
             
         case .sonos, .dlnaTV:
             try await upnpManager.connect(to: device)
@@ -250,9 +374,38 @@ class CastManager {
             NSLog("CastManager: Seeked cast device to %.1f seconds", startPosition)
         }
         
-        // Start cast playback time tracking from the start position
+        // Track video casting state
+        // Note: Don't start the timer immediately - wait for Chromecast to report PLAYING state
+        // This prevents clock sync issues when buffering (especially for 4K on slow networks)
+        let isVideo = metadata.mediaType == .video
         await MainActor.run {
-            WindowManager.shared.audioEngine.startCastPlayback(from: startPosition)
+            if isVideo {
+                self.isVideoCasting = true
+                self.videoCastTitle = metadata.title
+                self.videoCastDuration = metadata.duration ?? 0
+                self.videoCastStartPosition = startPosition
+                // Don't set videoCastStartDate yet - wait for PLAYING status from Chromecast
+                self.videoCastStartDate = nil
+                self.isVideoCastPlaying = false
+                // Reset status flag - UI won't update until we receive first Chromecast status
+                self.videoCastHasReceivedStatus = false
+                self.startVideoCastUpdateTimer()
+                
+                // Update main window with video title (for casts from library browser menu)
+                WindowManager.shared.mainWindowController?.updateVideoTrackInfo(title: metadata.title)
+                
+                NSLog("CastManager: Video cast state initialized (waiting for playback) - title='%@', duration=%.1f, startPosition=%.1f", metadata.title, self.videoCastDuration, startPosition)
+            } else {
+                // Audio casting - use different tracking based on device type
+                if device.type == .chromecast {
+                    // Chromecast provides status updates - wait for PLAYING status to start timer
+                    // This prevents clock sync issues when buffering on slow networks
+                    WindowManager.shared.audioEngine.initializeCastPlayback(from: startPosition)
+                } else {
+                    // Sonos/DLNA don't provide status updates - start timer immediately
+                    WindowManager.shared.audioEngine.startCastPlayback(from: startPosition)
+                }
+            }
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
         }
@@ -376,9 +529,175 @@ class CastManager {
         
         // Reset cast playback time tracking from position 0 for new track
         await MainActor.run {
-            WindowManager.shared.audioEngine.startCastPlayback(from: 0)
+            if session.device.type == .chromecast {
+                // Chromecast provides status updates - wait for PLAYING status to start timer
+                WindowManager.shared.audioEngine.initializeCastPlayback(from: 0)
+            } else {
+                // Sonos/DLNA don't provide status updates - start timer immediately
+                WindowManager.shared.audioEngine.startCastPlayback(from: 0)
+            }
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
         }
+    }
+    
+    // MARK: - Video Casting
+    
+    /// Get video-capable cast devices (excludes Sonos which is audio-only)
+    var videoCapableDevices: [CastDevice] {
+        discoveredDevices.filter { $0.supportsVideo }
+    }
+    
+    /// Cast a Plex movie to a video-capable device
+    /// - Parameters:
+    ///   - movie: The PlexMovie to cast
+    ///   - device: Target cast device (must support video)
+    ///   - startPosition: Optional position to resume from (seconds)
+    func castPlexMovie(_ movie: PlexMovie, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
+        guard device.supportsVideo else {
+            throw CastError.unsupportedDevice
+        }
+        
+        guard let streamURL = PlexManager.shared.streamURL(for: movie) else {
+            throw CastError.invalidURL
+        }
+        
+        // Get castable URL with token embedded
+        let castURL: URL
+        if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: streamURL) {
+            castURL = tokenizedURL
+        } else {
+            castURL = streamURL
+        }
+        
+        // Get artwork URL
+        let artworkURL = PlexManager.shared.artworkURL(thumb: movie.thumb)
+        
+        // Determine content type (Plex usually serves video/mp4)
+        let contentType = "video/mp4"
+        
+        // Build resolution string if available
+        var resolution: String?
+        if let media = movie.primaryMedia, let width = media.width, let height = media.height {
+            resolution = "\(width)x\(height)"
+        }
+        
+        let metadata = CastMetadata(
+            title: movie.title,
+            artist: nil,
+            album: nil,
+            artworkURL: artworkURL,
+            duration: movie.duration.map { Double($0) / 1000.0 },
+            contentType: contentType,
+            mediaType: .video,
+            resolution: resolution,
+            year: movie.year,
+            summary: movie.summary
+        )
+        
+        NSLog("CastManager: Casting Plex movie '%@' to %@ (type: %@)", movie.title, device.name, device.type.rawValue)
+        NSLog("CastManager: Cast URL: %@", castURL.absoluteString)
+        
+        do {
+            try await cast(to: device, url: castURL, metadata: metadata, startPosition: startPosition)
+            NSLog("CastManager: Cast completed successfully")
+        } catch {
+            NSLog("CastManager: Cast failed with error: %@", error.localizedDescription)
+            throw error
+        }
+    }
+    
+    /// Cast a Plex episode to a video-capable device
+    /// - Parameters:
+    ///   - episode: The PlexEpisode to cast
+    ///   - device: Target cast device (must support video)
+    ///   - startPosition: Optional position to resume from (seconds)
+    func castPlexEpisode(_ episode: PlexEpisode, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
+        guard device.supportsVideo else {
+            throw CastError.unsupportedDevice
+        }
+        
+        guard let streamURL = PlexManager.shared.streamURL(for: episode) else {
+            throw CastError.invalidURL
+        }
+        
+        // Get castable URL with token embedded
+        let castURL: URL
+        if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: streamURL) {
+            castURL = tokenizedURL
+        } else {
+            castURL = streamURL
+        }
+        
+        // Get artwork URL
+        let artworkURL = PlexManager.shared.artworkURL(thumb: episode.thumb)
+        
+        // Build title: "Show Name - S01E01 - Episode Title"
+        let title: String
+        if let showName = episode.grandparentTitle {
+            title = "\(showName) - \(episode.episodeIdentifier) - \(episode.title)"
+        } else {
+            title = episode.title
+        }
+        
+        let contentType = "video/mp4"
+        
+        let metadata = CastMetadata(
+            title: title,
+            artist: episode.grandparentTitle,  // Show name as "artist"
+            album: episode.parentTitle,         // Season name as "album"
+            artworkURL: artworkURL,
+            duration: episode.duration.map { Double($0) / 1000.0 },
+            contentType: contentType,
+            mediaType: .video,
+            resolution: nil,
+            year: nil,
+            summary: episode.summary
+        )
+        
+        NSLog("CastManager: Casting Plex episode '%@' to %@", title, device.name)
+        try await cast(to: device, url: castURL, metadata: metadata, startPosition: startPosition)
+    }
+    
+    /// Cast a local video file to a video-capable device
+    /// - Parameters:
+    ///   - url: Local file URL
+    ///   - title: Display title
+    ///   - device: Target cast device (must support video)
+    ///   - startPosition: Optional position to resume from (seconds)
+    func castLocalVideo(_ url: URL, title: String, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
+        guard device.supportsVideo else {
+            throw CastError.unsupportedDevice
+        }
+        
+        guard url.isFileURL else {
+            throw CastError.invalidURL
+        }
+        
+        // Ensure LocalMediaServer is running
+        if !LocalMediaServer.shared.isRunning {
+            try await LocalMediaServer.shared.start()
+        }
+        
+        // Register file and get HTTP URL
+        guard let serverURL = LocalMediaServer.shared.registerFile(url) else {
+            throw CastError.localServerError("Could not register file with local media server")
+        }
+        
+        // Detect content type
+        let (contentType, mediaType) = detectContentType(for: url)
+        
+        let metadata = CastMetadata(
+            title: title,
+            artist: nil,
+            album: nil,
+            artworkURL: nil,
+            duration: nil,  // Could extract with AVAsset if needed
+            contentType: contentType,
+            mediaType: mediaType
+        )
+        
+        NSLog("CastManager: Casting local video '%@' to %@", title, device.name)
+        try await cast(to: device, url: serverURL, metadata: metadata, startPosition: startPosition)
     }
     
     /// Stop casting and disconnect
@@ -401,10 +720,94 @@ class CastManager {
         // Unregister all files from local media server
         LocalMediaServer.shared.unregisterAll()
         
-        // Resume local playback from current position
+        // Clear casting state
         await MainActor.run {
-            WindowManager.shared.audioEngine.stopCastPlayback(resumeLocally: true)
+            // Stop video cast update timer
+            self.stopVideoCastUpdateTimer()
+            
+            // Only clear video-specific state if we were video casting
+            if self.isVideoCasting {
+                // Clear video cast state
+                self.isVideoCasting = false
+                self.videoCastTitle = nil
+                self.videoCastDuration = 0
+                self.videoCastStartPosition = 0
+                self.videoCastStartDate = nil
+                self.isVideoCastPlaying = false
+                self.videoCastHasReceivedStatus = false
+                
+                // Clear video title from main window
+                WindowManager.shared.mainWindowController?.clearVideoTrackInfo()
+            }
+            
+            WindowManager.shared.audioEngine.stopCastPlayback(resumeLocally: false)
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
+            NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
+        }
+    }
+    
+    /// Synchronous stop for app termination - stops cast devices without MainActor work
+    /// This avoids deadlock when called from applicationWillTerminate on the main thread
+    func stopCastingSync() {
+        NSLog("CastManager: Stopping casting (sync for termination)")
+        
+        // Stop Chromecast - these are synchronous
+        if chromecastManager.activeSession != nil {
+            chromecastManager.stop()
+            chromecastManager.disconnect()
+        }
+        
+        // Stop UPnP/Sonos - disconnect is synchronous, skip async stop()
+        if upnpManager.activeSession != nil {
+            upnpManager.disconnect()
+        }
+        
+        // Clear Sonos room selection
+        selectedSonosRooms.removeAll()
+        
+        // Unregister all files from local media server
+        LocalMediaServer.shared.unregisterAll()
+        
+        // Skip MainActor state cleanup - app is terminating anyway
+    }
+    
+    /// Handle stop button based on active device type
+    /// - Sonos/DLNA: Stop keeps session active (can play another track)
+    /// - Chromecast: Stop disconnects completely
+    func handleStopForActiveDevice() async {
+        if let session = activeSession {
+            switch session.device.type {
+            case .sonos, .dlnaTV:
+                // Sonos/DLNA: Stop but keep session active
+                try? await stopPlayback()
+            case .chromecast:
+                // Chromecast: Full disconnect on stop
+                await stopCasting()
+            }
+        }
+    }
+    
+    /// Stop playback on the cast device but keep the session active
+    /// Used for Sonos/DLNA - allows playing another track without re-selecting device
+    func stopPlayback() async throws {
+        if chromecastManager.activeSession != nil {
+            chromecastManager.stop()
+        } else if upnpManager.activeSession != nil {
+            try await upnpManager.stop()
+        } else {
+            throw CastError.sessionNotActive
+        }
+        
+        // Reset time to 0 but keep cast session active
+        await MainActor.run {
+            if self.isVideoCasting {
+                self.videoCastStartPosition = 0
+                self.videoCastStartDate = nil
+                self.isVideoCastPlaying = false
+            } else {
+                // Reset time to 0 but keep cast session active
+                WindowManager.shared.audioEngine.resetCastTime()
+            }
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
         }
     }
@@ -421,7 +824,16 @@ class CastManager {
         
         // Update local time tracking
         await MainActor.run {
-            WindowManager.shared.audioEngine.pauseCastPlayback()
+            if self.isVideoCasting {
+                // Save current position before pausing
+                if let startDate = self.videoCastStartDate {
+                    self.videoCastStartPosition += Date().timeIntervalSince(startDate)
+                }
+                self.videoCastStartDate = nil
+                self.isVideoCastPlaying = false
+            } else {
+                WindowManager.shared.audioEngine.pauseCastPlayback()
+            }
         }
     }
     
@@ -437,7 +849,12 @@ class CastManager {
         
         // Update local time tracking
         await MainActor.run {
-            WindowManager.shared.audioEngine.resumeCastPlayback()
+            if self.isVideoCasting {
+                self.videoCastStartDate = Date()
+                self.isVideoCastPlaying = true
+            } else {
+                WindowManager.shared.audioEngine.resumeCastPlayback()
+            }
         }
     }
     
@@ -449,6 +866,16 @@ class CastManager {
             try await upnpManager.seek(to: time)
         } else {
             throw CastError.sessionNotActive
+        }
+        
+        // Update video cast tracking
+        await MainActor.run {
+            if self.isVideoCasting {
+                self.videoCastStartPosition = time
+                if self.isVideoCastPlaying {
+                    self.videoCastStartDate = Date()
+                }
+            }
         }
     }
     

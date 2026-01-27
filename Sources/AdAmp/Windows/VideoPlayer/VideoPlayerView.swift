@@ -44,6 +44,10 @@ class VideoPlayerView: NSView {
     private var controlsHideTimer: Timer?
     private var controlsVisible: Bool = true
     
+    /// Center overlay for click-to-play/pause (large centered icons)
+    private var centerOverlayView: VideoCenterOverlayView?
+    private var centerOverlayHideTimer: Timer?
+    
     /// Current playback time and duration
     private(set) var currentTime: TimeInterval = 0
     private(set) var totalDuration: TimeInterval = 0
@@ -82,6 +86,24 @@ class VideoPlayerView: NSView {
     
     /// Callback when track selection panel is requested
     var onTrackSelectionRequested: (() -> Void)?
+    
+    /// Callback when cast button is clicked
+    var onCast: (() -> Void)?
+    
+    /// Callback when stop button is clicked
+    var onStop: (() -> Void)?
+    
+    /// Callback when play/pause is toggled (for casting intercept)
+    var onPlayPauseToggled: (() -> Void)?
+    
+    /// Callback when seek is requested (for casting intercept) - normalized 0-1 position
+    var onSeekRequested: ((Double) -> Void)?
+    
+    /// Callback when skip forward is requested (for casting intercept)
+    var onSkipForwardRequested: ((TimeInterval) -> Void)?
+    
+    /// Callback when skip backward is requested (for casting intercept)
+    var onSkipBackwardRequested: ((TimeInterval) -> Void)?
     
     /// Track previous state to detect pause/resume transitions
     private var previousState: KSPlayerState?
@@ -125,13 +147,43 @@ class VideoPlayerView: NSView {
         controlBarView = VideoControlBarView(frame: NSRect(x: 0, y: bounds.height - controlBarHeight, 
                                                             width: bounds.width, height: controlBarHeight))
         controlBarView.autoresizingMask = [.width, .minYMargin]
-        controlBarView.onPlayPause = { [weak self] in self?.togglePlayPause() }
-        controlBarView.onSeek = { [weak self] position in self?.seekToPosition(position) }
-        controlBarView.onSkipBackward = { [weak self] in self?.skipBackward(10) }
-        controlBarView.onSkipForward = { [weak self] in self?.skipForward(10) }
+        controlBarView.onPlayPause = { [weak self] in
+            // Call external callback if set (for casting intercept), otherwise handle locally
+            if let callback = self?.onPlayPauseToggled {
+                callback()
+            } else {
+                self?.togglePlayPause()
+            }
+        }
+        controlBarView.onSeek = { [weak self] position in
+            if let callback = self?.onSeekRequested {
+                callback(position)
+            } else {
+                self?.seekToPosition(position)
+            }
+        }
+        controlBarView.onSkipBackward = { [weak self] in
+            if let callback = self?.onSkipBackwardRequested {
+                callback(10)
+            } else {
+                self?.skipBackward(10)
+            }
+        }
+        controlBarView.onSkipForward = { [weak self] in
+            if let callback = self?.onSkipForwardRequested {
+                callback(10)
+            } else {
+                self?.skipForward(10)
+            }
+        }
         controlBarView.onFullscreen = { [weak self] in self?.window?.toggleFullScreen(nil) }
         controlBarView.onTrackSettings = { [weak self] in self?.showTrackSelectionPanel() }
+        controlBarView.onCast = { [weak self] in self?.onCast?() }
+        controlBarView.onStop = { [weak self] in self?.onStop?() }
         addSubview(controlBarView)
+        
+        // Create center overlay for click-to-play/pause
+        setupCenterOverlay()
         
         // Create loading indicator
         setupLoadingIndicator()
@@ -152,6 +204,24 @@ class VideoPlayerView: NSView {
         trackSelectionPanel?.delegate = self
         trackSelectionPanel?.isHidden = true
         addSubview(trackSelectionPanel!)
+    }
+    
+    private func setupCenterOverlay() {
+        centerOverlayView = VideoCenterOverlayView(frame: bounds)
+        centerOverlayView?.autoresizingMask = [.width, .height]
+        centerOverlayView?.alphaValue = 0
+        centerOverlayView?.isHidden = true
+        centerOverlayView?.onPlayPause = { [weak self] in
+            if let callback = self?.onPlayPauseToggled {
+                callback()
+            } else {
+                self?.togglePlayPause()
+            }
+        }
+        centerOverlayView?.onClose = { [weak self] in
+            self?.onStop?()
+        }
+        addSubview(centerOverlayView!)
     }
     
     private func setupLoadingIndicator() {
@@ -321,6 +391,53 @@ class VideoPlayerView: NSView {
         showControls()
         // Make this view the first responder to capture keyboard events
         window?.makeFirstResponder(self)
+        
+        // Show center overlay on single click
+        if event.clickCount == 1 {
+            showCenterOverlay()
+        } else if event.clickCount == 2 {
+            // Double-click toggles play/pause
+            if let callback = onPlayPauseToggled {
+                callback()
+            } else {
+                togglePlayPause()
+            }
+        }
+    }
+    
+    // MARK: - Center Overlay
+    
+    private func showCenterOverlay() {
+        guard let overlay = centerOverlayView else { return }
+        
+        // Update overlay state
+        overlay.updatePlayState(isPlaying: playerLayer?.state.isPlaying ?? false)
+        
+        // Show with animation
+        overlay.isHidden = false
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            overlay.animator().alphaValue = 1.0
+        }
+        
+        // Auto-hide after delay
+        centerOverlayHideTimer?.invalidate()
+        centerOverlayHideTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.hideCenterOverlay()
+            }
+        }
+    }
+    
+    private func hideCenterOverlay() {
+        guard let overlay = centerOverlayView else { return }
+        
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.2
+            overlay.animator().alphaValue = 0
+        }, completionHandler: {
+            overlay.isHidden = true
+        })
     }
     
     override func mouseMoved(with event: NSEvent) {
@@ -376,6 +493,9 @@ class VideoPlayerView: NSView {
         totalDuration = 0
         controlBarView.updateTime(current: 0, total: 0)
         controlBarView.updatePlayState(isPlaying: false)
+        
+        // Reset cast state when starting a new video (ensures UI shows local playback)
+        controlBarView.updateCastState(isPlaying: false, deviceName: nil)
         
         // Configure options
         let options = KSOptions()
@@ -435,10 +555,12 @@ class VideoPlayerView: NSView {
         if layer.state.isPlaying {
             layer.pause()
             controlBarView.updatePlayState(isPlaying: false)
+            centerOverlayView?.updatePlayState(isPlaying: false)
             showControls()
         } else {
             layer.play()
             controlBarView.updatePlayState(isPlaying: true)
+            centerOverlayView?.updatePlayState(isPlaying: true)
             resetControlsHideTimer()
         }
     }
@@ -703,6 +825,17 @@ class VideoPlayerView: NSView {
     func updateActiveState(_ isActive: Bool) {
         // No title bar to update
     }
+    
+    // MARK: - Cast State
+    
+    /// Update the view to show casting state
+    /// - Parameters:
+    ///   - isPlaying: Whether the cast is currently playing
+    ///   - deviceName: Name of the device being cast to, or nil if not casting
+    func updateCastState(isPlaying: Bool, deviceName: String?) {
+        controlBarView.updateCastState(isPlaying: isPlaying, deviceName: deviceName)
+        centerOverlayView?.updatePlayState(isPlaying: isPlaying)
+    }
 }
 
 // MARK: - KSPlayerLayerDelegate
@@ -801,31 +934,140 @@ extension VideoPlayerView: KSPlayerLayerDelegate {
     }
 }
 
+// MARK: - VideoCenterOverlayView
+
+/// Center overlay with large play/pause button and close button for click-to-control
+class VideoCenterOverlayView: NSView {
+    
+    // MARK: - Properties
+    
+    var onPlayPause: (() -> Void)?
+    var onClose: (() -> Void)?
+    
+    private var playPauseButton: NSButton!
+    private var closeButton: NSButton!
+    private var isPlaying: Bool = false
+    
+    // MARK: - Initialization
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupView()
+    }
+    
+    private func setupView() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(white: 0, alpha: 0.4).cgColor
+        
+        // Large center play/pause button
+        playPauseButton = NSButton(frame: .zero)
+        playPauseButton.translatesAutoresizingMaskIntoConstraints = false
+        playPauseButton.bezelStyle = .regularSquare
+        playPauseButton.isBordered = false
+        playPauseButton.target = self
+        playPauseButton.action = #selector(playPauseClicked)
+        if let image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play") {
+            let config = NSImage.SymbolConfiguration(pointSize: 60, weight: .regular)
+            playPauseButton.image = image.withSymbolConfiguration(config)
+            playPauseButton.contentTintColor = .white
+        }
+        addSubview(playPauseButton)
+        
+        // Close button in top-right corner
+        closeButton = NSButton(frame: .zero)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.bezelStyle = .regularSquare
+        closeButton.isBordered = false
+        closeButton.target = self
+        closeButton.action = #selector(closeClicked)
+        if let image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close") {
+            let config = NSImage.SymbolConfiguration(pointSize: 28, weight: .regular)
+            closeButton.image = image.withSymbolConfiguration(config)
+            closeButton.contentTintColor = NSColor.white.withAlphaComponent(0.8)
+        }
+        addSubview(closeButton)
+        
+        setupConstraints()
+    }
+    
+    private func setupConstraints() {
+        NSLayoutConstraint.activate([
+            // Center play/pause button
+            playPauseButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            playPauseButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            playPauseButton.widthAnchor.constraint(equalToConstant: 80),
+            playPauseButton.heightAnchor.constraint(equalToConstant: 80),
+            
+            // Close button in top-right
+            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            closeButton.widthAnchor.constraint(equalToConstant: 36),
+            closeButton.heightAnchor.constraint(equalToConstant: 36),
+        ])
+    }
+    
+    // MARK: - Actions
+    
+    @objc private func playPauseClicked() {
+        onPlayPause?()
+    }
+    
+    @objc private func closeClicked() {
+        onClose?()
+    }
+    
+    // MARK: - Update State
+    
+    func updatePlayState(isPlaying: Bool) {
+        self.isPlaying = isPlaying
+        let symbol = isPlaying ? "pause.fill" : "play.fill"
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: isPlaying ? "Pause" : "Play") {
+            let config = NSImage.SymbolConfiguration(pointSize: 60, weight: .regular)
+            playPauseButton.image = image.withSymbolConfiguration(config)
+        }
+    }
+    
+    // MARK: - Flipped coordinate system for macOS
+    
+    override var isFlipped: Bool { true }
+}
+
 // MARK: - VideoControlBarView
 
-/// Control bar with play/pause, seek bar, time display, and fullscreen toggle
+/// Control bar with play/pause, stop, seek bar, time display, and fullscreen toggle
 class VideoControlBarView: NSView {
     
     // MARK: - Properties
     
     var onPlayPause: (() -> Void)?
+    var onStop: (() -> Void)?
     var onSeek: ((Double) -> Void)?
     var onSkipBackward: (() -> Void)?
     var onSkipForward: (() -> Void)?
     var onFullscreen: (() -> Void)?
     var onTrackSettings: (() -> Void)?
+    var onCast: (() -> Void)?
     
     private var playButton: NSButton!
+    private var stopButton: NSButton!
     private var skipBackButton: NSButton!
     private var skipForwardButton: NSButton!
     private var fullscreenButton: NSButton!
     private var trackSettingsButton: NSButton!
+    private var castButton: NSButton!
     private var seekSlider: NSSlider!
     private var currentTimeLabel: NSTextField!
     private var durationLabel: NSTextField!
+    private var castingLabel: NSTextField!
     
     private var isPlaying: Bool = false
     private var isSeeking: Bool = false
+    private var isCasting: Bool = false
     
     // MARK: - Initialization
     
@@ -842,6 +1084,10 @@ class VideoControlBarView: NSView {
     private func setupView() {
         wantsLayer = true
         layer?.backgroundColor = NSColor(white: 0, alpha: 0.7).cgColor
+        
+        // Stop button
+        stopButton = createButton(symbol: "stop.fill", action: #selector(stopClicked))
+        stopButton.toolTip = "Stop"
         
         // Skip backward button
         skipBackButton = createButton(symbol: "gobackward.10", action: #selector(skipBackwardClicked))
@@ -865,15 +1111,30 @@ class VideoControlBarView: NSView {
         trackSettingsButton = createButton(symbol: "text.bubble", action: #selector(trackSettingsClicked))
         trackSettingsButton.toolTip = "Audio & Subtitle Settings"
         
+        // Cast button (for casting to TVs/Chromecast)
+        castButton = createButton(symbol: "tv", action: #selector(castClicked))
+        castButton.toolTip = "Cast to TV"
+        
         // Fullscreen button
         fullscreenButton = createButton(symbol: "arrow.up.left.and.arrow.down.right", action: #selector(fullscreenClicked))
         
+        // Casting indicator label (hidden by default)
+        castingLabel = NSTextField(labelWithString: "")
+        castingLabel.translatesAutoresizingMaskIntoConstraints = false
+        castingLabel.textColor = NSColor.systemBlue
+        castingLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        castingLabel.alignment = .center
+        castingLabel.isHidden = true
+        
+        addSubview(stopButton)
         addSubview(skipBackButton)
         addSubview(playButton)
         addSubview(skipForwardButton)
         addSubview(currentTimeLabel)
+        addSubview(castingLabel)
         addSubview(seekSlider)
         addSubview(durationLabel)
+        addSubview(castButton)
         addSubview(trackSettingsButton)
         addSubview(fullscreenButton)
         
@@ -907,8 +1168,14 @@ class VideoControlBarView: NSView {
     
     private func setupConstraints() {
         NSLayoutConstraint.activate([
+            // Stop button
+            stopButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            stopButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stopButton.widthAnchor.constraint(equalToConstant: 30),
+            stopButton.heightAnchor.constraint(equalToConstant: 30),
+            
             // Skip back button
-            skipBackButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            skipBackButton.leadingAnchor.constraint(equalTo: stopButton.trailingAnchor, constant: 5),
             skipBackButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             skipBackButton.widthAnchor.constraint(equalToConstant: 30),
             skipBackButton.heightAnchor.constraint(equalToConstant: 30),
@@ -930,6 +1197,10 @@ class VideoControlBarView: NSView {
             currentTimeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             currentTimeLabel.widthAnchor.constraint(equalToConstant: 50),
             
+            // Casting indicator label (centered in the control bar)
+            castingLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            castingLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            
             // Fullscreen button
             fullscreenButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             fullscreenButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -942,8 +1213,14 @@ class VideoControlBarView: NSView {
             trackSettingsButton.widthAnchor.constraint(equalToConstant: 30),
             trackSettingsButton.heightAnchor.constraint(equalToConstant: 30),
             
+            // Cast button
+            castButton.trailingAnchor.constraint(equalTo: trackSettingsButton.leadingAnchor, constant: -5),
+            castButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            castButton.widthAnchor.constraint(equalToConstant: 30),
+            castButton.heightAnchor.constraint(equalToConstant: 30),
+            
             // Duration label
-            durationLabel.trailingAnchor.constraint(equalTo: trackSettingsButton.leadingAnchor, constant: -10),
+            durationLabel.trailingAnchor.constraint(equalTo: castButton.leadingAnchor, constant: -10),
             durationLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             durationLabel.widthAnchor.constraint(equalToConstant: 50),
             
@@ -960,6 +1237,10 @@ class VideoControlBarView: NSView {
         onPlayPause?()
     }
     
+    @objc private func stopClicked() {
+        onStop?()
+    }
+    
     @objc private func skipBackwardClicked() {
         onSkipBackward?()
     }
@@ -974,6 +1255,10 @@ class VideoControlBarView: NSView {
     
     @objc private func trackSettingsClicked() {
         onTrackSettings?()
+    }
+    
+    @objc private func castClicked() {
+        onCast?()
     }
     
     @objc private func seekChanged() {
@@ -994,9 +1279,51 @@ class VideoControlBarView: NSView {
         currentTimeLabel.stringValue = formatTime(current)
         durationLabel.stringValue = formatTime(total)
         
-        // Update slider position (only if not seeking)
-        if total > 0 {
+        // Update slider position (only if not seeking and not casting)
+        if total > 0 && !isCasting {
             seekSlider.doubleValue = current / total
+        }
+    }
+    
+    /// Update the cast state display
+    /// - Parameters:
+    ///   - isPlaying: Whether the cast is playing
+    ///   - deviceName: Name of the device being cast to, or nil if not casting
+    func updateCastState(isPlaying: Bool, deviceName: String?) {
+        isCasting = deviceName != nil
+        
+        if let deviceName = deviceName {
+            // Show casting indicator, hide seek slider
+            castingLabel.stringValue = "Casting to \(deviceName)"
+            castingLabel.isHidden = false
+            seekSlider.isHidden = true
+            currentTimeLabel.isHidden = true
+            durationLabel.isHidden = true
+            
+            // Update cast button to show active state
+            if let image = NSImage(systemSymbolName: "tv.fill", accessibilityDescription: nil) {
+                castButton.image = image
+                castButton.contentTintColor = .systemBlue
+            }
+            
+            // Update play button for cast state
+            let symbol = isPlaying ? "pause.fill" : "play.fill"
+            if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+                playButton.image = image
+            }
+            self.isPlaying = isPlaying
+        } else {
+            // Hide casting indicator, show seek slider
+            castingLabel.isHidden = true
+            seekSlider.isHidden = false
+            currentTimeLabel.isHidden = false
+            durationLabel.isHidden = false
+            
+            // Reset cast button
+            if let image = NSImage(systemSymbolName: "tv", accessibilityDescription: nil) {
+                castButton.image = image
+                castButton.contentTintColor = .white
+            }
         }
     }
     

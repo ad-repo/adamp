@@ -368,14 +368,26 @@ AdAmp supports video playback for Plex movies and TV shows with full audio/subti
 ### Controls
 
 Hover over the video to reveal controls:
-- **Play/Pause** button
+- **Stop** button - Stop playback and close the player (also stops cast on TV if casting)
 - **Skip backward** (10 seconds)
+- **Play/Pause** button
 - **Skip forward** (10 seconds)
 - **Seek slider** - Drag to jump to any position
+- **Cast** button (TV icon) - Cast to Chromecast or DLNA TV
 - **Track Settings** button (speech bubble icon) - Open audio/subtitle selection panel
 - **Fullscreen** toggle
 
 Controls auto-hide after 3 seconds during playback.
+
+### Click Overlay
+
+**Single-click** anywhere on the video to show a center overlay with:
+- **Large play/pause button** - Toggle playback
+- **Close button** (X) in top-right corner - Stop and close the player (also stops cast on TV if casting)
+
+The overlay auto-hides after 2 seconds.
+
+**Double-click** anywhere on the video to toggle play/pause immediately.
 
 ### Audio & Subtitle Track Selection
 
@@ -622,12 +634,59 @@ The room checkboxes use a special view that **keeps the menu open** when clicked
 - **Chromecast** - Google Cast speakers and displays
 - **TVs (DLNA)** - DLNA-compatible televisions
 
-To cast:
+To cast audio:
 1. Start playing audio in AdAmp
 2. Select a device from the menu
 3. **Stop Casting** to return to local playback
 
 **Refresh Devices** rescans your network for all cast targets.
+
+### Video Casting
+
+AdAmp supports casting Plex movies and TV episodes to video-capable devices (Chromecast and DLNA TVs). Sonos is audio-only.
+
+There are **two casting paths** with different control behaviors:
+
+#### Path 1: Casting from Video Player
+
+1. Open a movie or episode in the video player
+2. Click the **Cast** button (TV icon) in the control bar
+3. Select a device from the menu:
+   - **Chromecast** devices listed first
+   - **TVs** (DLNA) listed separately
+4. Video pauses locally and casts to the selected device
+5. Playback resumes from current position on the TV
+
+**Controls**: Use the video player window controls or main window transport buttons.
+
+#### Path 2: Casting from Plex Browser (Menu)
+
+Right-click a movie or episode in the Library Browser:
+1. Select **Cast to...** from the context menu
+2. Choose a target device
+3. Video plays directly on the TV (no local video player window)
+
+**Controls**: Use the **main window transport buttons** (Play, Pause, Stop) to control playback. The main window time display and position slider also work for seeking.
+
+#### Video Casting Requirements
+
+- Device must support video (Sonos excluded automatically)
+- Plex content: Uses direct stream URL with authentication token
+- Local video files: Served via embedded HTTP server (port 8765)
+- Resume position: Casting remembers where you were in the video
+
+#### Stopping Video Cast
+
+- **From video player**: Click the Cast button again or close the player
+- **From menu cast**: Use Stop button on main window, or right-click → Output Devices → select the active device again
+
+#### Known Limitations
+
+**Chromecast**: Fully supported for both audio and video casting using the Google Cast Protocol v2. Supports playback controls (play, pause, seek, volume) from AdAmp.
+
+**Samsung TVs**: Samsung TVs have limited DLNA control support. While video casting works for playback, remote control features (seek, volume, pause) may not be available. This is a Samsung firmware limitation - use the TV's remote to control playback. (Tested on Samsung QN90BA 75")
+
+**Other DLNA TVs**: Most DLNA-compatible TVs (LG, Sony, etc.) should work for video casting. Remote control support varies by manufacturer.
 
 ---
 
@@ -675,6 +734,15 @@ Enable this option to keep the Library Browser and Milkdrop windows using the de
 
 | Key | Action |
 |-----|--------|
+| **↑** | Move selection up |
+| **↓** | Move selection down |
+| **Shift+↑** | Extend selection up |
+| **Shift+↓** | Extend selection down |
+| **Home** | Jump to first track |
+| **End** | Jump to last track |
+| **Page Up** | Move selection up by a page |
+| **Page Down** | Move selection down by a page |
+| **Shift+Home/End/PgUp/PgDn** | Extend selection to target |
 | **Delete** | Remove selected tracks |
 | **Enter** | Play selected track |
 | **Cmd+A** | Select all |
@@ -720,6 +788,24 @@ Enable this option to keep the Library Browser and Milkdrop windows using the de
 ## Context Menu Reference
 
 Right-click anywhere on AdAmp windows to access:
+
+### About Playing
+
+Shows detailed metadata for the currently playing track or video. This option is disabled (grayed out) when nothing is playing.
+
+**For Audio Tracks:**
+- Title, Artist, Album
+- Duration, Bitrate, Sample Rate, Channels
+- File path (local) or server path (Plex)
+- Genre, Year, Track Number (Plex only)
+- Last.fm scrobble count and your rating (Plex only)
+
+**For Videos:**
+- Title, Year, Studio (movies)
+- Show name, Season, Episode (TV)
+- Resolution, Video/Audio codecs
+- Content rating, IMDB/TMDB IDs
+- Summary (truncated)
 
 ### Play
 - **File...** - Open file dialog
@@ -781,6 +867,8 @@ Right-click anywhere on AdAmp windows to access:
 | **Track** | Play, Add to Playlist, Start Track Radio |
 | **Album** | Play Album, Add Album to Playlist, Start Album Radio |
 | **Artist** | Play All by Artist, Expand/Collapse, Start Artist Radio |
+| **Movie** | Play Movie, Add to Playlist, Cast to..., View Online |
+| **Episode** | Play Episode, Add to Playlist, Cast to..., View Online |
 
 ### Video Player Context Menu (Right-click on video)
 
@@ -792,8 +880,11 @@ Right-click anywhere on AdAmp windows to access:
 | **Audio** | Submenu listing available audio tracks |
 | **Subtitles** | Submenu listing subtitle tracks (includes "Off") |
 | **Track Settings...** | Opens the track selection panel |
+| **Always on Top** | Keep video window above other windows |
 | **Toggle Fullscreen** | Enter/exit fullscreen mode |
 | **Close** | Stop playback and close the video player |
+
+**Note**: To cast video, use the Cast button (TV icon) in the control bar.
 
 ### Output Devices
 - Local Audio devices

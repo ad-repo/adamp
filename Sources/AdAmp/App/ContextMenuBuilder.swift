@@ -10,6 +10,16 @@ class ContextMenuBuilder {
         let menu = NSMenu()
         let wm = WindowManager.shared
         
+        // About Playing (shows current track/video info)
+        let aboutPlaying = NSMenuItem(title: "About Playing", action: #selector(MenuActions.showAboutPlaying), keyEquivalent: "")
+        aboutPlaying.target = MenuActions.shared
+        // Disable if nothing is playing
+        let hasAudioContent = wm.audioEngine.currentTrack != nil
+        let hasVideoContent = wm.currentVideoTitle != nil
+        aboutPlaying.isEnabled = hasAudioContent || hasVideoContent
+        menu.addItem(aboutPlaying)
+        menu.addItem(NSMenuItem.separator())
+        
         // Window toggles
         menu.addItem(buildWindowItem("Main Window", visible: wm.mainWindowController?.window?.isVisible ?? false, action: #selector(MenuActions.toggleMainWindow)))
         menu.addItem(buildWindowItem("Equalizer", visible: wm.isEqualizerVisible, action: #selector(MenuActions.toggleEQ)))
@@ -148,28 +158,26 @@ class ContextMenuBuilder {
         visMenu.autoenablesItems = false
         
         let wm = WindowManager.shared
-        let isProjectMAvailable = wm.isProjectMAvailable
         
-        // Preset info header
-        if isProjectMAvailable {
-            let info = wm.visualizationPresetsInfo
-            let totalPresets = wm.visualizationPresetCount
-            
+        // Show preset count (can be determined without window open)
+        let counts = ProjectMWrapper.staticPresetCounts
+        let totalPresets = counts.bundled + counts.custom
+        
+        if totalPresets > 0 {
             let infoText: String
-            if info.customPath != nil {
-                infoText = "\(totalPresets) presets (\(info.bundledCount) bundled, \(info.customCount) custom)"
+            if counts.custom > 0 {
+                infoText = "\(totalPresets) presets (\(counts.bundled) bundled, \(counts.custom) custom)"
             } else {
                 infoText = "\(totalPresets) presets (bundled)"
             }
             
             let infoItem = NSMenuItem(title: infoText, action: nil, keyEquivalent: "")
             visMenu.addItem(infoItem)
-            
             visMenu.addItem(NSMenuItem.separator())
-        } else {
+        } else if wm.isMilkdropVisible && !wm.isProjectMAvailable {
+            // Only show error if window is open but projectM failed to initialize
             let unavailableItem = NSMenuItem(title: "projectM not available", action: nil, keyEquivalent: "")
             visMenu.addItem(unavailableItem)
-            
             visMenu.addItem(NSMenuItem.separator())
         }
         
@@ -924,6 +932,354 @@ class MenuActions: NSObject {
         WindowManager.shared.toggleMilkdrop()
     }
     
+    // MARK: - About Playing
+    
+    @objc func showAboutPlaying() {
+        let wm = WindowManager.shared
+        
+        // Check for video first (takes priority if both audio and video are active)
+        if let videoController = wm.currentVideoPlayerController,
+           wm.isVideoActivePlayback {
+            showVideoInfo(videoController)
+            return
+        }
+        
+        // Check for audio track
+        if let track = wm.audioEngine.currentTrack {
+            showAudioTrackInfo(track)
+            return
+        }
+        
+        // Nothing playing (shouldn't happen - menu item should be disabled)
+        let alert = NSAlert()
+        alert.messageText = "Nothing Playing"
+        alert.informativeText = "No track or video is currently playing."
+        alert.runModal()
+    }
+    
+    private func showVideoInfo(_ controller: VideoPlayerWindowController) {
+        let alert = NSAlert()
+        
+        if let movie = controller.plexMovie {
+            // Plex Movie
+            alert.messageText = movie.title
+            var info = [String]()
+            
+            if let year = movie.year { info.append("Year: \(year)") }
+            if let studio = movie.studio { info.append("Studio: \(studio)") }
+            info.append("Duration: \(movie.formattedDuration)")
+            info.append("")
+            
+            // Video/Audio format from media
+            if let media = movie.primaryMedia {
+                if let resolution = media.videoResolution {
+                    var videoInfo = "Resolution: \(resolution)"
+                    if let width = media.width, let height = media.height {
+                        videoInfo = "Resolution: \(width)x\(height)"
+                    }
+                    info.append(videoInfo)
+                }
+                if let videoCodec = media.videoCodec {
+                    info.append("Video Codec: \(videoCodec.uppercased())")
+                }
+                if let audioCodec = media.audioCodec {
+                    var audioInfo = "Audio: \(audioCodec.uppercased())"
+                    if let channels = media.audioChannels {
+                        audioInfo += " (\(formatChannels(channels)))"
+                    }
+                    info.append(audioInfo)
+                }
+                if let bitrate = media.bitrate {
+                    info.append("Bitrate: \(bitrate) kbps")
+                }
+            }
+            info.append("")
+            
+            if let contentRating = movie.contentRating {
+                info.append("Content Rating: \(contentRating)")
+            }
+            if let imdbId = movie.imdbId {
+                info.append("IMDB: \(imdbId)")
+            }
+            if let tmdbId = movie.tmdbId {
+                info.append("TMDB: \(tmdbId)")
+            }
+            info.append("")
+            
+            if let serverName = PlexManager.shared.currentServer?.name {
+                info.append("Source: Plex (\(serverName))")
+            } else {
+                info.append("Source: Plex")
+            }
+            
+            if let summary = movie.summary, !summary.isEmpty {
+                info.append("")
+                info.append("Summary: \(summary.prefix(200))\(summary.count > 200 ? "..." : "")")
+            }
+            
+            alert.informativeText = info.joined(separator: "\n")
+            
+        } else if let episode = controller.plexEpisode {
+            // Plex Episode
+            let showTitle = episode.grandparentTitle ?? "Unknown Show"
+            alert.messageText = "\(showTitle) - \(episode.episodeIdentifier)"
+            
+            var info = [String]()
+            info.append("Episode: \(episode.title)")
+            if let seasonTitle = episode.parentTitle {
+                info.append("Season: \(seasonTitle)")
+            }
+            info.append("Duration: \(episode.formattedDuration)")
+            info.append("")
+            
+            // Video/Audio format from media
+            if let media = episode.media.first {
+                if let resolution = media.videoResolution {
+                    var videoInfo = "Resolution: \(resolution)"
+                    if let width = media.width, let height = media.height {
+                        videoInfo = "Resolution: \(width)x\(height)"
+                    }
+                    info.append(videoInfo)
+                }
+                if let videoCodec = media.videoCodec {
+                    info.append("Video Codec: \(videoCodec.uppercased())")
+                }
+                if let audioCodec = media.audioCodec {
+                    var audioInfo = "Audio: \(audioCodec.uppercased())"
+                    if let channels = media.audioChannels {
+                        audioInfo += " (\(formatChannels(channels)))"
+                    }
+                    info.append(audioInfo)
+                }
+                if let bitrate = media.bitrate {
+                    info.append("Bitrate: \(bitrate) kbps")
+                }
+            }
+            info.append("")
+            
+            if let imdbId = episode.imdbId {
+                info.append("IMDB: \(imdbId)")
+            }
+            info.append("")
+            
+            if let serverName = PlexManager.shared.currentServer?.name {
+                info.append("Source: Plex (\(serverName))")
+            } else {
+                info.append("Source: Plex")
+            }
+            
+            if let summary = episode.summary, !summary.isEmpty {
+                info.append("")
+                info.append("Summary: \(summary.prefix(200))\(summary.count > 200 ? "..." : "")")
+            }
+            
+            alert.informativeText = info.joined(separator: "\n")
+            
+        } else if let url = controller.localVideoURL {
+            // Local video file
+            alert.messageText = controller.currentTitle ?? url.lastPathComponent
+            var info = [String]()
+            info.append("Path: \(url.path)")
+            info.append("")
+            info.append("Source: Local File")
+            alert.informativeText = info.joined(separator: "\n")
+            
+        } else {
+            // Unknown video
+            alert.messageText = controller.currentTitle ?? "Video"
+            alert.informativeText = "Source: Unknown"
+        }
+        
+        alert.runModal()
+    }
+    
+    private func showAudioTrackInfo(_ track: Track) {
+        // Check if this is a Plex track - fetch full metadata async
+        if let ratingKey = track.plexRatingKey {
+            Task {
+                await showPlexTrackInfo(track, ratingKey: ratingKey)
+            }
+            return
+        }
+        
+        // Check if this is a Subsonic track
+        if let subsonicId = track.subsonicId {
+            showSubsonicTrackInfo(track, subsonicId: subsonicId)
+            return
+        }
+        
+        // Local file
+        showLocalTrackInfo(track)
+    }
+    
+    @MainActor
+    private func showPlexTrackInfo(_ track: Track, ratingKey: String) async {
+        let alert = NSAlert()
+        alert.messageText = track.displayTitle
+        
+        var info = [String]()
+        
+        // Try to fetch full Plex metadata
+        var plexTrack: PlexTrack?
+        if let client = PlexManager.shared.serverClient {
+            plexTrack = try? await client.fetchTrackDetails(trackID: ratingKey)
+        }
+        
+        // Basic info (always available from Track)
+        info.append("Title: \(track.title)")
+        if let artist = track.artist { info.append("Artist: \(artist)") }
+        if let album = track.album { info.append("Album: \(album)") }
+        info.append("")
+        
+        // Duration
+        info.append("Duration: \(track.formattedDuration)")
+        
+        // Extended info from Plex API
+        if let pt = plexTrack {
+            if let genre = pt.genre { info.append("Genre: \(genre)") }
+            if let year = pt.parentYear { info.append("Year: \(year)") }
+            if let index = pt.index {
+                var trackInfo = "Track: \(index)"
+                if let disc = pt.parentIndex { trackInfo += " (Disc \(disc))" }
+                info.append(trackInfo)
+            }
+            info.append("")
+            
+            // Audio format from media
+            if let media = pt.media.first {
+                if let codec = media.audioCodec {
+                    var formatInfo = "Format: \(codec.uppercased())"
+                    if let channels = media.audioChannels {
+                        formatInfo += " (\(formatChannels(channels)))"
+                    }
+                    info.append(formatInfo)
+                }
+                if let bitrate = media.bitrate {
+                    info.append("Bitrate: \(bitrate) kbps")
+                }
+                // File path from part
+                if let part = media.parts.first, let file = part.file {
+                    info.append("File: \(file)")
+                }
+            }
+            info.append("")
+            
+            // Plex-specific metadata
+            if let ratingCount = pt.ratingCount, ratingCount > 0 {
+                info.append("Last.fm Scrobbles: \(formatNumber(ratingCount))")
+            }
+            if let userRating = pt.userRating, userRating > 0 {
+                info.append("Your Rating: \(formatStarRating(userRating))")
+            }
+        } else {
+            // Fallback to Track model data
+            info.append("")
+            if let bitrate = track.bitrate { info.append("Bitrate: \(bitrate) kbps") }
+            if let sampleRate = track.sampleRate { info.append("Sample Rate: \(sampleRate) Hz") }
+            if let channels = track.channels { info.append("Channels: \(formatChannels(channels))") }
+        }
+        info.append("")
+        
+        // Source
+        if let serverName = PlexManager.shared.currentServer?.name {
+            info.append("Source: Plex (\(serverName))")
+        } else {
+            info.append("Source: Plex")
+        }
+        
+        alert.informativeText = info.joined(separator: "\n")
+        alert.runModal()
+    }
+    
+    private func showSubsonicTrackInfo(_ track: Track, subsonicId: String) {
+        let alert = NSAlert()
+        alert.messageText = track.displayTitle
+        
+        var info = [String]()
+        
+        info.append("Title: \(track.title)")
+        if let artist = track.artist { info.append("Artist: \(artist)") }
+        if let album = track.album { info.append("Album: \(album)") }
+        info.append("")
+        
+        info.append("Duration: \(track.formattedDuration)")
+        if let bitrate = track.bitrate { info.append("Bitrate: \(bitrate) kbps") }
+        if let sampleRate = track.sampleRate { info.append("Sample Rate: \(sampleRate) Hz") }
+        if let channels = track.channels { info.append("Channels: \(formatChannels(channels))") }
+        info.append("")
+        
+        // Source
+        if let serverName = SubsonicManager.shared.currentServer?.name {
+            info.append("Source: Subsonic (\(serverName))")
+        } else {
+            info.append("Source: Subsonic")
+        }
+        info.append("Track ID: \(subsonicId)")
+        
+        alert.informativeText = info.joined(separator: "\n")
+        alert.runModal()
+    }
+    
+    private func showLocalTrackInfo(_ track: Track) {
+        let alert = NSAlert()
+        alert.messageText = track.displayTitle
+        
+        var info = [String]()
+        
+        info.append("Title: \(track.title)")
+        if let artist = track.artist { info.append("Artist: \(artist)") }
+        if let album = track.album { info.append("Album: \(album)") }
+        info.append("")
+        
+        info.append("Duration: \(track.formattedDuration)")
+        info.append("")
+        
+        // Audio format
+        var formatParts = [String]()
+        if let sampleRate = track.sampleRate {
+            formatParts.append("\(sampleRate / 1000)kHz")
+        }
+        if let channels = track.channels {
+            formatParts.append(formatChannels(channels))
+        }
+        if !formatParts.isEmpty {
+            info.append("Format: \(formatParts.joined(separator: ", "))")
+        }
+        if let bitrate = track.bitrate { info.append("Bitrate: \(bitrate) kbps") }
+        info.append("")
+        
+        info.append("Path: \(track.url.path)")
+        info.append("")
+        info.append("Source: Local File")
+        
+        alert.informativeText = info.joined(separator: "\n")
+        alert.runModal()
+    }
+    
+    // MARK: - Formatting Helpers for About Playing
+    
+    private func formatChannels(_ channels: Int) -> String {
+        switch channels {
+        case 1: return "Mono"
+        case 2: return "Stereo"
+        case 6: return "5.1"
+        case 8: return "7.1"
+        default: return "\(channels) channels"
+        }
+    }
+    
+    private func formatNumber(_ number: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: number)) ?? "\(number)"
+    }
+    
+    private func formatStarRating(_ rating: Double) -> String {
+        // Plex uses 0-10 scale (10 = 5 stars)
+        let stars = Int(round(rating / 2))
+        return String(repeating: "★", count: stars) + String(repeating: "☆", count: 5 - stars)
+    }
+    
     // MARK: - File Operations
     
     @objc func openFile() {
@@ -1029,6 +1385,12 @@ class MenuActions: NSObject {
     
     @objc func toggleRememberState() {
         AppStateManager.shared.isEnabled.toggle()
+        
+        // When enabling, immediately save current state to avoid
+        // restoring stale state from previous session
+        if AppStateManager.shared.isEnabled {
+            AppStateManager.shared.saveState()
+        }
     }
     
     @objc func toggleAlwaysOnTop() {
@@ -1358,10 +1720,14 @@ class MenuActions: NSObject {
         }
         
         // If still no match, just use the first available Sonos device
+        // IMPORTANT: Set targetRoomUDN to the device we're actually casting to, not a selected room.
+        // This ensures all selected rooms get joined to the group in the loop below.
+        // (Previously this was set to selectedUDNs.first, which caused that room to be
+        // incorrectly filtered out of the join loop even though it wasn't receiving audio.)
         if targetDevice == nil, let firstDevice = devices.first {
             NSLog("MenuActions: No exact match, using first available device: %@", firstDevice.name)
             targetDevice = firstDevice
-            targetRoomUDN = selectedUDNs.first
+            targetRoomUDN = firstDevice.id
         }
         
         guard let device = targetDevice, let firstUDN = targetRoomUDN else {
