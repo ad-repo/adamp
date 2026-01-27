@@ -36,6 +36,9 @@ class AdAmpUITestCase: XCTestCase {
     }
     
     override func tearDownWithError() throws {
+        // Guard against tearDown being called without successful setup
+        guard let app = app else { return }
+        
         // Capture screenshot on failure for CI debugging
         if let failureCount = testRun?.failureCount, failureCount > 0 {
             captureFailureScreenshot()
@@ -43,7 +46,7 @@ class AdAmpUITestCase: XCTestCase {
         
         // Terminate the app
         app.terminate()
-        app = nil
+        self.app = nil
     }
     
     // MARK: - Screenshot Helpers
