@@ -560,6 +560,42 @@ Movies, TV shows, and episodes include external service IDs in the `Guid` array:
 
 AdAmp uses these IDs to provide "View Online" context menu links for IMDB, TMDB, and Rotten Tomatoes (search).
 
+## Setting User Ratings
+
+### Rate an Item
+
+```
+PUT /:/rate?key={ratingKey}&identifier=com.plexapp.plugins.library&rating={rating}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| key | The item's ratingKey |
+| identifier | Always `com.plexapp.plugins.library` |
+| rating | 0-10 scale (2 per star), or -1 to clear |
+
+**HTTP Method**: PUT
+
+**Response**: HTTP 200 with empty body on success
+
+**Rating Scale**:
+- 2 = 1 star (★☆☆☆☆)
+- 4 = 2 stars (★★☆☆☆)
+- 6 = 3 stars (★★★☆☆)
+- 8 = 4 stars (★★★★☆)
+- 10 = 5 stars (★★★★★)
+- -1 = Clear rating
+
+**Side Effects**: Updates `userRating` and `lastRatedAt` fields in track metadata.
+
+### Test Script
+
+Run `scripts/test_plex_rate.swift` to validate the API:
+
+```bash
+PLEX_URL=http://192.168.1.x:32400 PLEX_TOKEN=xxx swift scripts/test_plex_rate.swift
+```
+
 ## Requirements
 
 - **Plex Pass** subscription (for sonic analysis)

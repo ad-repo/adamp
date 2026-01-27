@@ -741,6 +741,42 @@ class PlexServerClient {
         }
     }
     
+    /// Rate a Plex item (track, album, artist, movie, etc.)
+    /// - Parameters:
+    ///   - ratingKey: The Plex item's ratingKey
+    ///   - rating: Rating value 0-10 (nil or -1 to clear rating)
+    func rateItem(ratingKey: String, rating: Int?) async throws {
+        let ratingValue = rating ?? -1
+        
+        // Build URL manually - query params don't need encoding for this endpoint
+        let urlString = "\(baseURL.absoluteString)/:/rate?key=\(ratingKey)&identifier=com.plexapp.plugins.library&rating=\(ratingValue)&X-Plex-Token=\(authToken)"
+        
+        guard let url = URL(string: urlString) else {
+            throw PlexServerError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        for (key, value) in standardHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        
+        let (_, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw PlexServerError.invalidResponse
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 401 {
+                throw PlexServerError.unauthorized
+            }
+            throw PlexServerError.httpError(statusCode: httpResponse.statusCode)
+        }
+        
+        NSLog("PlexServerClient: Rated item %@ with rating %d", ratingKey, ratingValue)
+    }
+    
     /// Update playback progress (for resume functionality)
     /// - Parameters:
     ///   - ratingKey: The item's rating key

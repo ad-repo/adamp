@@ -220,6 +220,27 @@ class SkinRenderer {
     
     // MARK: - Public Text/Digit Drawing Methods
     
+    /// Sample the actual text color from the skin's text.bmp
+    /// Samples a non-background pixel from the letter 'A' to get the true text color
+    func skinTextColor() -> NSColor {
+        guard let textImage = skin.text else {
+            return NSColor(hex: "#00FF00") ?? .green
+        }
+        
+        // Sample from the 'A' character in text.bmp (first char, offset a bit to hit actual text pixel)
+        let charRect = SkinElements.TextFont.character("A")
+        let samplePoint = NSPoint(x: charRect.minX + 3, y: charRect.minY + 2)
+        
+        if let color = samplePixelColor(in: textImage, at: samplePoint),
+           color.alphaComponent > 0.5,
+           // Make sure it's not magenta (transparency color)
+           !(color.redComponent > 0.9 && color.greenComponent < 0.1 && color.blueComponent > 0.9) {
+            return color
+        }
+        
+        return NSColor(hex: "#00FF00") ?? .green
+    }
+    
     /// Draw text using the skin's text.bmp font at any position
     /// Returns the width of the drawn text
     @discardableResult
