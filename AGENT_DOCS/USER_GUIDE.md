@@ -677,8 +677,8 @@ Right-click a movie or episode in the Library Browser:
 
 #### Stopping Video Cast
 
-- **From video player**: Click the Cast button again or close the player
-- **From menu cast**: Use Stop button on main window, or right-click → Output Devices → select the active device again
+- **From video player**: Click the Cast button or close the player
+- **From menu cast**: Use Stop button on main window, or right-click → Output Devices → select the active device
 
 #### Known Limitations
 

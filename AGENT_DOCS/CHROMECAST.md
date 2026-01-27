@@ -161,7 +161,7 @@ NSLog("CastSessionController: handleMessage type=%@", type)
 ### Plex Content
 
 For Plex content, the stream URL includes the authentication token:
-```
+```text
 http://server:32400/library/parts/12345/.../file.mkv?X-Plex-Token=xxx
 ```
 

@@ -127,7 +127,12 @@ class CastManager {
         guard isVideoCasting else { return 0 }
         if let startDate = videoCastStartDate {
             let elapsed = Date().timeIntervalSince(startDate)
-            return min(videoCastStartPosition + elapsed, videoCastDuration)
+            let current = videoCastStartPosition + elapsed
+            // Only clamp if we have a known duration (prevents returning 0 for unknown durations)
+            if videoCastDuration > 0 {
+                return min(current, videoCastDuration)
+            }
+            return current
         }
         return videoCastStartPosition
     }
@@ -203,50 +208,55 @@ class CastManager {
     @objc private func handleChromecastMediaStatusUpdate(_ notification: Notification) {
         guard let status = notification.userInfo?["status"] as? CastMediaStatus else { return }
         
-        // Only process if we're actively casting
-        guard isCasting || isVideoCasting else { return }
-        
-        let isPlaying = status.playerState == .playing
-        let isBuffering = status.playerState == .buffering
-        
-        // Update video cast tracking if video casting
-        if isVideoCasting {
-            // Mark that we've received status from Chromecast (enables UI updates)
-            let isFirstStatus = !videoCastHasReceivedStatus
-            videoCastHasReceivedStatus = true
+        // Dispatch to main thread for thread safety - NotificationCenter may deliver off main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             
-            // Sync position from Chromecast
-            videoCastStartPosition = status.currentTime
+            // Only process if we're actively casting
+            guard self.isCasting || self.isVideoCasting else { return }
             
-            if isBuffering {
-                // Pause interpolation during buffering
-                videoCastStartDate = nil
-                isVideoCastPlaying = false
-            } else if isPlaying {
-                videoCastStartDate = Date()
-                isVideoCastPlaying = true
-            } else {
-                // Paused or idle
-                videoCastStartDate = nil
-                isVideoCastPlaying = false
+            let isPlaying = status.playerState == .playing
+            let isBuffering = status.playerState == .buffering
+            
+            // Update video cast tracking if video casting
+            if self.isVideoCasting {
+                // Mark that we've received status from Chromecast (enables UI updates)
+                let isFirstStatus = !self.videoCastHasReceivedStatus
+                self.videoCastHasReceivedStatus = true
+                
+                // Sync position from Chromecast
+                self.videoCastStartPosition = status.currentTime
+                
+                if isBuffering {
+                    // Pause interpolation during buffering
+                    self.videoCastStartDate = nil
+                    self.isVideoCastPlaying = false
+                } else if isPlaying {
+                    self.videoCastStartDate = Date()
+                    self.isVideoCastPlaying = true
+                } else {
+                    // Paused or idle
+                    self.videoCastStartDate = nil
+                    self.isVideoCastPlaying = false
+                }
+                
+                // Update duration if provided
+                if let duration = status.duration, duration > 0 {
+                    self.videoCastDuration = duration
+                }
+                
+                // On first status, immediately update UI with correct position
+                if isFirstStatus {
+                    WindowManager.shared.videoDidUpdateTime(current: self.videoCastCurrentTime, duration: self.videoCastDuration)
+                }
+            } else if self.isCasting {
+                // Audio casting - forward position sync to AudioEngine
+                WindowManager.shared.audioEngine.updateCastPosition(
+                    currentTime: status.currentTime,
+                    isPlaying: isPlaying,
+                    isBuffering: isBuffering
+                )
             }
-            
-            // Update duration if provided
-            if let duration = status.duration, duration > 0 {
-                videoCastDuration = duration
-            }
-            
-            // On first status, immediately update UI with correct position
-            if isFirstStatus {
-                WindowManager.shared.videoDidUpdateTime(current: videoCastCurrentTime, duration: videoCastDuration)
-            }
-        } else if isCasting {
-            // Audio casting - forward position sync to AudioEngine
-            WindowManager.shared.audioEngine.updateCastPosition(
-                currentTime: status.currentTime,
-                isPlaying: isPlaying,
-                isBuffering: isBuffering
-            )
         }
     }
     
@@ -384,17 +394,25 @@ class CastManager {
                 self.videoCastTitle = metadata.title
                 self.videoCastDuration = metadata.duration ?? 0
                 self.videoCastStartPosition = startPosition
-                // Don't set videoCastStartDate yet - wait for PLAYING status from Chromecast
-                self.videoCastStartDate = nil
-                self.isVideoCastPlaying = false
-                // Reset status flag - UI won't update until we receive first Chromecast status
-                self.videoCastHasReceivedStatus = false
+                
+                if device.type == .chromecast {
+                    // Chromecast: Wait for PLAYING status update before updating UI
+                    // This prevents clock sync issues when buffering (especially for 4K on slow networks)
+                    self.videoCastStartDate = nil
+                    self.isVideoCastPlaying = false
+                    self.videoCastHasReceivedStatus = false
+                } else {
+                    // DLNA/UPnP: No status updates, start timer immediately
+                    self.videoCastStartDate = Date()
+                    self.isVideoCastPlaying = true
+                    self.videoCastHasReceivedStatus = true
+                }
                 self.startVideoCastUpdateTimer()
                 
                 // Update main window with video title (for casts from library browser menu)
                 WindowManager.shared.mainWindowController?.updateVideoTrackInfo(title: metadata.title)
                 
-                NSLog("CastManager: Video cast state initialized (waiting for playback) - title='%@', duration=%.1f, startPosition=%.1f", metadata.title, self.videoCastDuration, startPosition)
+                NSLog("CastManager: Video cast state initialized - title='%@', duration=%.1f, startPosition=%.1f, hasReceivedStatus=%d", metadata.title, self.videoCastDuration, startPosition, self.videoCastHasReceivedStatus ? 1 : 0)
             } else {
                 // Audio casting - use different tracking based on device type
                 if device.type == .chromecast {
@@ -595,7 +613,14 @@ class CastManager {
         )
         
         NSLog("CastManager: Casting Plex movie '%@' to %@ (type: %@)", movie.title, device.name, device.type.rawValue)
-        NSLog("CastManager: Cast URL: %@", castURL.absoluteString)
+        // Redact Plex token before logging to prevent credential leakage
+        if var components = URLComponents(url: castURL, resolvingAgainstBaseURL: false) {
+            components.queryItems?.removeAll { $0.name == "X-Plex-Token" }
+            let safeURL = components.url?.absoluteString ?? "<invalid URL>"
+            NSLog("CastManager: Cast URL: %@", safeURL)
+        } else {
+            NSLog("CastManager: Cast URL: <redacted>")
+        }
         
         do {
             try await cast(to: device, url: castURL, metadata: metadata, startPosition: startPosition)

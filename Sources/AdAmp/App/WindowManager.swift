@@ -567,6 +567,9 @@ class WindowManager {
         if CastManager.shared.isVideoCasting {
             Task {
                 await CastManager.shared.stopCasting()
+                await MainActor.run {
+                    WindowManager.shared.videoPlaybackDidStop()
+                }
             }
             return
         }

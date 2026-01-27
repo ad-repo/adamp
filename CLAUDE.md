@@ -21,7 +21,7 @@ The `kill_build_run.sh` script:
 ### Monitoring Logs
 
 When running the build script via the Shell tool with `is_background: true`, logs are captured to a terminal file in:
-```
+```text
 /Users/ad/.cursor/projects/Users-ad-Projects-adamp/terminals/<shell_id>.txt
 ```
 
