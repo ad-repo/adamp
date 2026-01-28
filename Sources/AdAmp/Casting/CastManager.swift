@@ -831,7 +831,7 @@ class CastManager {
         
         if upnpManager.activeSession != nil {
             try? await upnpManager.stop()
-            upnpManager.disconnect()
+            await upnpManager.disconnect()
         }
         
         // Clear Sonos room selection
@@ -877,9 +877,9 @@ class CastManager {
             chromecastManager.disconnect()
         }
         
-        // Stop UPnP/Sonos - disconnect is synchronous, skip async stop()
+        // Stop UPnP/Sonos - use sync disconnect to avoid blocking on async stop()
         if upnpManager.activeSession != nil {
-            upnpManager.disconnect()
+            upnpManager.disconnectSync()
         }
         
         // Clear Sonos room selection
