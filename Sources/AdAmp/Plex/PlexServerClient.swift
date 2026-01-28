@@ -1212,7 +1212,9 @@ class PlexServerClient {
         
         // Build URL manually - Plex filter syntax requires unencoded >= in parameter name
         // URLQueryItem would encode "userRating>=" as "userRating%3E%3D" which Plex ignores
-        let urlString = "\(baseURL.absoluteString)/library/sections/\(libraryID)/all?type=10&userRating>=\(Int(minRating))&sort=random&limit=\(limit)&X-Plex-Token=\(authToken)"
+        // Use max(1, ...) to ensure "All Rated" (minRating=0.1) filters to userRating>=1, not >=0
+        let ratingFilter = max(1, Int(minRating))
+        let urlString = "\(baseURL.absoluteString)/library/sections/\(libraryID)/all?type=10&userRating>=\(ratingFilter)&sort=random&limit=\(limit)&X-Plex-Token=\(authToken)"
         
         guard let url = URL(string: urlString) else {
             throw PlexServerError.invalidURL
@@ -1243,7 +1245,9 @@ class PlexServerClient {
         
         // Build URL manually - Plex filter syntax requires unencoded >= in parameter name
         // URLQueryItem would encode "userRating>=" as "userRating%3E%3D" which Plex ignores
-        let urlString = "\(baseURL.absoluteString)/library/sections/\(libraryID)/all?type=10&userRating>=\(Int(minRating))&track.sonicallySimilar=\(trackID)&sort=random&limit=\(limit)&X-Plex-Token=\(authToken)"
+        // Use max(1, ...) to ensure "All Rated" (minRating=0.1) filters to userRating>=1, not >=0
+        let ratingFilter = max(1, Int(minRating))
+        let urlString = "\(baseURL.absoluteString)/library/sections/\(libraryID)/all?type=10&userRating>=\(ratingFilter)&track.sonicallySimilar=\(trackID)&sort=random&limit=\(limit)&X-Plex-Token=\(authToken)"
         
         guard let url = URL(string: urlString) else {
             throw PlexServerError.invalidURL

@@ -757,6 +757,8 @@ class AudioEngine {
     }
     
     func pause() {
+        NSLog("AudioEngine.pause() called - isVideoCastingActive=%d, isCastingActive=%d", isVideoCastingActive ? 1 : 0, isCastingActive ? 1 : 0)
+        
         // If video casting is active, forward to video player
         if isVideoCastingActive {
             WindowManager.shared.toggleVideoCastPlayPause()
@@ -765,8 +767,14 @@ class AudioEngine {
         
         // If audio casting is active, forward command to CastManager
         if isCastingActive {
+            NSLog("AudioEngine.pause() - forwarding to CastManager")
             Task {
-                try? await CastManager.shared.pause()
+                do {
+                    try await CastManager.shared.pause()
+                    NSLog("AudioEngine.pause() - CastManager.pause() completed")
+                } catch {
+                    NSLog("AudioEngine.pause() - CastManager.pause() failed: %@", error.localizedDescription)
+                }
             }
             return
         }
@@ -862,6 +870,15 @@ class AudioEngine {
         
         guard !playlist.isEmpty else { return }
         
+        // When casting local files, block rapid clicks - only accept if not already casting
+        if isCastingActive && CastManager.shared.isLocalFileCastInProgress() {
+            NSLog("AudioEngine: previous() blocked - local file cast in progress")
+            return
+        }
+        
+        // Capture previous index before changing (for rollback on cast failure)
+        let previousIndex = currentIndex
+        
         if shuffleEnabled {
             currentIndex = Int.random(in: 0..<playlist.count)
         } else {
@@ -871,10 +888,32 @@ class AudioEngine {
         // When casting, cast the new track instead of playing locally
         if isCastingActive {
             let track = playlist[currentIndex]
-            currentTrack = track
-            delegate?.audioEngineDidChangeTrack(track)
+            let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
+            
+            // For local files, defer UI update until cast completes (prevents UI jumping during rapid clicks)
+            // For streaming, update immediately since there's no async delay
+            if !isLocalFile {
+                currentTrack = track
+            }
+            
             Task {
-                try? await CastManager.shared.castNewTrack(track)
+                do {
+                    try await CastManager.shared.castNewTrack(track)
+                    // For local files, update UI after successful cast
+                    if isLocalFile {
+                        await MainActor.run {
+                            self.currentTrack = track
+                        }
+                    }
+                } catch {
+                    NSLog("AudioEngine: previous() cast failed: %@", error.localizedDescription)
+                    // Restore index on failure to keep playlist navigation consistent
+                    if isLocalFile {
+                        await MainActor.run {
+                            self.currentIndex = previousIndex
+                        }
+                    }
+                }
             }
             return
         }
@@ -891,6 +930,15 @@ class AudioEngine {
         
         guard !playlist.isEmpty else { return }
         
+        // When casting local files, block rapid clicks - only accept if not already casting
+        if isCastingActive && CastManager.shared.isLocalFileCastInProgress() {
+            NSLog("AudioEngine: next() blocked - local file cast in progress")
+            return
+        }
+        
+        // Capture previous index before changing (for rollback on cast failure)
+        let previousIndex = currentIndex
+        
         if shuffleEnabled {
             currentIndex = Int.random(in: 0..<playlist.count)
         } else {
@@ -900,10 +948,32 @@ class AudioEngine {
         // When casting, cast the new track instead of playing locally
         if isCastingActive {
             let track = playlist[currentIndex]
-            currentTrack = track
-            delegate?.audioEngineDidChangeTrack(track)
+            let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
+            
+            // For local files, defer UI update until cast completes (prevents UI jumping during rapid clicks)
+            // For streaming, update immediately since there's no async delay
+            if !isLocalFile {
+                currentTrack = track
+            }
+            
             Task {
-                try? await CastManager.shared.castNewTrack(track)
+                do {
+                    try await CastManager.shared.castNewTrack(track)
+                    // For local files, update UI after successful cast
+                    if isLocalFile {
+                        await MainActor.run {
+                            self.currentTrack = track
+                        }
+                    }
+                } catch {
+                    NSLog("AudioEngine: next() cast failed: %@", error.localizedDescription)
+                    // Restore index on failure to keep playlist navigation consistent
+                    if isLocalFile {
+                        await MainActor.run {
+                            self.currentIndex = previousIndex
+                        }
+                    }
+                }
             }
             return
         }
@@ -1367,6 +1437,9 @@ class AudioEngine {
         // Prevent multiple calls
         castPlaybackStartDate = nil
         
+        // Capture previous index before any changes (for rollback on cast failure)
+        let previousIndex = currentIndex
+        
         if repeatEnabled {
             if shuffleEnabled {
                 // Repeat mode + shuffle: pick a random track
@@ -1374,10 +1447,30 @@ class AudioEngine {
             }
             // Cast the same or new random track
             let track = playlist[currentIndex]
-            currentTrack = track
-            delegate?.audioEngineDidChangeTrack(track)
+            let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
+            
+            // For local files, defer UI update until cast completes
+            if !isLocalFile {
+                currentTrack = track
+            }
+            
             Task {
-                try? await CastManager.shared.castNewTrack(track)
+                do {
+                    try await CastManager.shared.castNewTrack(track)
+                    if isLocalFile {
+                        await MainActor.run {
+                            self.currentTrack = track
+                        }
+                    }
+                } catch {
+                    NSLog("castTrackDidFinish: failed to cast: %@", error.localizedDescription)
+                    // Restore index on failure (only if shuffle changed it)
+                    if isLocalFile && shuffleEnabled {
+                        await MainActor.run {
+                            self.currentIndex = previousIndex
+                        }
+                    }
+                }
             }
         } else if !playlist.isEmpty {
             if shuffleEnabled {
@@ -1389,10 +1482,30 @@ class AudioEngine {
                 // More tracks to play - advance
                 currentIndex += 1
                 let track = playlist[currentIndex]
-                currentTrack = track
-                delegate?.audioEngineDidChangeTrack(track)
+                let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
+                
+                // For local files, defer UI update until cast completes
+                if !isLocalFile {
+                    currentTrack = track
+                }
+                
                 Task {
-                    try? await CastManager.shared.castNewTrack(track)
+                    do {
+                        try await CastManager.shared.castNewTrack(track)
+                        if isLocalFile {
+                            await MainActor.run {
+                                self.currentTrack = track
+                            }
+                        }
+                    } catch {
+                        NSLog("castTrackDidFinish: failed to cast next: %@", error.localizedDescription)
+                        // Restore index on failure to keep playlist navigation consistent
+                        if isLocalFile {
+                            await MainActor.run {
+                                self.currentIndex = previousIndex
+                            }
+                        }
+                    }
                 }
             } else {
                 // End of playlist - stop casting
@@ -1446,14 +1559,26 @@ class AudioEngine {
                 // When casting, don't set up local playback - just set the track metadata
                 // and cast to the active device
                 let track = playlist[currentIndex]
-                currentTrack = track
+                let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
+                
+                // For local files, defer UI update until cast completes (prevents UI jumping during rapid clicks)
+                // For streaming, update immediately since there's no async delay
+                if !isLocalFile {
+                    currentTrack = track
+                }
                 _currentTime = 0
                 lastReportedTime = 0
                 
-                NSLog("loadTracks: casting is active, casting new track '%@'", track.title)
+                NSLog("loadTracks: casting is active, casting new track '%@' (local=%d)", track.title, isLocalFile ? 1 : 0)
                 Task {
                     do {
                         try await CastManager.shared.castNewTrack(track)
+                        // For local files, update UI after successful cast
+                        if isLocalFile {
+                            await MainActor.run {
+                                self.currentTrack = track
+                            }
+                        }
                     } catch {
                         NSLog("loadTracks: failed to cast new track: %@", error.localizedDescription)
                         // Fall back to local playback if casting fails
@@ -1524,6 +1649,13 @@ class AudioEngine {
                 WindowManager.shared.playVideoTrack(track)
             }
             return
+        }
+        
+        // Stop video playback before loading audio track
+        // This ensures the user's intent to play audio takes precedence
+        if WindowManager.shared.isVideoActivePlayback {
+            NSLog("loadTrack: Stopping video playback before loading audio track")
+            WindowManager.shared.stopVideo()
         }
         
         // Check if this is a remote URL (streaming)
@@ -2460,6 +2592,12 @@ class AudioEngine {
             return
         }
         
+        // When casting local files, block rapid clicks - only accept if not already casting
+        if isCastingActive && CastManager.shared.isLocalFileCastInProgress() {
+            NSLog("AudioEngine: playTrack() blocked - local file cast in progress")
+            return
+        }
+        
         NSLog("playTrack: playing track at index %d", index)
         
         // Check if we're currently casting
@@ -2470,14 +2608,26 @@ class AudioEngine {
         if wasCasting {
             // When casting, don't set up local playback - just update track metadata and cast
             let track = playlist[index]
-            currentTrack = track
+            let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
+            
+            // For local files, defer UI update until cast completes (prevents UI jumping during rapid clicks)
+            // For streaming, update immediately since there's no async delay
+            if !isLocalFile {
+                currentTrack = track
+            }
             _currentTime = 0
             lastReportedTime = 0
             
-            NSLog("playTrack: casting is active, casting track at index %d", index)
+            NSLog("playTrack: casting is active, casting track at index %d (local=%d)", index, isLocalFile ? 1 : 0)
             Task {
                 do {
                     try await CastManager.shared.castNewTrack(track)
+                    // For local files, update UI after successful cast
+                    if isLocalFile {
+                        await MainActor.run {
+                            self.currentTrack = track
+                        }
+                    }
                 } catch {
                     NSLog("playTrack: failed to cast track: %@", error.localizedDescription)
                     // Fall back to local playback if casting fails

@@ -430,12 +430,12 @@ Plays tracks based on the user's personal star ratings. Users can select from mu
 **Note**: Plex stores ratings on a 0-10 scale internally (10 = 5 stars, 8 = 4 stars, etc.)
 
 **Sonic Version** - Sonically similar rated tracks:
-```
+```http
 GET /library/sections/{libID}/all?type=10&track.sonicallySimilar={trackID}&userRating>=8&sort=random&limit=100
 ```
 
 **Non-Sonic Version** - All rated tracks at threshold:
-```
+```http
 GET /library/sections/{libID}/all?type=10&userRating>=8&sort=random&limit=100
 ```
 

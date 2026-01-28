@@ -938,9 +938,16 @@ class MenuActions: NSObject {
         let wm = WindowManager.shared
         
         // Check for video first (takes priority if both audio and video are active)
+        // Path 1: Video player window is active (local playback or cast from player)
         if let videoController = wm.currentVideoPlayerController,
            wm.isVideoActivePlayback {
             showVideoInfo(videoController)
+            return
+        }
+        
+        // Path 2: Video casting from menu (no video player window)
+        if CastManager.shared.isVideoCasting {
+            showVideoCastInfo()
             return
         }
         
@@ -954,6 +961,44 @@ class MenuActions: NSObject {
         let alert = NSAlert()
         alert.messageText = "Nothing Playing"
         alert.informativeText = "No track or video is currently playing."
+        alert.runModal()
+    }
+    
+    /// Show info for video casting initiated from context menu (no video player window)
+    private func showVideoCastInfo() {
+        let castManager = CastManager.shared
+        let alert = NSAlert()
+        
+        let title = castManager.videoCastTitle ?? "Video"
+        alert.messageText = title
+        
+        var info = [String]()
+        
+        // Duration
+        let duration = castManager.videoCastDuration
+        if duration > 0 {
+            let hours = Int(duration) / 3600
+            let minutes = (Int(duration) % 3600) / 60
+            let seconds = Int(duration) % 60
+            if hours > 0 {
+                info.append("Duration: \(hours):\(String(format: "%02d", minutes)):\(String(format: "%02d", seconds))")
+            } else {
+                info.append("Duration: \(minutes):\(String(format: "%02d", seconds))")
+            }
+        }
+        
+        // Cast device
+        if let session = castManager.activeSession {
+            info.append("")
+            info.append("Casting to: \(session.device.name)")
+            info.append("Device Type: \(session.device.type.displayName)")
+        }
+        
+        // Playback state
+        info.append("")
+        info.append("Status: \(castManager.isVideoCastPlaying ? "Playing" : "Paused")")
+        
+        alert.informativeText = info.joined(separator: "\n")
         alert.runModal()
     }
     

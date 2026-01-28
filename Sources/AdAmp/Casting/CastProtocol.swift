@@ -275,13 +275,15 @@ class CastSessionController {
         }
         
         withLock {
-            isConnected = false
-            
+            // Send CLOSE messages BEFORE setting isConnected = false
+            // (sendMessageUnsafe guards on isConnected, so order matters)
             if let tid = transportId {
                 sendMessageUnsafe(namespace: .connection, payload: ["type": "CLOSE"], to: tid)
             }
             sendMessageUnsafe(namespace: .connection, payload: ["type": "CLOSE"], to: "receiver-0")
             
+            // NOW mark as disconnected and clean up
+            isConnected = false
             connection?.cancel()
             connection = nil
             transportId = nil

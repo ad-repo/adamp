@@ -7,8 +7,8 @@ class AdAmpUITestCase: XCTestCase {
     /// The application under test
     var app: XCUIApplication!
     
-    /// Timeout for UI element waits
-    let defaultTimeout: TimeInterval = 2
+    /// Timeout for UI element waits (increased for CI environments)
+    let defaultTimeout: TimeInterval = 5
     
     // MARK: - Setup and Teardown
     
@@ -16,17 +16,38 @@ class AdAmpUITestCase: XCTestCase {
         // Stop immediately on failure
         continueAfterFailure = false
         
-        // Initialize the application
-        app = XCUIApplication()
+        // Note: UI tests must be run locally with Xcode, not in CI.
+        // SPM test targets are unit test bundles, and XCUIApplication requires
+        // a UI test bundle configuration that SPM cannot provide.
+        //
+        // To run UI tests:
+        //   1. Open Package.swift in Xcode
+        //   2. Select the AdAmpUITests target
+        //   3. Run with Cmd+U
+        
+        // Initialize the application with bundle identifier
+        app = XCUIApplication(bundleIdentifier: "com.adamp.player")
         
         // Set UI testing launch argument
         app.launchArguments = ["--ui-testing"]
         
         // Launch the app
         app.launch()
+        
+        // Diagnostic logging for CI debugging
+        print("=== UI Test Setup Diagnostics ===")
+        print("App state: \(app.state.rawValue) (3=runningForeground)")
+        print("Windows count: \(app.windows.count)")
+        for window in app.windows.allElementsBoundByIndex {
+            print("  Window: '\(window.identifier)' exists=\(window.exists) hittable=\(window.isHittable)")
+        }
+        print("=================================")
     }
     
     override func tearDownWithError() throws {
+        // Guard against tearDown being called without successful setup
+        guard let app = app else { return }
+        
         // Capture screenshot on failure for CI debugging
         if let failureCount = testRun?.failureCount, failureCount > 0 {
             captureFailureScreenshot()
@@ -34,7 +55,7 @@ class AdAmpUITestCase: XCTestCase {
         
         // Terminate the app
         app.terminate()
-        app = nil
+        self.app = nil
     }
     
     // MARK: - Screenshot Helpers

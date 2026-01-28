@@ -298,15 +298,30 @@ class VideoPlayerView: NSView {
     // MARK: - Context Menu Actions
     
     @objc private func contextPlayPause() {
-        togglePlayPause()
+        // Route through callback if set (for casting intercept), otherwise handle locally
+        if let callback = onPlayPauseToggled {
+            callback()
+        } else {
+            togglePlayPause()
+        }
     }
     
     @objc private func contextSkipBackward() {
-        skipBackward(10)
+        // Route through callback if set (for casting intercept), otherwise handle locally
+        if let callback = onSkipBackwardRequested {
+            callback(10)
+        } else {
+            skipBackward(10)
+        }
     }
     
     @objc private func contextSkipForward() {
-        skipForward(10)
+        // Route through callback if set (for casting intercept), otherwise handle locally
+        if let callback = onSkipForwardRequested {
+            callback(10)
+        } else {
+            skipForward(10)
+        }
     }
     
     @objc private func contextFullscreen() {
