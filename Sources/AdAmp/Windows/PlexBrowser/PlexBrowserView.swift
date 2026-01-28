@@ -861,37 +861,35 @@ class PlexBrowserView: NSView {
     // MARK: - Scaling Support
     
     /// Get the original window size for drawing and hit testing
-    /// For vertical resizing, we use the actual bounds height to allow the content area to expand
+    /// Normal mode uses actual bounds (no scaling), shade mode uses fixed reference size
     private var originalWindowSize: NSSize {
         if isShadeMode {
-            // Shade mode: width scales with window, height is fixed
+            // Shade mode: uses fixed reference size for scaling
             return NSSize(width: SkinElements.PlexBrowser.minSize.width, height: SkinElements.PlexBrowser.shadeHeight)
         } else {
-            // Use minimum width but actual height to allow vertical expansion
-            return NSSize(width: SkinElements.PlexBrowser.minSize.width, height: bounds.height)
+            // Normal mode: use actual bounds, no scaling
+            return bounds.size
         }
     }
     
     /// Calculate scale factor based on current bounds vs original (base) size
-    /// Only scale horizontally - vertical content area expands with window
+    /// Normal mode has no scaling (1.0), shade mode scales uniformly
     private var scaleFactor: CGFloat {
         if isShadeMode {
-            let originalSize = originalWindowSize
-            let scaleX = bounds.width / originalSize.width
-            return scaleX
-        } else {
-            // Scale based on width only - height expands naturally
+            // Shade mode scales uniformly based on width
             return bounds.width / SkinElements.PlexBrowser.minSize.width
+        } else {
+            // Normal mode: no scaling, UI stays at fixed pixel size
+            return 1.0
         }
     }
     
-    /// Convert a point from view coordinates to original (unscaled) Winamp coordinates
+    /// Convert a point from view coordinates to Winamp coordinates (top-left origin)
     private func convertToWinampCoordinates(_ point: NSPoint) -> NSPoint {
-        let scale = scaleFactor
-        let originalSize = originalWindowSize
-        
         if isShadeMode {
-            // Shade mode uses uniform scaling
+            // Shade mode uses uniform scaling with centering
+            let scale = scaleFactor
+            let originalSize = originalWindowSize
             let scaledWidth = originalSize.width * scale
             let scaledHeight = originalSize.height * scale
             let offsetX = (bounds.width - scaledWidth) / 2
@@ -901,15 +899,8 @@ class PlexBrowserView: NSView {
             let y = originalSize.height - ((point.y - offsetY) / scale)
             return NSPoint(x: x, y: y)
         } else {
-            // Normal mode: horizontal scaling only, height is 1:1
-            let scaledWidth = SkinElements.PlexBrowser.minSize.width * scale
-            let offsetX = (bounds.width - scaledWidth) / 2
-            
-            let x = (point.x - offsetX) / scale
-            // Vertical is not scaled - just flip coordinates
-            let y = bounds.height - point.y
-            
-            return NSPoint(x: x, y: y)
+            // Normal mode: no scaling, just flip Y coordinate (macOS bottom-left to Winamp top-left)
+            return NSPoint(x: point.x, y: bounds.height - point.y)
         }
     }
     
@@ -939,26 +930,17 @@ class PlexBrowserView: NSView {
         // Use low interpolation for cleaner scaling of skin sprites (none can cause artifacts)
         context.interpolationQuality = .low
         
-        // Apply scaling for resized window
-        if isShadeMode {
-            // Shade mode uses uniform scaling
-            if scale != 1.0 {
-                let scaledWidth = originalSize.width * scale
-                let scaledHeight = originalSize.height * scale
-                let offsetX = (bounds.width - scaledWidth) / 2
-                let offsetY = (bounds.height - scaledHeight) / 2
-                context.translateBy(x: offsetX, y: offsetY)
-                context.scaleBy(x: scale, y: scale)
-            }
-        } else {
-            // Normal mode: horizontal scaling only, vertical is 1:1
-            if scale != 1.0 {
-                let scaledWidth = SkinElements.PlexBrowser.minSize.width * scale
-                let offsetX = (bounds.width - scaledWidth) / 2
-                context.translateBy(x: offsetX, y: 0)
-                context.scaleBy(x: scale, y: 1)  // Only scale horizontally
-            }
+        // Apply scaling for resized window (only shade mode uses scaling)
+        if isShadeMode && scale != 1.0 {
+            // Shade mode uses uniform scaling, centered
+            let scaledWidth = originalSize.width * scale
+            let scaledHeight = originalSize.height * scale
+            let offsetX = (bounds.width - scaledWidth) / 2
+            let offsetY = (bounds.height - scaledHeight) / 2
+            context.translateBy(x: offsetX, y: offsetY)
+            context.scaleBy(x: scale, y: scale)
         }
+        // Normal mode: no transform needed, scale is always 1.0
         
         // Use original bounds for drawing (scaling is applied via transform)
         let drawBounds = NSRect(origin: .zero, size: originalSize)
