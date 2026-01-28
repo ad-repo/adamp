@@ -105,7 +105,8 @@ jobs:
             -only-testing:AdAmpUITests \
             -parallel-testing-enabled NO \
             -disableAutomaticPackageResolution \
-            -resultBundlePath TestResults.xcresult
+            -resultBundlePath TestResults.xcresult \
+            TEST_TARGET_APPLICATION_PATH="$(pwd)/DerivedData/Build/Products/Debug/AdAmp.app"
       
       - name: Upload test results
         uses: actions/upload-artifact@v4
