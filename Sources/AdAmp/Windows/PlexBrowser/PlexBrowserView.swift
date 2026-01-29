@@ -200,6 +200,62 @@ class PlexBrowserView: NSView {
     /// Item height
     private let itemHeight: CGFloat = 18
     
+    /// Height of column headers
+    private let columnHeaderHeight: CGFloat = 18
+    
+    /// Stored column widths (persisted)
+    private var columnWidths: [String: CGFloat] = [:] {
+        didSet { saveColumnWidths() }
+    }
+    
+    /// Column being resized (id) and resize state
+    private var resizingColumnId: String?
+    private var resizeStartX: CGFloat = 0
+    private var resizeStartWidth: CGFloat = 0
+    
+    /// Whether any content uses columns (for showing headers)
+    private var hasColumnContent: Bool {
+        displayItems.contains { item in
+            columnsForItem(item) != nil
+        }
+    }
+    
+    /// Get columns for a specific item (nil = use simple list rendering)
+    private func columnsForItem(_ item: PlexDisplayItem) -> [BrowserColumn]? {
+        switch item.type {
+        case .track, .subsonicTrack, .localTrack:
+            return BrowserColumn.trackColumns
+        case .album, .subsonicAlbum, .localAlbum:
+            return BrowserColumn.albumColumns
+        default:
+            return nil
+        }
+    }
+    
+    /// Get width for a column (uses stored width or default)
+    private func widthForColumn(_ column: BrowserColumn, availableWidth: CGFloat, columns: [BrowserColumn]) -> CGFloat {
+        if column.id == "title" {
+            // Title column gets remaining space
+            let fixedWidth = columns.filter { $0.id != "title" }.reduce(0) { 
+                $0 + (columnWidths[$1.id] ?? $1.minWidth)
+            }
+            return max(column.minWidth, availableWidth - fixedWidth - 8)
+        }
+        return columnWidths[column.id] ?? column.minWidth
+    }
+    
+    /// Save column widths to UserDefaults
+    private func saveColumnWidths() {
+        UserDefaults.standard.set(columnWidths, forKey: "BrowserColumnWidths")
+    }
+    
+    /// Load column widths from UserDefaults
+    private func loadColumnWidths() {
+        if let saved = UserDefaults.standard.dictionary(forKey: "BrowserColumnWidths") as? [String: CGFloat] {
+            columnWidths = saved
+        }
+    }
+    
     /// Current display items
     private var displayItems: [PlexDisplayItem] = []
     
@@ -504,6 +560,9 @@ class PlexBrowserView: NSView {
     
     private func setupView() {
         wantsLayer = true
+        
+        // Load saved column widths
+        loadColumnWidths()
         
         // Load saved source
         if let savedSource = BrowserSource.load() {
@@ -1724,17 +1783,51 @@ class PlexBrowserView: NSView {
         
         // Account for alphabet index on the right
         let alphabetWidth = Layout.alphabetWidth
-        let listRect = NSRect(x: Layout.leftBorder, y: listY,
-                             width: drawBounds.width - Layout.leftBorder - Layout.rightBorder - Layout.scrollbarWidth - alphabetWidth,
-                             height: listHeight)
+        let fullListRect = NSRect(x: Layout.leftBorder, y: listY,
+                                  width: drawBounds.width - Layout.leftBorder - Layout.rightBorder - Layout.scrollbarWidth - alphabetWidth,
+                                  height: listHeight)
         
         // Show empty state message if no items
         if displayItems.isEmpty {
-            drawEmptyState(in: context, listRect: listRect, colors: colors, renderer: renderer)
+            drawEmptyState(in: context, listRect: fullListRect, colors: colors, renderer: renderer)
             return
         }
         
-        // Clip to list area
+        // Determine which columns to show in header (use track columns if any tracks, else album columns)
+        let headerColumns: [BrowserColumn]?
+        if displayItems.contains(where: { 
+            switch $0.type { 
+            case .track, .subsonicTrack, .localTrack: return true 
+            default: return false 
+            }
+        }) {
+            headerColumns = BrowserColumn.trackColumns
+        } else if displayItems.contains(where: {
+            switch $0.type {
+            case .album, .subsonicAlbum, .localAlbum: return true
+            default: return false
+            }
+        }) {
+            headerColumns = BrowserColumn.albumColumns
+        } else {
+            headerColumns = nil
+        }
+        
+        // Draw column headers BEFORE clipping (so they stay fixed)
+        var contentListY = listY
+        if let columns = headerColumns {
+            let headerRect = NSRect(x: fullListRect.minX, y: listY,
+                                    width: fullListRect.width, height: columnHeaderHeight)
+            drawColumnHeaders(in: context, rect: headerRect, columns: columns, colors: colors)
+            contentListY += columnHeaderHeight
+        }
+        
+        // Calculate content area (excluding headers)
+        let contentHeight = listHeight - (headerColumns != nil ? columnHeaderHeight : 0)
+        let listRect = NSRect(x: fullListRect.minX, y: contentListY,
+                              width: fullListRect.width, height: contentHeight)
+        
+        // Clip to content area (below headers)
         context.saveGState()
         context.clip(to: listRect)
         
@@ -1763,82 +1856,98 @@ class PlexBrowserView: NSView {
         
         // Draw items
         let visibleStart = max(0, Int(scrollOffset / itemHeight))
-        let visibleEnd = min(displayItems.count, visibleStart + Int(listHeight / itemHeight) + 2)
+        let visibleEnd = min(displayItems.count, visibleStart + Int(contentHeight / itemHeight) + 2)
         
         // Guard against invalid range during window resize/shade animation
-        guard visibleStart < visibleEnd else { return }
+        guard visibleStart < visibleEnd else {
+            context.restoreGState()
+            // Still draw alphabet index
+            let alphabetRect = NSRect(x: drawBounds.width - Layout.rightBorder - Layout.scrollbarWidth - alphabetWidth,
+                                     y: listY, width: alphabetWidth, height: listHeight)
+            drawAlphabetIndex(in: context, rect: alphabetRect, colors: colors, renderer: renderer)
+            return
+        }
         
         for index in visibleStart..<visibleEnd {
-            let y = listY + CGFloat(index) * itemHeight - scrollOffset
+            let y = contentListY + CGFloat(index) * itemHeight - scrollOffset
             
-            if y + itemHeight < listY || y > listY + listHeight {
+            if y + itemHeight < contentListY || y > contentListY + contentHeight {
                 continue
             }
             
             let itemRect = NSRect(x: listRect.minX, y: y, width: listRect.width, height: itemHeight)
             let item = displayItems[index]
+            let isSelected = selectedIndices.contains(index)
             
             // Selection background
-            if selectedIndices.contains(index) {
+            if isSelected {
                 colors.selectedBackground.setFill()
                 context.fill(itemRect)
             }
             
-            // Item content
-            let indent = CGFloat(item.indentLevel) * 16
-            let textX = itemRect.minX + indent + 4
-            
-            // Expand/collapse indicator for hierarchical items
-            if item.hasChildren {
-                let expanded = isExpanded(item)
-                let indicator = expanded ? "▼" : "▶"
+            // Check if this item type should use column rendering
+            if let itemColumns = columnsForItem(item) {
+                // Column-based rendering for tracks/albums
+                let indent = CGFloat(item.indentLevel) * 16
+                drawColumnRow(item: item, columns: itemColumns, in: context, rect: itemRect, 
+                             isSelected: isSelected, colors: colors, indent: indent)
+            } else {
+                // Original rendering for artists, playlists, headers, etc.
+                let indent = CGFloat(item.indentLevel) * 16
+                let textX = itemRect.minX + indent + 4
                 
-                // Counter-flip for indicator
+                // Expand/collapse indicator for hierarchical items
+                if item.hasChildren {
+                    let expanded = isExpanded(item)
+                    let indicator = expanded ? "▼" : "▶"
+                    
+                    // Counter-flip for indicator
+                    context.saveGState()
+                    let indicatorY = itemRect.midY
+                    context.translateBy(x: 0, y: indicatorY)
+                    context.scaleBy(x: 1, y: -1)
+                    context.translateBy(x: 0, y: -indicatorY)
+                    
+                    let indicatorAttrs: [NSAttributedString.Key: Any] = [
+                        .foregroundColor: colors.normalText.withAlphaComponent(0.6),
+                        .font: NSFont.systemFont(ofSize: 8)
+                    ]
+                    indicator.draw(at: NSPoint(x: textX - 12, y: itemRect.midY - 5), withAttributes: indicatorAttrs)
+                    
+                    context.restoreGState()
+                }
+                
+                // Main text (counter-flip)
                 context.saveGState()
-                let indicatorY = itemRect.midY
-                context.translateBy(x: 0, y: indicatorY)
+                let textCenterY = itemRect.midY
+                context.translateBy(x: 0, y: textCenterY)
                 context.scaleBy(x: 1, y: -1)
-                context.translateBy(x: 0, y: -indicatorY)
+                context.translateBy(x: 0, y: -textCenterY)
                 
-                let indicatorAttrs: [NSAttributedString.Key: Any] = [
-                    .foregroundColor: colors.normalText.withAlphaComponent(0.6),
-                    .font: NSFont.systemFont(ofSize: 8)
+                let textColor = isSelected ? colors.currentText : colors.normalText
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: textColor,
+                    .font: NSFont.systemFont(ofSize: 10)
                 ]
-                indicator.draw(at: NSPoint(x: textX - 12, y: itemRect.midY - 5), withAttributes: indicatorAttrs)
+                
+                let textRect = NSRect(x: textX, y: itemRect.minY + 2,
+                                     width: itemRect.width - indent - 60, height: itemHeight - 4)
+                item.title.draw(in: textRect, withAttributes: attrs)
+                
+                // Secondary info (only for non-column view)
+                if let info = item.info {
+                    let infoColor = isSelected ? colors.currentText : colors.normalText.withAlphaComponent(0.6)
+                    let infoAttrs: [NSAttributedString.Key: Any] = [
+                        .foregroundColor: infoColor,
+                        .font: NSFont.systemFont(ofSize: 9)
+                    ]
+                    let infoSize = info.size(withAttributes: infoAttrs)
+                    info.draw(at: NSPoint(x: itemRect.maxX - infoSize.width - 4, y: itemRect.midY - infoSize.height / 2),
+                             withAttributes: infoAttrs)
+                }
                 
                 context.restoreGState()
             }
-            
-            // Main text (counter-flip)
-            context.saveGState()
-            let textCenterY = itemRect.midY
-            context.translateBy(x: 0, y: textCenterY)
-            context.scaleBy(x: 1, y: -1)
-            context.translateBy(x: 0, y: -textCenterY)
-            
-            let textColor = selectedIndices.contains(index) ? colors.currentText : colors.normalText
-            let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: textColor,
-                .font: NSFont.systemFont(ofSize: 10)
-            ]
-            
-            let textRect = NSRect(x: textX, y: itemRect.minY + 2,
-                                 width: itemRect.width - indent - 60, height: itemHeight - 4)
-            item.title.draw(in: textRect, withAttributes: attrs)
-            
-            // Secondary info
-            if let info = item.info {
-                let infoColor = selectedIndices.contains(index) ? colors.currentText : colors.normalText.withAlphaComponent(0.6)
-                let infoAttrs: [NSAttributedString.Key: Any] = [
-                    .foregroundColor: infoColor,
-                    .font: NSFont.systemFont(ofSize: 9)
-                ]
-                let infoSize = info.size(withAttributes: infoAttrs)
-                info.draw(at: NSPoint(x: itemRect.maxX - infoSize.width - 4, y: itemRect.midY - infoSize.height / 2),
-                         withAttributes: infoAttrs)
-            }
-            
-            context.restoreGState()
         }
         
         context.restoreGState()
@@ -1847,6 +1956,113 @@ class PlexBrowserView: NSView {
         let alphabetRect = NSRect(x: drawBounds.width - Layout.rightBorder - Layout.scrollbarWidth - alphabetWidth,
                                  y: listY, width: alphabetWidth, height: listHeight)
         drawAlphabetIndex(in: context, rect: alphabetRect, colors: colors, renderer: renderer)
+    }
+    
+    /// Draw column headers with separator line and resize handles
+    private func drawColumnHeaders(in context: CGContext, rect: NSRect, columns: [BrowserColumn], colors: PlaylistColors) {
+        let totalWidth = rect.width
+        
+        // Header background (slightly darker)
+        colors.normalBackground.withAlphaComponent(0.9).setFill()
+        context.fill(NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: columnHeaderHeight))
+        
+        // Counter-flip for text drawing
+        context.saveGState()
+        let textCenterY = rect.minY + columnHeaderHeight / 2
+        context.translateBy(x: 0, y: textCenterY)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: 0, y: -textCenterY)
+        
+        let headerFont = NSFont.systemFont(ofSize: 9, weight: .medium)
+        let headerColor = colors.normalText.withAlphaComponent(0.7)
+        let separatorColor = colors.normalText.withAlphaComponent(0.2)
+        
+        var x = rect.minX + 4
+        for (index, column) in columns.enumerated() {
+            let width = widthForColumn(column, availableWidth: totalWidth, columns: columns)
+            
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: headerFont,
+                .foregroundColor: headerColor
+            ]
+            
+            let textSize = column.title.size(withAttributes: attrs)
+            let textY = rect.minY + (columnHeaderHeight - textSize.height) / 2
+            
+            // Left aligned
+            let textX = x + 4
+            column.title.draw(at: NSPoint(x: textX, y: textY), withAttributes: attrs)
+            
+            // Draw column separator (except for last column)
+            if index < columns.count - 1 {
+                context.saveGState()
+                context.setStrokeColor(separatorColor.cgColor)
+                context.setLineWidth(1)
+                context.move(to: CGPoint(x: x + width - 1, y: rect.minY + 3))
+                context.addLine(to: CGPoint(x: x + width - 1, y: rect.minY + columnHeaderHeight - 3))
+                context.strokePath()
+                context.restoreGState()
+            }
+            
+            x += width
+        }
+        
+        context.restoreGState()
+        
+        // Bottom separator line
+        context.setStrokeColor(colors.normalText.withAlphaComponent(0.3).cgColor)
+        context.setLineWidth(1)
+        context.move(to: CGPoint(x: rect.minX, y: rect.minY + columnHeaderHeight))
+        context.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + columnHeaderHeight))
+        context.strokePath()
+    }
+    
+    /// Draw a single row with columns
+    private func drawColumnRow(item: PlexDisplayItem, columns: [BrowserColumn], in context: CGContext,
+                               rect: NSRect, isSelected: Bool, colors: PlaylistColors, indent: CGFloat = 0) {
+        let totalWidth = rect.width - indent
+        
+        // Counter-flip for text drawing
+        context.saveGState()
+        let textCenterY = rect.midY
+        context.translateBy(x: 0, y: textCenterY)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: 0, y: -textCenterY)
+        
+        let textColor = isSelected ? colors.currentText : colors.normalText
+        let dimColor = isSelected ? colors.currentText : colors.normalText.withAlphaComponent(0.65)
+        let font = NSFont.systemFont(ofSize: 10)
+        let smallFont = NSFont.systemFont(ofSize: 9)
+        
+        var x = rect.minX + indent + 4
+        for column in columns {
+            let width = widthForColumn(column, availableWidth: totalWidth, columns: columns)
+            let value = item.columnValue(for: column)
+            
+            // Title column uses normal color/font, others use dim color/smaller font
+            let color = column.id == "title" ? textColor : dimColor
+            let useFont = column.id == "title" ? font : smallFont
+            
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: useFont,
+                .foregroundColor: color
+            ]
+            
+            let textSize = value.size(withAttributes: attrs)
+            let textY = rect.minY + (rect.height - textSize.height) / 2
+            
+            // All left aligned with padding
+            let textX = x + 4
+            let maxTextWidth = width - 8  // Padding on both sides
+            
+            // Draw with truncation if needed
+            let drawRect = NSRect(x: textX, y: textY, width: maxTextWidth, height: textSize.height)
+            value.draw(with: drawRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attrs)
+            
+            x += width
+        }
+        
+        context.restoreGState()
     }
     
     /// Draw art-only mode: full album art without tabs and list
@@ -4786,22 +5002,75 @@ class PlexBrowserView: NSView {
         if browseMode == .search {
             listY += Layout.searchBarHeight
         }
+        
+        // Check if columns are shown (affects content start position)
+        let hasColumns = displayItems.contains { columnsForItem($0) != nil }
+        var contentY = listY
+        if hasColumns {
+            contentY += columnHeaderHeight
+        }
+        
         let listHeight = originalWindowSize.height - listY - Layout.statusBarHeight
+        let contentHeight = listHeight - (hasColumns ? columnHeaderHeight : 0)
         
         let listRect = NSRect(
             x: Layout.leftBorder,
-            y: listY,
+            y: contentY,
             width: originalWindowSize.width - Layout.leftBorder - Layout.rightBorder - Layout.scrollbarWidth - Layout.alphabetWidth,
-            height: listHeight
+            height: contentHeight
         )
         
         guard listRect.contains(winampPoint) else { return nil }
         
-        let relativeY = winampPoint.y - listY + scrollOffset
+        let relativeY = winampPoint.y - contentY + scrollOffset
         let clickedIndex = Int(relativeY / itemHeight)
         
         if clickedIndex >= 0 && clickedIndex < displayItems.count {
             return clickedIndex
+        }
+        
+        return nil
+    }
+    
+    /// Check if point hits a column resize handle (returns column id to resize)
+    private func hitTestColumnResize(at winampPoint: NSPoint) -> String? {
+        // Only applies when columns are shown
+        let hasColumns = displayItems.contains { columnsForItem($0) != nil }
+        guard hasColumns else { return nil }
+        
+        // Check if in header area
+        let headerY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
+        let headerRect = NSRect(x: Layout.leftBorder, y: headerY,
+                               width: originalWindowSize.width - Layout.leftBorder - Layout.rightBorder - Layout.scrollbarWidth - Layout.alphabetWidth,
+                               height: columnHeaderHeight)
+        
+        guard headerRect.contains(winampPoint) else { return nil }
+        
+        // Determine which columns to check
+        let columns: [BrowserColumn]
+        if displayItems.contains(where: {
+            switch $0.type { case .track, .subsonicTrack, .localTrack: return true; default: return false }
+        }) {
+            columns = BrowserColumn.trackColumns
+        } else {
+            columns = BrowserColumn.albumColumns
+        }
+        
+        // Check if near a column separator (within 4 pixels)
+        var x = headerRect.minX + 4
+        let hitMargin: CGFloat = 4
+        
+        for (index, column) in columns.enumerated() {
+            let width = widthForColumn(column, availableWidth: headerRect.width, columns: columns)
+            let separatorX = x + width
+            
+            // Check if click is near the separator (except for last column)
+            if index < columns.count - 1 && column.id != "title" {
+                if abs(winampPoint.x - separatorX) < hitMargin {
+                    return column.id
+                }
+            }
+            x += width
         }
         
         return nil
@@ -4815,8 +5084,9 @@ class PlexBrowserView: NSView {
         }
         let listHeight = originalWindowSize.height - listY - Layout.statusBarHeight
         
+        // Scrollbar is positioned to the left of the right border
         let scrollbarRect = NSRect(
-            x: originalWindowSize.width - Layout.rightBorder,
+            x: originalWindowSize.width - Layout.rightBorder - Layout.scrollbarWidth,
             y: listY,
             width: Layout.scrollbarWidth,
             height: listHeight
@@ -5118,6 +5388,15 @@ class PlexBrowserView: NSView {
         
         if isShadeMode {
             handleShadeMouseDown(at: winampPoint, event: event)
+            return
+        }
+        
+        // Check for column resize (before other checks)
+        if let columnId = hitTestColumnResize(at: winampPoint) {
+            resizingColumnId = columnId
+            resizeStartX = winampPoint.x
+            resizeStartWidth = columnWidths[columnId] ?? BrowserColumn.trackColumns.first(where: { $0.id == columnId })?.minWidth ?? 50
+            NSCursor.resizeLeftRight.push()
             return
         }
         
@@ -5659,6 +5938,18 @@ class PlexBrowserView: NSView {
     }
     
     override func mouseDragged(with event: NSEvent) {
+        // Handle column resize dragging
+        if let columnId = resizingColumnId {
+            let point = convert(event.locationInWindow, from: nil)
+            let winampPoint = convertToWinampCoordinates(point)
+            let deltaX = winampPoint.x - resizeStartX
+            let minWidth = BrowserColumn.trackColumns.first(where: { $0.id == columnId })?.minWidth ?? 30
+            let newWidth = max(minWidth, resizeStartWidth + deltaX)
+            columnWidths[columnId] = newWidth
+            needsDisplay = true
+            return
+        }
+        
         // Handle scrollbar dragging
         if isDraggingScrollbar {
             let point = convert(event.locationInWindow, from: nil)
@@ -5701,6 +5992,12 @@ class PlexBrowserView: NSView {
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let winampPoint = convertToWinampCoordinates(point)
+        
+        // End column resizing
+        if resizingColumnId != nil {
+            resizingColumnId = nil
+            NSCursor.pop()
+        }
         
         // End window dragging
         if isDraggingWindow {
@@ -9444,5 +9741,244 @@ private struct PlexDisplayItem {
         case subsonicPlaylist(SubsonicPlaylist)
         // Plex playlist type
         case plexPlaylist(PlexPlaylist)
+    }
+}
+
+// MARK: - Column Configuration
+
+/// Column definition for the library browser table view
+private struct BrowserColumn {
+    let id: String
+    let title: String
+    let minWidth: CGFloat
+    
+    // Track columns - all left aligned with intelligent spacing
+    static let trackNumber = BrowserColumn(id: "trackNum", title: "#", minWidth: 30)
+    static let title = BrowserColumn(id: "title", title: "Title", minWidth: 120)
+    static let artist = BrowserColumn(id: "artist", title: "Artist", minWidth: 100)
+    static let album = BrowserColumn(id: "album", title: "Album", minWidth: 100)
+    static let year = BrowserColumn(id: "year", title: "Year", minWidth: 45)
+    static let genre = BrowserColumn(id: "genre", title: "Genre", minWidth: 80)
+    static let duration = BrowserColumn(id: "duration", title: "Time", minWidth: 50)
+    static let bitrate = BrowserColumn(id: "bitrate", title: "Bitrate", minWidth: 55)
+    static let size = BrowserColumn(id: "size", title: "Size", minWidth: 55)
+    static let rating = BrowserColumn(id: "rating", title: "Rating", minWidth: 70)
+    static let playCount = BrowserColumn(id: "plays", title: "Plays", minWidth: 45)
+    
+    /// Columns shown for track lists
+    static let trackColumns: [BrowserColumn] = [
+        .trackNumber, .title, .artist, .album, .year, .genre, .duration, .bitrate, .size, .rating, .playCount
+    ]
+    
+    /// Columns shown for album lists  
+    static let albumColumns: [BrowserColumn] = [
+        .title, .year, .genre, .duration, .rating
+    ]
+}
+
+// MARK: - Column Value Extraction
+
+extension PlexDisplayItem {
+    /// Get the display value for a specific column based on item type
+    func columnValue(for column: BrowserColumn) -> String {
+        // Title column always uses the display item's title (already set correctly on creation)
+        if column.id == "title" {
+            return title
+        }
+        
+        switch type {
+        case .track(let track):
+            return plexTrackValue(track, for: column)
+        case .subsonicTrack(let song):
+            return subsonicTrackValue(song, for: column)
+        case .localTrack(let track):
+            return localTrackValue(track, for: column)
+        case .album(let album):
+            return plexAlbumValue(album, for: column)
+        case .subsonicAlbum(let album):
+            return subsonicAlbumValue(album, for: column)
+        case .localAlbum(let album):
+            return localAlbumValue(album, for: column)
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Plex Track Values
+    
+    private func plexTrackValue(_ track: PlexTrack, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "trackNum":
+            // Show disc-track for multi-disc albums (e.g., "2-5")
+            if let disc = track.parentIndex, disc > 1, let num = track.index {
+                return "\(disc)-\(num)"
+            }
+            return track.index.map { String($0) } ?? ""
+        case "artist":
+            return track.grandparentTitle ?? ""
+        case "album":
+            return track.parentTitle ?? ""
+        case "year":
+            return track.parentYear.map { String($0) } ?? ""
+        case "genre":
+            return track.genre ?? ""
+        case "duration":
+            return track.formattedDuration
+        case "bitrate":
+            return track.media.first?.bitrate.map { "\($0)k" } ?? ""
+        case "size":
+            return Self.formatFileSize(track.media.first?.parts.first?.size)
+        case "rating":
+            return Self.formatRating(track.userRating)
+        case "plays":
+            return track.ratingCount.map { String($0) } ?? ""
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Subsonic Track Values
+    
+    private func subsonicTrackValue(_ song: SubsonicSong, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "trackNum":
+            if let disc = song.discNumber, disc > 1, let num = song.track {
+                return "\(disc)-\(num)"
+            }
+            return song.track.map { String($0) } ?? ""
+        case "artist":
+            return song.artist ?? ""
+        case "album":
+            return song.album ?? ""
+        case "year":
+            return song.year.map { String($0) } ?? ""
+        case "genre":
+            return song.genre ?? ""
+        case "duration":
+            return song.formattedDuration
+        case "bitrate":
+            return song.bitRate.map { "\($0)k" } ?? ""
+        case "size":
+            return Self.formatFileSize(song.size)
+        case "rating":
+            // Subsonic uses starred (date) as favorite indicator
+            return song.starred != nil ? "★★★★★" : ""
+        case "plays":
+            return song.playCount.map { String($0) } ?? ""
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Local Track Values
+    
+    private func localTrackValue(_ track: LibraryTrack, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "trackNum":
+            if let disc = track.discNumber, disc > 1, let num = track.trackNumber {
+                return "\(disc)-\(num)"
+            }
+            return track.trackNumber.map { String($0) } ?? ""
+        case "artist":
+            return track.artist ?? ""
+        case "album":
+            return track.album ?? ""
+        case "year":
+            return track.year.map { String($0) } ?? ""
+        case "genre":
+            return track.genre ?? ""
+        case "duration":
+            return track.formattedDuration
+        case "bitrate":
+            return track.bitrate.map { "\($0)k" } ?? ""
+        case "size":
+            return Self.formatFileSize(track.fileSize)
+        case "rating":
+            return ""  // Local files don't have ratings yet
+        case "plays":
+            return track.playCount > 0 ? String(track.playCount) : ""
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Plex Album Values
+    
+    private func plexAlbumValue(_ album: PlexAlbum, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "year":
+            return album.year.map { String($0) } ?? ""
+        case "genre":
+            return album.genre ?? ""
+        case "duration":
+            return album.formattedDuration
+        case "rating":
+            return ""  // Albums don't have ratings in current model
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Subsonic Album Values
+    
+    private func subsonicAlbumValue(_ album: SubsonicAlbum, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "year":
+            return album.year.map { String($0) } ?? ""
+        case "genre":
+            return album.genre ?? ""
+        case "duration":
+            return album.formattedDuration
+        case "rating":
+            return album.starred != nil ? "★★★★★" : ""
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Local Album Values
+    
+    private func localAlbumValue(_ album: Album, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "year":
+            return album.year.map { String($0) } ?? ""
+        case "genre":
+            return ""  // Local Album doesn't have genre at album level
+        case "duration":
+            return album.formattedDuration
+        case "rating":
+            return ""
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Formatting Helpers
+    
+    private static func formatFileSize(_ bytes: Int64?) -> String {
+        guard let bytes = bytes, bytes > 0 else { return "" }
+        let mb = Double(bytes) / (1024.0 * 1024.0)
+        if mb >= 1000 {
+            return String(format: "%.1fG", mb / 1024.0)
+        }
+        return String(format: "%.1fM", mb)
+    }
+    
+    private static func formatDuration(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(seconds)
+        let mins = totalSeconds / 60
+        let secs = totalSeconds % 60
+        let hours = mins / 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, mins % 60, secs)
+        }
+        return String(format: "%d:%02d", mins, secs)
+    }
+    
+    private static func formatRating(_ rating: Double?) -> String {
+        guard let rating = rating, rating > 0 else { return "" }
+        let stars = Int(rating / 2.0)  // Plex uses 0-10 scale, convert to 0-5 stars
+        let empty = 5 - stars
+        return String(repeating: "★", count: stars) + String(repeating: "☆", count: empty)
     }
 }
