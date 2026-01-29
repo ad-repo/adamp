@@ -936,8 +936,16 @@ class PlexBrowserView: NSView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
         
-        // Use low interpolation for cleaner scaling of skin sprites (none can cause artifacts)
-        context.interpolationQuality = .low
+        // On non-Retina displays, disable anti-aliasing and interpolation for pixel-perfect rendering
+        // On Retina displays, use low interpolation for cleaner scaling
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScale < 1.5 {
+            context.interpolationQuality = .none
+            context.setShouldAntialias(false)
+            context.setAllowsAntialiasing(false)
+        } else {
+            context.interpolationQuality = .low
+        }
         
         // Apply scaling for resized window
         if isShadeMode {
@@ -1057,8 +1065,12 @@ class PlexBrowserView: NSView {
         let charHeight = SkinElements.TextFont.charHeight
         let textWidth = CGFloat(text.count) * charWidth * scale
         let textHeight = charHeight * scale
-        let x = rect.midX - textWidth / 2
-        let y = rect.midY - textHeight / 2
+        let rawX = rect.midX - textWidth / 2
+        let rawY = rect.midY - textHeight / 2
+        // Round coordinates on non-Retina to prevent shimmering
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let x = backingScale < 1.5 ? round(rawX) : rawX
+        let y = backingScale < 1.5 ? round(rawY) : rawY
         drawScaledWhiteSkinText(text, at: NSPoint(x: x, y: y), scale: scale, renderer: renderer, in: context)
     }
     
@@ -1102,8 +1114,13 @@ class PlexBrowserView: NSView {
                             width: drawBounds.width - Layout.leftBorder - Layout.rightBorder,
                             height: Layout.serverBarHeight)
         
-        // Background
-        colors.normalBackground.withAlphaComponent(0.6).setFill()
+        // Background - use fully opaque on non-Retina to prevent compositing artifacts
+        let backingScaleForBg = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScaleForBg < 1.5 {
+            colors.normalBackground.setFill()
+        } else {
+            colors.normalBackground.withAlphaComponent(0.6).setFill()
+        }
         context.fill(barRect)
         
         let charWidth = SkinElements.TextFont.charWidth
@@ -1111,7 +1128,10 @@ class PlexBrowserView: NSView {
         let textScale: CGFloat = 1.5
         let scaledCharWidth = charWidth * textScale
         let scaledCharHeight = charHeight * textScale
-        let textY = barRect.minY + (barRect.height - scaledCharHeight) / 2
+        // Round textY to prevent shimmering on non-Retina displays
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let rawTextY = barRect.minY + (barRect.height - scaledCharHeight) / 2
+        let textY = backingScale < 1.5 ? round(rawTextY) : rawTextY
         
         // Common prefix for all sources
         let prefix = "Source: "
@@ -1503,8 +1523,13 @@ class PlexBrowserView: NSView {
                                width: drawBounds.width - Layout.leftBorder - Layout.rightBorder,
                                height: Layout.tabBarHeight)
         
-        // Background
-        colors.normalBackground.withAlphaComponent(0.4).setFill()
+        // Background - use fully opaque on non-Retina to prevent compositing artifacts
+        let backingScaleForTabBg = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScaleForTabBg < 1.5 {
+            colors.normalBackground.setFill()
+        } else {
+            colors.normalBackground.withAlphaComponent(0.4).setFill()
+        }
         context.fill(tabBarRect)
         
         let charWidth = SkinElements.TextFont.charWidth
@@ -1512,6 +1537,10 @@ class PlexBrowserView: NSView {
         let textScale: CGFloat = 1.5
         let scaledCharWidth = charWidth * textScale
         let scaledCharHeight = charHeight * textScale
+        
+        // Round Y coordinates on non-Retina to prevent shimmering
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let shouldRound = backingScale < 1.5
         
         // Calculate sort indicator width (on the right)
         let sortText = "Sort:\(currentSort.shortName)"
@@ -1533,15 +1562,19 @@ class PlexBrowserView: NSView {
             } else {
                 // Unselected tabs in green skin text
                 let titleWidth = CGFloat(mode.title.count) * scaledCharWidth
-                let textX = tabRect.midX - titleWidth / 2
-                let textY = tabRect.minY + (tabRect.height - scaledCharHeight) / 2
+                let rawTextX = tabRect.midX - titleWidth / 2
+                let rawTextY = tabRect.minY + (tabRect.height - scaledCharHeight) / 2
+                let textX = shouldRound ? round(rawTextX) : rawTextX
+                let textY = shouldRound ? round(rawTextY) : rawTextY
                 drawScaledSkinText(mode.title, at: NSPoint(x: textX, y: textY), scale: textScale, renderer: renderer, in: context)
             }
         }
         
         // Draw sort indicator on the right
-        let sortX = tabBarRect.maxX - sortWidth + 4
-        let sortY = tabBarY + (Layout.tabBarHeight - scaledCharHeight) / 2
+        let rawSortX = tabBarRect.maxX - sortWidth + 4
+        let rawSortY = tabBarY + (Layout.tabBarHeight - scaledCharHeight) / 2
+        let sortX = shouldRound ? round(rawSortX) : rawSortX
+        let sortY = shouldRound ? round(rawSortY) : rawSortY
         drawScaledSkinText(sortText, at: NSPoint(x: sortX, y: sortY), scale: textScale, renderer: renderer, in: context)
     }
     
@@ -1756,6 +1789,14 @@ class PlexBrowserView: NSView {
         context.saveGState()
         context.clip(to: listRect)
         
+        // On non-Retina displays, fill the entire list area with background color first
+        // to prevent any gaps/lines showing through between items
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScale < 1.5 {
+            colors.normalBackground.setFill()
+            context.fill(listRect)
+        }
+        
         // Draw album art background if enabled and available
         if WindowManager.shared.showBrowserArtworkBackground, let artwork = currentArtwork,
            let cgImage = artwork.cgImage(forProposedRect: nil, context: nil, hints: nil) {
@@ -1780,6 +1821,9 @@ class PlexBrowserView: NSView {
         }
         
         // Draw items
+        // Round scroll offset to integer pixels to prevent text shimmering on non-Retina displays
+        let roundedScrollOffset = backingScale < 1.5 ? round(scrollOffset) : scrollOffset
+        
         let visibleStart = max(0, Int(scrollOffset / itemHeight))
         let visibleEnd = min(displayItems.count, visibleStart + Int(listHeight / itemHeight) + 2)
         
@@ -1787,7 +1831,7 @@ class PlexBrowserView: NSView {
         guard visibleStart < visibleEnd else { return }
         
         for index in visibleStart..<visibleEnd {
-            let y = listY + CGFloat(index) * itemHeight - scrollOffset
+            let y = listY + CGFloat(index) * itemHeight - roundedScrollOffset
             
             if y + itemHeight < listY || y > listY + listHeight {
                 continue
@@ -1796,8 +1840,14 @@ class PlexBrowserView: NSView {
             let itemRect = NSRect(x: listRect.minX, y: y, width: listRect.width, height: itemHeight)
             let item = displayItems[index]
             
-            // Selection background
-            if selectedIndices.contains(index) {
+            // On non-Retina displays, always fill item background to prevent gaps/lines
+            // On Retina, only fill background for selected items
+            if backingScale < 1.5 {
+                // Fill with normal or selected background
+                let bgColor = selectedIndices.contains(index) ? colors.selectedBackground : colors.normalBackground
+                bgColor.setFill()
+                context.fill(itemRect)
+            } else if selectedIndices.contains(index) {
                 colors.selectedBackground.setFill()
                 context.fill(itemRect)
             }
@@ -5695,7 +5745,14 @@ class PlexBrowserView: NSView {
                 let trackRange = listHeight - 18  // Thumb height
                 let scrollDelta = (deltaY / trackRange) * scrollRange
                 scrollOffset = max(0, min(scrollRange, scrollbarDragStartOffset + scrollDelta))
-                needsDisplay = true
+                
+                // Only redraw the list area and scrollbar, not the entire view
+                let scale = bounds.width / originalWindowSize.width
+                let scaledListY = bounds.height - (listY + listHeight) * scale
+                let scaledListHeight = (listHeight + Layout.statusBarHeight) * scale
+                let listRect = NSRect(x: 0, y: scaledListY,
+                                     width: bounds.width, height: scaledListHeight)
+                setNeedsDisplay(listRect)
             }
             return
         }
@@ -5787,7 +5844,15 @@ class PlexBrowserView: NSView {
         
         if totalHeight > listHeight {
             scrollOffset = max(0, min(totalHeight - listHeight, scrollOffset - event.deltaY * 3))
-            needsDisplay = true
+            
+            // Only redraw the list area and scrollbar, not the entire view
+            // This prevents tabs and server bar from shimmering during scroll
+            let scale = bounds.width / originalWindowSize.width
+            let scaledListY = bounds.height - (listY + listHeight) * scale
+            let scaledListHeight = (listHeight + Layout.statusBarHeight) * scale
+            let listRect = NSRect(x: 0, y: scaledListY,
+                                 width: bounds.width, height: scaledListHeight)
+            setNeedsDisplay(listRect)
         }
     }
     

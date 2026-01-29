@@ -48,8 +48,16 @@ class PlexBrowserWindowController: NSWindowController {
         guard let window = window else { return }
         
         window.isMovableByWindowBackground = false  // Custom drag handling in PlexBrowserView
-        window.backgroundColor = .clear
-        window.isOpaque = false
+        
+        // On non-Retina displays, use opaque window to prevent compositing artifacts
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScale < 1.5 {
+            window.backgroundColor = .black
+            window.isOpaque = true
+        } else {
+            window.backgroundColor = .clear
+            window.isOpaque = false
+        }
         window.hasShadow = true
         window.minSize = Self.minSize
         window.title = "Plex Browser"

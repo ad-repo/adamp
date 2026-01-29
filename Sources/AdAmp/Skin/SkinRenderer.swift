@@ -42,6 +42,8 @@ class SkinRenderer {
         self.skin = skin
     }
     
+    // MARK: - Pixel Alignment Helpers
+    
     // MARK: - Main Window Rendering
     
     /// Draw the complete main window background
@@ -3113,9 +3115,12 @@ class SkinRenderer {
         NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0).setFill()
         context.fill(NSRect(x: 0, y: titleHeight, width: borderWidth, height: bounds.height - titleHeight - borderHeight))
         
-        // Left highlight
-        NSColor(calibratedRed: 0.20, green: 0.20, blue: 0.30, alpha: 1.0).setFill()
-        context.fill(NSRect(x: borderWidth - 1, y: titleHeight, width: 1, height: bounds.height - titleHeight - borderHeight))
+        // Left highlight - skip on non-Retina displays to prevent visible lines
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScale >= 1.5 {
+            NSColor(calibratedRed: 0.20, green: 0.20, blue: 0.30, alpha: 1.0).setFill()
+            context.fill(NSRect(x: borderWidth - 1, y: titleHeight, width: 1, height: bounds.height - titleHeight - borderHeight))
+        }
         
         // Right side - thin edge after scrollbar area
         NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0).setFill()
@@ -3142,9 +3147,12 @@ class SkinRenderer {
         colors.normalBackground.withAlphaComponent(0.8).setFill()
         context.fill(NSRect(x: 0, y: statusY, width: bounds.width, height: statusHeight))
         
-        // Draw top border line
-        NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
-        context.fill(NSRect(x: 0, y: statusY, width: bounds.width, height: 1))
+        // Draw top border line - skip on non-Retina displays to prevent visible lines
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScale >= 1.5 {
+            NSColor(calibratedWhite: 0.3, alpha: 0.5).setFill()
+            context.fill(NSRect(x: 0, y: statusY, width: bounds.width, height: 1))
+        }
     }
     
     /// Draw bottom border using a thin line like other windows
@@ -3157,9 +3165,12 @@ class SkinRenderer {
         NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0).setFill()
         context.fill(NSRect(x: 0, y: statusY, width: bounds.width, height: borderHeight))
         
-        // Draw highlight line at top of border
-        NSColor(calibratedRed: 0.20, green: 0.20, blue: 0.30, alpha: 1.0).setFill()
-        context.fill(NSRect(x: 0, y: statusY, width: bounds.width, height: 1))
+        // Draw highlight line at top of border - skip on non-Retina displays to prevent visible lines
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScale >= 1.5 {
+            NSColor(calibratedRed: 0.20, green: 0.20, blue: 0.30, alpha: 1.0).setFill()
+            context.fill(NSRect(x: 0, y: statusY, width: bounds.width, height: 1))
+        }
     }
     
     /// Draw Plex browser scrollbar
