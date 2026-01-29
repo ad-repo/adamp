@@ -2426,50 +2426,33 @@ class SkinRenderer {
     }
     
     /// Draw Plex browser title bar using PLEDIT.BMP sprites
-    /// Uses CGImage directly for pixel-perfect rendering without interpolation artifacts
+    /// Draw Plex browser title bar using PLEDIT.BMP sprites (same approach as Milkdrop)
     private func drawPlexBrowserTitleBarFromPledit(_ pleditImage: NSImage, in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlexBrowserButtonType?) {
-        // Convert NSImage to CGImage for pixel-perfect rendering
-        guard let cgImage = pleditImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return
-        }
-        
         let titleHeight = SkinElements.Playlist.titleHeight
         let leftCornerWidth: CGFloat = 25
         let rightCornerWidth: CGFloat = 25
         let tileWidth: CGFloat = 25
         
+        // Get the correct sprite set for active/inactive state (same as playlist/milkdrop)
         let leftCorner = isActive ? SkinElements.Playlist.TitleBarActive.leftCorner : SkinElements.Playlist.TitleBarInactive.leftCorner
         let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
         let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
         
-        // Use CGImage-based drawing for pixel-perfect results
-        drawSprite(from: cgImage, sourceRect: leftCorner,
-                  destRect: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
+        // Use NSImage-based drawing (same as Milkdrop) to avoid interpolation artifacts
+        drawSprite(from: pleditImage, sourceRect: leftCorner,
+                  to: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
         
-        drawSprite(from: cgImage, sourceRect: rightCorner,
-                  destRect: NSRect(x: bounds.width - rightCornerWidth, y: 0, width: rightCornerWidth, height: titleHeight), in: context)
+        drawSprite(from: pleditImage, sourceRect: rightCorner,
+                  to: NSRect(x: bounds.width - rightCornerWidth, y: 0, width: rightCornerWidth, height: titleHeight), in: context)
         
-        // Fill middle with tiles - use clipping for partial tiles
+        // Fill the middle section with tiles
         let middleStart = leftCornerWidth
         let middleEnd = bounds.width - rightCornerWidth
         var x: CGFloat = middleStart
         while x < middleEnd {
-            let remainingWidth = middleEnd - x
-            if remainingWidth >= tileWidth {
-                // Full tile
-                drawSprite(from: cgImage, sourceRect: tileSprite,
-                          destRect: NSRect(x: x, y: 0, width: tileWidth, height: titleHeight), in: context)
-            } else {
-                // Partial tile - clip source rect
-                let partialSourceRect = NSRect(
-                    x: tileSprite.origin.x,
-                    y: tileSprite.origin.y,
-                    width: remainingWidth,
-                    height: tileSprite.height
-                )
-                drawSprite(from: cgImage, sourceRect: partialSourceRect,
-                          destRect: NSRect(x: x, y: 0, width: remainingWidth, height: titleHeight), in: context)
-            }
+            let w = min(tileWidth, middleEnd - x)
+            drawSprite(from: pleditImage, sourceRect: tileSprite,
+                      to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
             x += tileWidth
         }
         

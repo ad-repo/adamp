@@ -176,6 +176,31 @@ if backingScale >= 1.5 {
 }
 ```
 
+### 6. NSImage-Based Title Bar Rendering (Library Browser)
+
+**Approach**: Use NSImage-based sprite drawing instead of CGImage with `interpolationQuality = .none` for title bars.
+
+**Problem**: The Library Browser title bar had visible horizontal lines while Milkdrop's title bar looked clean. The difference was:
+- Library Browser used `CGImage`-based `drawSprite` with `context.interpolationQuality = .none`
+- Milkdrop used `NSImage`-based `drawSprite` without forcing interpolation off
+
+**Solution**: Changed `drawPlexBrowserTitleBarFromPledit` to use the same NSImage-based rendering approach as Milkdrop:
+
+```swift
+// Before (caused horizontal lines):
+drawSprite(from: cgImage, sourceRect: leftCorner,
+          destRect: NSRect(...), in: context)
+
+// After (matches Milkdrop - no lines):
+drawSprite(from: pleditImage, sourceRect: leftCorner,
+          to: NSRect(...), in: context)
+```
+
+**Why it works**:
+- NSImage-based drawing uses default interpolation which blends pixel edges
+- CGImage with `.none` interpolation makes every pixel edge sharp, revealing lines in sprites
+- Both title bars now use identical rendering path
+
 ## Current State
 
 ### Files Changed from `main`
@@ -186,6 +211,7 @@ if backingScale >= 1.5 {
 
 2. **`Sources/AdAmp/Skin/SkinRenderer.swift`**
    - Skip certain highlight lines on non-Retina displays
+   - Use NSImage-based rendering for Library Browser title bar (matches Milkdrop)
 
 3. **`Sources/AdAmp/Windows/PlexBrowser/PlexBrowserView.swift`**
    - Rounded coordinates for text positioning
@@ -208,8 +234,6 @@ if backingScale >= 1.5 {
 
 3. **Performance consideration** - Image processing at load time adds startup overhead on non-Retina displays
 
-4. **Title bar decorative lines** - Some decorative elements (yellow/gold stripes) in title bars may need preservation logic
-
 ## Key Learnings
 
 1. **Don't disable anti-aliasing** - It actually helps blend problematic pixels
@@ -217,3 +241,4 @@ if backingScale >= 1.5 {
 3. **Runtime processing is safer** - Keeps original assets intact
 4. **Test on actual hardware** - Simulator behavior differs from real non-Retina displays
 5. **Blue detection needs careful thresholds** - Must preserve intended colors while removing artifacts
+6. **NSImage vs CGImage rendering matters** - CGImage with `interpolationQuality = .none` makes sprite edges harsh; NSImage with default interpolation blends them smoothly
