@@ -63,6 +63,7 @@ pgrep -l AdAmp  # Shows PID if running
 | [AGENT_DOCS/TESTING.md](AGENT_DOCS/TESTING.md) | UI testing mode, accessibility identifiers |
 | [AGENT_DOCS/SONOS.md](AGENT_DOCS/SONOS.md) | Sonos discovery, multi-room casting, custom checkbox UI |
 | [AGENT_DOCS/CHROMECAST.md](AGENT_DOCS/CHROMECAST.md) | Google Cast protocol, debugging, test scripts |
+| [AGENT_DOCS/NON_RETINA_DISPLAY_FIXES.md](AGENT_DOCS/NON_RETINA_DISPLAY_FIXES.md) | Non-Retina display artifacts, blue line fixes, approaches tried |
 
 ## Architecture
 

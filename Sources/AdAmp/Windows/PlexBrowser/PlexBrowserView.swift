@@ -936,16 +936,8 @@ class PlexBrowserView: NSView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
         
-        // On non-Retina displays, disable anti-aliasing and interpolation for pixel-perfect rendering
-        // On Retina displays, use low interpolation for cleaner scaling
-        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        if backingScale < 1.5 {
-            context.interpolationQuality = .none
-            context.setShouldAntialias(false)
-            context.setAllowsAntialiasing(false)
-        } else {
-            context.interpolationQuality = .low
-        }
+        // Use low interpolation for cleaner scaling of skin sprites (none can cause artifacts)
+        context.interpolationQuality = .low
         
         // Apply scaling for resized window
         if isShadeMode {
