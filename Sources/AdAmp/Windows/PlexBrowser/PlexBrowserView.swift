@@ -217,13 +217,13 @@ class PlexBrowserView: NSView {
     private var columnSortId: String? {
         didSet {
             saveColumnSort()
-            applyColumnSort()
+            applyColumnSort(collapseExpanded: true)
         }
     }
     private var columnSortAscending: Bool = true {
         didSet {
             saveColumnSort()
-            applyColumnSort()
+            applyColumnSort(collapseExpanded: true)
         }
     }
     
@@ -297,10 +297,38 @@ class PlexBrowserView: NSView {
     }
     
     /// Apply column sort to display items
-    private func applyColumnSort() {
+    /// - Parameter collapseExpanded: If true, collapse all expanded items before sorting (used when sort changes)
+    private func applyColumnSort(collapseExpanded: Bool = false) {
         guard let sortColumnId = columnSortId, !displayItems.isEmpty else {
             needsDisplay = true
             return
+        }
+        
+        // Collapse all expanded items before sorting to avoid orphaned children
+        // (expanded albums would otherwise stay in place while parents move)
+        // Only do this when the sort is actively changed, not on every rebuild
+        if collapseExpanded {
+            let hadExpanded = !expandedArtists.isEmpty || !expandedAlbums.isEmpty ||
+                              !expandedArtistNames.isEmpty ||
+                              !expandedLocalArtists.isEmpty || !expandedLocalAlbums.isEmpty ||
+                              !expandedSubsonicArtists.isEmpty || !expandedSubsonicAlbums.isEmpty ||
+                              !expandedSubsonicPlaylists.isEmpty || !expandedPlexPlaylists.isEmpty ||
+                              !expandedShows.isEmpty || !expandedSeasons.isEmpty
+            if hadExpanded {
+                expandedArtists.removeAll()
+                expandedAlbums.removeAll()
+                expandedArtistNames.removeAll()
+                expandedLocalArtists.removeAll()
+                expandedLocalAlbums.removeAll()
+                expandedSubsonicArtists.removeAll()
+                expandedSubsonicAlbums.removeAll()
+                expandedSubsonicPlaylists.removeAll()
+                expandedPlexPlaylists.removeAll()
+                expandedShows.removeAll()
+                expandedSeasons.removeAll()
+                // Remove nested items from displayItems (they have indentLevel > 0)
+                displayItems = displayItems.filter { $0.indentLevel == 0 }
+            }
         }
         
         // Find the column definition
