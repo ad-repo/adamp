@@ -4,9 +4,10 @@ This document details the work done to fix rendering artifacts on non-Retina (1x
 
 ## Overview
 
-Two main issues were identified on non-Retina displays:
+Three main issues were identified on non-Retina displays:
 1. **Blue line artifacts** - Blue-tinted pixels in the skin became visible as harsh lines/artifacts
 2. **Lines under titles** - Horizontal lines appearing below window titles (Library Browser, Milkdrop)
+3. **Tile seam artifacts** - Visible vertical and horizontal lines at sprite tile boundaries (Playlist window title bar, side borders, scrollbar)
 
 ## Root Causes
 
@@ -22,6 +23,13 @@ Affected skin files: `PLEDIT.BMP`, `EQMAIN.BMP`, `MAIN.BMP`, `TITLEBAR.BMP`, `GE
 ### Lines Under Titles
 
 This issue was caused by specific code changes that disabled anti-aliasing on non-Retina displays. When `context.setShouldAntialias(false)` was applied to `PlexBrowserView`, it created hard edges at sprite boundaries that appeared as lines under window titles.
+
+### Tile Seam Artifacts (Playlist Window)
+
+On non-Retina displays, visible lines appeared at boundaries where tiled sprites meet. This occurred because:
+- Sprite tiles drawn edge-to-edge can have sub-pixel gaps on 1x displays
+- Without anti-aliasing to blend edges, tile boundaries become visible as thin lines
+- The Playlist window uses multiple tiled areas: title bar (horizontal tiles), side borders (vertical tiles), and scrollbar track (vertical tiles)
 
 ## Approaches That Did NOT Work
 
@@ -201,17 +209,92 @@ drawSprite(from: pleditImage, sourceRect: leftCorner,
 - CGImage with `.none` interpolation makes every pixel edge sharp, revealing lines in sprites
 - Both title bars now use identical rendering path
 
+### 7. Playlist Window Tile Seam Fixes
+
+**Problem**: The Playlist window showed vertical and horizontal line artifacts at tile boundaries on non-Retina displays. These appeared in:
+- Title bar (vertical lines between corner sprites and tiled middle section)
+- Side borders (horizontal lines where 29px tall tiles meet)
+- Scrollbar track (horizontal lines at tile boundaries)
+
+**Solution**: A multi-part approach for each tiled area:
+
+#### Title Bar Fix
+
+1. Fill solid background first to cover any gaps
+2. Draw tiles with 1px overlap (step by 24px instead of 25px)
+3. Draw corners ON TOP of tiles, slightly wider (+1px) to cover seams
+
+```swift
+// On non-Retina, fill background first to prevent seam gaps
+let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+if backingScale < 1.5 {
+    NSColor(calibratedRed: 0.14, green: 0.13, blue: 0.16, alpha: 1.0).setFill()
+    context.fill(NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight))
+}
+
+// Fill tiles first with overlap
+let tileStep = backingScale < 1.5 ? tileWidth - 1 : tileWidth
+var x: CGFloat = middleStart
+while x < middleEnd {
+    // ... draw tile ...
+    x += tileStep
+}
+
+// Draw corners ON TOP - slightly wider on non-Retina to cover seams
+let cornerOverlap: CGFloat = backingScale < 1.5 ? 1 : 0
+drawSprite(from: pleditImage, sourceRect: leftCorner,
+          to: NSRect(x: 0, y: 0, width: leftCornerWidth + cornerOverlap, height: titleHeight), in: context)
+drawSprite(from: pleditImage, sourceRect: rightCorner,
+          to: NSRect(x: bounds.width - rightCornerWidth - cornerOverlap, y: 0, 
+                     width: rightCornerWidth + cornerOverlap, height: titleHeight), in: context)
+```
+
+#### Side Borders and Scrollbar Fix
+
+1. Fill solid dark background first
+2. Draw tiles from BOTTOM to TOP (so any partial tile is at top, hidden under title bar)
+
+```swift
+// On non-Retina, fill solid background first to cover any gaps
+if backingScale < 1.5 {
+    NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.10, alpha: 1.0).setFill()
+    context.fill(NSRect(x: 0, y: titleHeight, width: 12, height: bounds.height - titleHeight - bottomHeight))
+}
+
+// Draw tiles from BOTTOM to TOP so any partial tile is at top (under title bar)
+var y: CGFloat = contentBottom - tileHeight
+while y >= contentTop - tileHeight {
+    let drawY = max(contentTop, y)
+    let h = min(tileHeight, contentBottom - drawY)
+    if h > 0 {
+        drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.leftSideTile,
+                  to: NSRect(x: 0, y: drawY, width: 12, height: h), in: context)
+    }
+    y -= tileHeight
+}
+```
+
+**Why it works**:
+- Background fill ensures any sub-pixel gaps between tiles show a matching dark color instead of artifacts
+- Drawing corners on top covers any imperfect seams at corner/tile boundaries
+- Bottom-to-top tiling places partial tiles at the top where they're less visible
+- The overlap ensures tiles blend together rather than having visible seams
+
 ## Current State
 
 ### Files Changed from `main`
 
 1. **`Sources/AdAmp/Skin/SkinLoader.swift`**
-   - Added `processForNonRetina()` function
+   - Added `processForNonRetina()` function for blue-to-grayscale conversion
    - Applied processing to loaded images on non-Retina displays
+   - Skips green-dominant pixels to preserve stereo/mono indicators
 
 2. **`Sources/AdAmp/Skin/SkinRenderer.swift`**
    - Skip certain highlight lines on non-Retina displays
    - Use NSImage-based rendering for Library Browser title bar (matches Milkdrop)
+   - Playlist title bar: background fill + tile overlap + corners drawn on top (wider)
+   - Playlist side borders: background fill + bottom-to-top tiling
+   - Playlist scrollbar track: background fill + bottom-to-top tiling
 
 3. **`Sources/AdAmp/Windows/PlexBrowser/PlexBrowserView.swift`**
    - Rounded coordinates for text positioning
@@ -226,13 +309,13 @@ drawSprite(from: pleditImage, sourceRect: leftCorner,
 5. **`Sources/AdAmp/Windows/Playlist/PlaylistView.swift`**
    - Rounded scroll offset on non-Retina
 
-## Remaining Work
+## Remaining Considerations
 
-1. **Blue artifacts may still appear in some areas** - The grayscale conversion helps but may not catch all problematic pixels
+1. **Blue artifacts may still appear in some areas** - The grayscale conversion helps but may not catch all problematic pixels in all skins
 
-2. **Other skins untested** - The runtime processing currently applies to all skins; may need refinement
+2. **Other skins untested** - The runtime processing currently applies to all skins; may need refinement for skins that intentionally use blue tints
 
-3. **Performance consideration** - Image processing at load time adds startup overhead on non-Retina displays
+3. **Performance consideration** - Image processing at load time adds startup overhead on non-Retina displays (minimal impact in practice)
 
 ## Key Learnings
 
@@ -240,5 +323,11 @@ drawSprite(from: pleditImage, sourceRect: leftCorner,
 2. **Avoid modifying BMP files** - Format differences cause rendering issues
 3. **Runtime processing is safer** - Keeps original assets intact
 4. **Test on actual hardware** - Simulator behavior differs from real non-Retina displays
-5. **Blue detection needs careful thresholds** - Must preserve intended colors while removing artifacts
+5. **Blue detection needs careful thresholds** - Must preserve intended colors (green indicators, warm colors) while removing artifacts
 6. **NSImage vs CGImage rendering matters** - CGImage with `interpolationQuality = .none` makes sprite edges harsh; NSImage with default interpolation blends them smoothly
+7. **Tile seams need multiple strategies**:
+   - Fill solid background FIRST so gaps show matching color
+   - Overlap tiles by 1px to prevent visible seams
+   - Draw corner sprites ON TOP (and slightly wider) to cover tile boundaries
+   - Draw from bottom-to-top so partial tiles are hidden at top
+8. **Non-Retina fixes must be conditional** - Always check `backingScaleFactor < 1.5` and only apply fixes on 1x displays to avoid affecting Retina rendering

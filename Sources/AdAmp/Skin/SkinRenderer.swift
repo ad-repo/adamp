@@ -2057,13 +2057,12 @@ class SkinRenderer {
         let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
         let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
         
-        // Draw left corner
-        drawSprite(from: pleditImage, sourceRect: leftCorner,
-                  to: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
-        
-        // Draw right corner (contains window buttons)
-        drawSprite(from: pleditImage, sourceRect: rightCorner,
-                  to: NSRect(x: bounds.width - rightCornerWidth, y: 0, width: rightCornerWidth, height: titleHeight), in: context)
+        // On non-Retina, fill background first to prevent seam gaps
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScale < 1.5 {
+            NSColor(calibratedRed: 0.14, green: 0.13, blue: 0.16, alpha: 1.0).setFill()
+            context.fill(NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight))
+        }
         
         // Calculate available space for middle section
         let middleStart = leftCornerWidth
@@ -2071,13 +2070,25 @@ class SkinRenderer {
         let middleWidth = middleEnd - middleStart
         
         // Fill the entire middle section with tiles FIRST
+        // Overlap tiles by 1px on non-Retina to avoid seam artifacts
+        let tileStep = backingScale < 1.5 ? tileWidth - 1 : tileWidth
+        
         var x: CGFloat = middleStart
         while x < middleEnd {
             let w = min(tileWidth, middleEnd - x)
             drawSprite(from: pleditImage, sourceRect: tileSprite,
                       to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
-            x += tileWidth
+            x += tileStep
         }
+        
+        // Draw corners ON TOP - slightly wider on non-Retina to cover seams
+        let cornerOverlap: CGFloat = backingScale < 1.5 ? 1 : 0
+        
+        drawSprite(from: pleditImage, sourceRect: leftCorner,
+                  to: NSRect(x: 0, y: 0, width: leftCornerWidth + cornerOverlap, height: titleHeight), in: context)
+        
+        drawSprite(from: pleditImage, sourceRect: rightCorner,
+                  to: NSRect(x: bounds.width - rightCornerWidth - cornerOverlap, y: 0, width: rightCornerWidth + cornerOverlap, height: titleHeight), in: context)
         
         // Draw title text sprite CENTERED over the tiles
         let titleX = middleStart + (middleWidth - titleSpriteWidth) / 2
@@ -2108,23 +2119,43 @@ class SkinRenderer {
         
         let titleHeight = SkinElements.Playlist.titleHeight
         let bottomHeight = SkinElements.Playlist.bottomHeight
+        let tileHeight: CGFloat = 29
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
         
-        // Left side border
-        var y: CGFloat = titleHeight
-        while y < bounds.height - bottomHeight {
-            let h = min(29, bounds.height - bottomHeight - y)
-            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.leftSideTile,
-                      to: NSRect(x: 0, y: y, width: 12, height: h), in: context)
-            y += 29
+        // On non-Retina, fill solid background first to cover any gaps
+        if backingScale < 1.5 {
+            // Use a dark color matching the border edge
+            NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.10, alpha: 1.0).setFill()
+            context.fill(NSRect(x: 0, y: titleHeight, width: 12, height: bounds.height - titleHeight - bottomHeight))
+            context.fill(NSRect(x: bounds.width - 20, y: titleHeight, width: 20, height: bounds.height - titleHeight - bottomHeight))
         }
         
-        // Right side border (before scrollbar)
-        y = titleHeight
-        while y < bounds.height - bottomHeight {
-            let h = min(29, bounds.height - bottomHeight - y)
-            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.rightSideTile,
-                      to: NSRect(x: bounds.width - 20, y: y, width: 20, height: h), in: context)
-            y += 29
+        // Draw tiles from BOTTOM to TOP so any partial tile is at top (under title bar)
+        let contentTop = titleHeight
+        let contentBottom = bounds.height - bottomHeight
+        
+        // Left side border - start from bottom, work up
+        var y: CGFloat = contentBottom - tileHeight
+        while y >= contentTop - tileHeight {
+            let drawY = max(contentTop, y)
+            let h = min(tileHeight, contentBottom - drawY)
+            if h > 0 {
+                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.leftSideTile,
+                          to: NSRect(x: 0, y: drawY, width: 12, height: h), in: context)
+            }
+            y -= tileHeight
+        }
+        
+        // Right side border - start from bottom, work up
+        y = contentBottom - tileHeight
+        while y >= contentTop - tileHeight {
+            let drawY = max(contentTop, y)
+            let h = min(tileHeight, contentBottom - drawY)
+            if h > 0 {
+                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.rightSideTile,
+                          to: NSRect(x: bounds.width - 20, y: drawY, width: 20, height: h), in: context)
+            }
+            y -= tileHeight
         }
     }
     
@@ -2195,12 +2226,25 @@ class SkinRenderer {
         let scrollbarX = bounds.width - 15
         
         // Draw scrollbar track background
-        var y: CGFloat = titleHeight
-        while y < bounds.height - bottomHeight {
-            let h = min(29, bounds.height - bottomHeight - y)
-            drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.scrollbarTrack,
-                      to: NSRect(x: scrollbarX, y: y, width: 8, height: h), in: context)
-            y += 29
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let tileHeight: CGFloat = 29
+        
+        // On non-Retina, fill solid background first to cover any gaps
+        if backingScale < 1.5 {
+            NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.10, alpha: 1.0).setFill()
+            context.fill(NSRect(x: scrollbarX, y: titleHeight, width: 8, height: trackHeight))
+        }
+        
+        // Draw tiles from bottom to top so any partial tile is at top
+        var y: CGFloat = bounds.height - bottomHeight - tileHeight
+        while y >= titleHeight - tileHeight {
+            let drawY = max(titleHeight, y)
+            let h = min(tileHeight, bounds.height - bottomHeight - drawY)
+            if h > 0 {
+                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.scrollbarTrack,
+                          to: NSRect(x: scrollbarX, y: drawY, width: 8, height: h), in: context)
+            }
+            y -= tileHeight
         }
         
         // Draw scrollbar thumb
@@ -3419,6 +3463,35 @@ class SkinRenderer {
                    fraction: 1.0,
                    respectFlipped: false,
                    hints: [.interpolation: NSNumber(value: NSImageInterpolation.none.rawValue)])
+        
+        context.restoreGState()
+    }
+    
+    /// Draw a sprite for tiled sections - uses default interpolation for smoother tile seams
+    /// Use this for repeating tile patterns where seams between tiles should blend smoothly
+    func drawTiledSprite(from image: NSImage, sourceRect: NSRect, to destRect: NSRect, in context: CGContext) {
+        let imageHeight = image.size.height
+        let convertedSourceRect = NSRect(
+            x: sourceRect.origin.x,
+            y: imageHeight - sourceRect.origin.y - sourceRect.height,
+            width: sourceRect.width,
+            height: sourceRect.height
+        )
+        
+        context.saveGState()
+        
+        let centerY = destRect.midY
+        context.translateBy(x: 0, y: centerY)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: 0, y: -centerY)
+        
+        // Use default interpolation (no hint) for smoother tile seams on non-Retina displays
+        image.draw(in: destRect,
+                   from: convertedSourceRect,
+                   operation: .sourceOver,
+                   fraction: 1.0,
+                   respectFlipped: false,
+                   hints: nil)
         
         context.restoreGState()
     }
