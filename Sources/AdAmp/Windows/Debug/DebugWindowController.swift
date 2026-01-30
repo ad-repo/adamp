@@ -1,0 +1,183 @@
+import AppKit
+
+/// Controller for the debug console window
+class DebugWindowController: NSWindowController, NSWindowDelegate {
+    
+    // MARK: - Properties
+    
+    private var textView: NSTextView!
+    private var scrollView: NSScrollView!
+    
+    // MARK: - Initialization
+    
+    convenience init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        
+        self.init(window: window)
+        setupWindow()
+        setupViews()
+        setupToolbar()
+        loadExistingMessages()
+        subscribeToMessages()
+    }
+    
+    // MARK: - Setup
+    
+    private func setupWindow() {
+        guard let window = window else { return }
+        
+        window.title = "AdAmp Debug Console"
+        window.minSize = NSSize(width: 400, height: 200)
+        window.center()
+        window.delegate = self
+        window.isReleasedWhenClosed = false
+        
+        // Set accessibility
+        window.setAccessibilityIdentifier("DebugConsoleWindow")
+        window.setAccessibilityLabel("Debug Console Window")
+    }
+    
+    private func setupViews() {
+        guard let window = window else { return }
+        
+        // Create scroll view
+        scrollView = NSScrollView(frame: window.contentView!.bounds)
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = false
+        scrollView.borderType = .noBorder
+        
+        // Create text view
+        let contentSize = scrollView.contentSize
+        textView = NSTextView(frame: NSRect(x: 0, y: 0, width: contentSize.width, height: contentSize.height))
+        textView.minSize = NSSize(width: 0, height: contentSize.height)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = false
+        
+        // Console-style appearance
+        textView.backgroundColor = NSColor(white: 0.1, alpha: 1.0)
+        textView.textColor = NSColor(white: 0.9, alpha: 1.0)
+        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.isEditable = false
+        textView.isSelectable = true
+        
+        scrollView.documentView = textView
+        window.contentView?.addSubview(scrollView)
+    }
+    
+    private func setupToolbar() {
+        guard let window = window else { return }
+        
+        let toolbar = NSToolbar(identifier: "DebugConsoleToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconAndLabel
+        window.toolbar = toolbar
+    }
+    
+    private func loadExistingMessages() {
+        let messages = DebugConsoleManager.shared.getMessages()
+        if !messages.isEmpty {
+            let text = messages.joined(separator: "\n") + "\n"
+            textView.string = text
+            scrollToBottom()
+        }
+    }
+    
+    private func subscribeToMessages() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleNewMessage),
+            name: DebugConsoleManager.messageReceivedNotification,
+            object: nil
+        )
+    }
+    
+    // MARK: - Message Handling
+    
+    @objc private func handleNewMessage() {
+        // Reload all messages (simple approach)
+        let messages = DebugConsoleManager.shared.getMessages()
+        let text = messages.joined(separator: "\n") + (messages.isEmpty ? "" : "\n")
+        textView.string = text
+        scrollToBottom()
+    }
+    
+    private func scrollToBottom() {
+        textView.scrollToEndOfDocument(nil)
+    }
+    
+    // MARK: - Actions
+    
+    @objc func clearConsole(_ sender: Any?) {
+        DebugConsoleManager.shared.clearMessages()
+        textView.string = ""
+    }
+    
+    @objc func copyAll(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(textView.string, forType: .string)
+    }
+    
+    // MARK: - NSWindowDelegate
+    
+    func windowWillClose(_ notification: Notification) {
+        // Just hide, don't destroy
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+}
+
+// MARK: - NSToolbarDelegate
+
+extension DebugWindowController: NSToolbarDelegate {
+    
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        switch itemIdentifier.rawValue {
+        case "Clear":
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Clear"
+            item.toolTip = "Clear console"
+            item.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Clear")
+            item.target = self
+            item.action = #selector(clearConsole(_:))
+            return item
+            
+        case "Copy":
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Copy All"
+            item.toolTip = "Copy all text"
+            item.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
+            item.target = self
+            item.action = #selector(copyAll(_:))
+            return item
+            
+        default:
+            return nil
+        }
+    }
+    
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        return [
+            NSToolbarItem.Identifier("Clear"),
+            NSToolbarItem.Identifier("Copy"),
+            .flexibleSpace
+        ]
+    }
+    
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        return toolbarDefaultItemIdentifiers(toolbar)
+    }
+}

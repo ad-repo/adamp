@@ -81,6 +81,8 @@ class WindowManager {
     /// Milkdrop visualization window controller
     private var milkdropWindowController: MilkdropWindowController?
     
+    /// Debug console window controller
+    private var debugWindowController: DebugWindowController?
     
     /// Video playback time tracking
     private(set) var videoCurrentTime: TimeInterval = 0
@@ -791,11 +793,38 @@ class WindowManager {
         milkdropWindowController?.window?.isVisible == true
     }
     
+    /// Whether the debug console window is visible
+    var isDebugWindowVisible: Bool {
+        debugWindowController?.window?.isVisible == true
+    }
+    
     func toggleMilkdrop() {
         if let controller = milkdropWindowController, controller.window?.isVisible == true {
             controller.window?.orderOut(nil)
         } else {
             showMilkdrop()
+        }
+    }
+    
+    // MARK: - Debug Window
+    
+    /// Show the debug console window
+    func showDebugWindow() {
+        if debugWindowController == nil {
+            debugWindowController = DebugWindowController()
+            // Start capturing when window is first created
+            DebugConsoleManager.shared.startCapturing()
+        }
+        debugWindowController?.showWindow(nil)
+        debugWindowController?.window?.makeKeyAndOrderFront(nil)
+    }
+    
+    /// Toggle debug console window visibility
+    func toggleDebugWindow() {
+        if isDebugWindowVisible {
+            debugWindowController?.window?.orderOut(nil)
+        } else {
+            showDebugWindow()
         }
     }
     
