@@ -926,7 +926,15 @@ class PlexBrowserView: NSView {
             }
             
             self.lastAudioLevel = currentLevel
-            self.needsDisplay = true
+            
+            // Only redraw the visualization content area, not the entire view
+            // This prevents menu items (title bar, server bar) from shimmering on non-Retina displays
+            let contentY = self.Layout.titleBarHeight + self.Layout.serverBarHeight
+            let contentHeight = self.bounds.height - contentY - self.Layout.statusBarHeight
+            // Convert from Winamp top-down coordinates to macOS bottom-up coordinates
+            let nativeY = self.Layout.statusBarHeight
+            let contentRect = NSRect(x: 0, y: nativeY, width: self.bounds.width, height: contentHeight)
+            self.setNeedsDisplay(contentRect)
         }
         
         // Start cycle timer if in cycle mode

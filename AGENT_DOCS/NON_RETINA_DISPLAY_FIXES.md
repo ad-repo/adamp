@@ -280,6 +280,33 @@ while y >= contentTop - tileHeight {
 - Bottom-to-top tiling places partial tiles at the top where they're less visible
 - The overlap ensures tiles blend together rather than having visible seams
 
+### 8. Targeted Redraw for Visualization Animation
+
+**Problem**: When the Album Art Visualizer is enabled in the Library Browser's ART mode, the top menu items (title bar, server bar) would shimmer/flicker on non-Retina displays. This happened because the visualizer timer (running at 60fps) was marking the entire view for redraw with `needsDisplay = true`.
+
+**Solution**: Use `setNeedsDisplay(rect)` to only redraw the visualization content area, excluding the menu areas.
+
+**Implementation** in `PlexBrowserView.swift`:
+
+```swift
+// In the visualizer timer callback:
+
+// Only redraw the visualization content area, not the entire view
+// This prevents menu items (title bar, server bar) from shimmering on non-Retina displays
+let contentY = self.Layout.titleBarHeight + self.Layout.serverBarHeight
+let contentHeight = self.bounds.height - contentY - self.Layout.statusBarHeight
+// Convert from Winamp top-down coordinates to macOS bottom-up coordinates
+let nativeY = self.Layout.statusBarHeight
+let contentRect = NSRect(x: 0, y: nativeY, width: self.bounds.width, height: contentHeight)
+self.setNeedsDisplay(contentRect)
+```
+
+**Why it works**:
+- The visualizer timer runs at 60fps for smooth animation
+- Instead of redrawing the entire view (including title bar, server bar, tabs), only the content area where the visualization is displayed gets redrawn
+- The menu items remain stable since they're not part of the dirty rect
+- This is a non-Retina-specific visual issue, but the fix improves performance on all displays
+
 ## Current State
 
 ### Files Changed from `main`
@@ -302,6 +329,7 @@ while y >= contentTop - tileHeight {
    - Opaque backgrounds on non-Retina
    - Fill list area background to prevent gaps
    - Optimized scroll redraw
+   - Targeted redraw for visualization animation (only content area, not menu items)
 
 4. **`Sources/AdAmp/Windows/PlexBrowser/PlexBrowserWindowController.swift`**
    - Opaque window on non-Retina displays
@@ -331,3 +359,4 @@ while y >= contentTop - tileHeight {
    - Draw corner sprites ON TOP (and slightly wider) to cover tile boundaries
    - Draw from bottom-to-top so partial tiles are hidden at top
 8. **Non-Retina fixes must be conditional** - Always check `backingScaleFactor < 1.5` and only apply fixes on 1x displays to avoid affecting Retina rendering
+9. **Use targeted redraws for animations** - When using timers for animation (like visualizers), use `setNeedsDisplay(rect)` instead of `needsDisplay = true` to only redraw the animated area. This prevents non-animated UI elements from shimmering on non-Retina displays.
