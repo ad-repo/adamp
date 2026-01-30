@@ -2148,10 +2148,12 @@ class PlexBrowserView: NSView {
             let item = displayItems[index]
             let isSelected = selectedIndices.contains(index)
             
-            // On non-Retina displays, always fill item background to prevent gaps/lines
+            // On non-Retina displays, fill item background to prevent gaps/lines
+            // BUT skip this when artwork background is showing (it already provides a continuous background)
             // On Retina, only fill background for selected items
-            if backingScale < 1.5 {
-                // Fill with normal or selected background
+            let hasArtworkBackground = WindowManager.shared.showBrowserArtworkBackground && currentArtwork != nil
+            if backingScale < 1.5 && !hasArtworkBackground {
+                // Fill with normal or selected background (only when no artwork)
                 let bgColor = isSelected ? colors.selectedBackground : colors.normalBackground
                 bgColor.setFill()
                 context.fill(itemRect)
@@ -5058,6 +5060,32 @@ class PlexBrowserView: NSView {
             case .subsonicTrack(let song):
                 if let coverArt = song.coverArt {
                     image = await self.loadSubsonicArtworkByCoverId(coverArt: coverArt, cacheKey: "subsonic:\(song.id)")
+                }
+                
+            case .localArtist(let artist):
+                // Load artwork from first track by this artist
+                let artistTracks = self.cachedLocalTracks.filter { $0.artist == artist.name }
+                if let firstTrack = artistTracks.first {
+                    image = await self.loadLocalArtwork(url: firstTrack.url)
+                    if image == nil {
+                        image = await self.loadWebArtwork(artist: firstTrack.artist, album: firstTrack.album, title: firstTrack.title)
+                    }
+                }
+                
+            case .subsonicArtist(let artist):
+                // Load artist image if available
+                if let coverArt = artist.coverArt {
+                    image = await self.loadSubsonicArtworkByCoverId(coverArt: coverArt, cacheKey: "subsonic:\(artist.id)")
+                }
+                
+            case .subsonicPlaylist(let playlist):
+                if let coverArt = playlist.coverArt {
+                    image = await self.loadSubsonicArtworkByCoverId(coverArt: coverArt, cacheKey: "subsonic:playlist:\(playlist.id)")
+                }
+                
+            case .plexPlaylist(let playlist):
+                if let thumb = playlist.thumb {
+                    image = await self.loadPlexArtworkByThumb(thumb: thumb, cacheKey: "plex:playlist:\(playlist.id)")
                 }
                 
             default:
