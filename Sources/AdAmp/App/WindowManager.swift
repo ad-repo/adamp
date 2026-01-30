@@ -811,9 +811,9 @@ class WindowManager {
     /// Show the debug console window
     func showDebugWindow() {
         if debugWindowController == nil {
-            debugWindowController = DebugWindowController()
-            // Start capturing when window is first created
+            // Start capturing BEFORE creating the window so toolbar shows correct state
             DebugConsoleManager.shared.startCapturing()
+            debugWindowController = DebugWindowController()
         }
         debugWindowController?.showWindow(nil)
         debugWindowController?.window?.makeKeyAndOrderFront(nil)

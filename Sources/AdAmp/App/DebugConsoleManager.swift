@@ -19,7 +19,7 @@ class DebugConsoleManager {
     
     private var pipe: Pipe?
     private var originalStderr: Int32 = -1
-    private var isCapturing = false
+    private(set) var isCapturing = false
     
     // MARK: - Initialization
     

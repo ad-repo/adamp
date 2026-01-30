@@ -53,20 +53,20 @@ class ContextMenuBuilder {
         
         menu.addItem(NSMenuItem.separator())
         
-        // Always on Top
-        let alwaysOnTop = NSMenuItem(title: "Always on Top", action: #selector(MenuActions.toggleAlwaysOnTop), keyEquivalent: "")
+        // Always On Top
+        let alwaysOnTop = NSMenuItem(title: "Always On Top", action: #selector(MenuActions.toggleAlwaysOnTop), keyEquivalent: "")
         alwaysOnTop.target = MenuActions.shared
         alwaysOnTop.state = wm.isAlwaysOnTop ? .on : .off
         menu.addItem(alwaysOnTop)
         
-        // Remember State on Quit
-        let rememberState = NSMenuItem(title: "Remember State on Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
+        // Remember State On Quit
+        let rememberState = NSMenuItem(title: "Remember State On Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
         rememberState.target = MenuActions.shared
         rememberState.state = AppStateManager.shared.isEnabled ? .on : .off
         menu.addItem(rememberState)
         
-        // Snap to Default
-        let snapToDefault = NSMenuItem(title: "Snap to Default", action: #selector(MenuActions.snapToDefault), keyEquivalent: "")
+        // Snap To Default
+        let snapToDefault = NSMenuItem(title: "Snap To Default", action: #selector(MenuActions.snapToDefault), keyEquivalent: "")
         snapToDefault.target = MenuActions.shared
         menu.addItem(snapToDefault)
         

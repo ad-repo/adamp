@@ -7,6 +7,7 @@ class DebugWindowController: NSWindowController, NSWindowDelegate {
     
     private var textView: NSTextView!
     private var scrollView: NSScrollView!
+    private var stopToolbarItem: NSToolbarItem?
     
     // MARK: - Initialization
     
@@ -129,6 +130,34 @@ class DebugWindowController: NSWindowController, NSWindowDelegate {
         pasteboard.setString(textView.string, forType: .string)
     }
     
+    @objc func toggleCapture(_ sender: Any?) {
+        if DebugConsoleManager.shared.isCapturing {
+            DebugConsoleManager.shared.stopCapturing()
+        } else {
+            DebugConsoleManager.shared.startCapturing()
+        }
+        updateStopButtonState()
+    }
+    
+    private func updateStopButtonState() {
+        guard let item = stopToolbarItem else { return }
+        let isCapturing = DebugConsoleManager.shared.isCapturing
+        
+        // Use colored symbols to make state clear
+        // Red stop = capturing (click to stop)
+        // Green play = paused (click to start)
+        let symbolName = isCapturing ? "stop.circle.fill" : "play.circle.fill"
+        let color = isCapturing ? NSColor.systemRed : NSColor.systemGreen
+        
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: isCapturing ? "Stop" : "Start") {
+            let config = NSImage.SymbolConfiguration(paletteColors: [color])
+            item.image = image.withSymbolConfiguration(config)
+        }
+        
+        item.label = isCapturing ? "Logging" : "Paused"
+        item.toolTip = isCapturing ? "Click to pause logging" : "Click to resume logging"
+    }
+    
     // MARK: - NSWindowDelegate
     
     func windowWillClose(_ notification: Notification) {
@@ -146,6 +175,26 @@ extension DebugWindowController: NSToolbarDelegate {
     
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier.rawValue {
+        case "Stop":
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            let isCapturing = DebugConsoleManager.shared.isCapturing
+            
+            // Use colored symbols to make state clear
+            let symbolName = isCapturing ? "stop.circle.fill" : "play.circle.fill"
+            let color = isCapturing ? NSColor.systemRed : NSColor.systemGreen
+            
+            if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: isCapturing ? "Stop" : "Start") {
+                let config = NSImage.SymbolConfiguration(paletteColors: [color])
+                item.image = image.withSymbolConfiguration(config)
+            }
+            
+            item.label = isCapturing ? "Logging" : "Paused"
+            item.toolTip = isCapturing ? "Click to pause logging" : "Click to resume logging"
+            item.target = self
+            item.action = #selector(toggleCapture(_:))
+            stopToolbarItem = item
+            return item
+            
         case "Clear":
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Clear"
@@ -171,6 +220,7 @@ extension DebugWindowController: NSToolbarDelegate {
     
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
+            NSToolbarItem.Identifier("Stop"),
             NSToolbarItem.Identifier("Clear"),
             NSToolbarItem.Identifier("Copy"),
             .flexibleSpace
