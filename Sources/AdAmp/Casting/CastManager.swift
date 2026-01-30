@@ -393,8 +393,18 @@ class CastManager {
             }
             
         case .sonos, .dlnaTV:
-            try await upnpManager.connect(to: device)
-            try await upnpManager.cast(url: url, metadata: metadata)
+            NSLog("CastManager: Connecting to %@...", device.type.displayName)
+            do {
+                try await upnpManager.connect(to: device)
+                NSLog("CastManager: Connected to %@, now casting...", device.type.displayName)
+                try await upnpManager.cast(url: url, metadata: metadata)
+                NSLog("CastManager: Cast started successfully")
+            } catch {
+                NSLog("CastManager: %@ error: %@", device.type.displayName, error.localizedDescription)
+                // Clean up partial session state - connect() may have succeeded before cast() failed
+                await upnpManager.disconnect()
+                throw error
+            }
         }
         
         // If we have a start position, seek to it after playback starts
