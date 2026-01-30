@@ -1079,8 +1079,8 @@ class WindowManager {
     func snapToDefaultPositions() {
         let defaults = UserDefaults.standard
         
-        // Get screen for positioning
-        guard let screen = NSScreen.main else { return }
+        // Get screen for positioning - use the screen the main window is on, or fall back to main screen
+        guard let screen = mainWindowController?.window?.screen ?? NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
         
         // Calculate centered main window position
@@ -1102,13 +1102,13 @@ class WindowManager {
             height: eqSize.height
         )
         
-        // Playlist goes below EQ
-        let playlistHeight = playlistWindowController?.window?.frame.height ?? 116
+        // Playlist goes below EQ (use actual current height)
+        let playlistCurrentHeight = playlistWindowController?.window?.frame.height ?? 116
         let playlistFrame = NSRect(
             x: mainFrame.minX,
-            y: eqFrame.minY - playlistHeight,
+            y: eqFrame.minY - playlistCurrentHeight,
             width: mainSize.width,  // Playlist width matches main
-            height: playlistHeight
+            height: playlistCurrentHeight
         )
         
         // Browser goes to the right of main, top-aligned
@@ -1138,33 +1138,25 @@ class WindowManager {
         defaults.removeObject(forKey: "VideoPlayerWindowFrame")
         defaults.removeObject(forKey: "ArtVisualizerWindowFrame")
         
-        // Apply positions to visible windows with animation
+        // Apply positions to visible windows WITHOUT animation first to avoid race conditions
+        // when windows are on different screens. Then animate to final positions.
+        
+        // First pass: Move all windows to target screen instantly (no animation)
         if let mainWindow = mainWindowController?.window {
-            mainWindow.setFrame(mainFrame, display: true, animate: true)
+            mainWindow.setFrame(mainFrame, display: true, animate: false)
         }
-        
         if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
-            eqWindow.setFrame(eqFrame, display: true, animate: true)
+            eqWindow.setFrame(eqFrame, display: true, animate: false)
         }
-        
         if let playlistWindow = playlistWindowController?.window, playlistWindow.isVisible {
-            let frame = NSRect(
-                x: playlistFrame.minX,
-                y: playlistFrame.minY,
-                width: playlistFrame.width,
-                height: playlistWindow.frame.height  // Keep current height
-            )
-            playlistWindow.setFrame(frame, display: true, animate: true)
+            playlistWindow.setFrame(playlistFrame, display: true, animate: false)
         }
-        
         if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
-            plexWindow.setFrame(browserFrame, display: true, animate: true)
+            plexWindow.setFrame(browserFrame, display: true, animate: false)
         }
-        
         if let milkdropWindow = milkdropWindowController?.window, milkdropWindow.isVisible {
-            milkdropWindow.setFrame(milkdropFrame, display: true, animate: true)
+            milkdropWindow.setFrame(milkdropFrame, display: true, animate: false)
         }
-        
         if let videoWindow = videoPlayerWindowController?.window, videoWindow.isVisible {
             videoWindow.center()
         }
@@ -1264,6 +1256,104 @@ class WindowManager {
         return snappedOrigin
     }
     
+    /// Calculate the bounding box of the dragging window and all its docked windows
+    /// - Parameters:
+    ///   - window: The window being dragged
+    ///   - newOrigin: The proposed new origin for the dragging window
+    /// - Returns: The bounding rectangle of the entire window group
+    private func calculateGroupBounds(for window: NSWindow, at newOrigin: NSPoint) -> NSRect {
+        var bounds = NSRect(origin: newOrigin, size: window.frame.size)
+        
+        // Include all docked windows in the bounds calculation
+        for dockedWindow in dockedWindowsToMove {
+            if let offset = dockedWindowOffsets[ObjectIdentifier(dockedWindow)] {
+                let dockedOrigin = NSPoint(
+                    x: newOrigin.x + offset.x,
+                    y: newOrigin.y + offset.y
+                )
+                let dockedFrame = NSRect(origin: dockedOrigin, size: dockedWindow.frame.size)
+                bounds = bounds.union(dockedFrame)
+            }
+        }
+        
+        return bounds
+    }
+    
+    /// Check if the window group spans multiple screens
+    /// - Parameter groupBounds: The bounding rectangle of the entire group
+    /// - Returns: true if the group is currently crossing monitor boundaries
+    private func groupSpansMultipleScreens(_ groupBounds: NSRect) -> Bool {
+        var containingScreen: NSScreen? = nil
+        
+        for screen in NSScreen.screens {
+            let intersection = groupBounds.intersection(screen.frame)
+            if !intersection.isEmpty {
+                if containingScreen != nil {
+                    // Group intersects multiple screens
+                    return true
+                }
+                containingScreen = screen
+            }
+        }
+        
+        return false
+    }
+    
+    /// Check if snapping would cause any docked window to end up on a different screen
+    /// - Parameters:
+    ///   - mainOrigin: The proposed origin for the main/dragging window after snapping
+    ///   - mainSize: The size of the main/dragging window
+    /// - Returns: true if any docked window would end up on a different screen than main
+    private func wouldSnapCauseScreenSeparation(mainOrigin: NSPoint, mainSize: NSSize) -> Bool {
+        guard !dockedWindowsToMove.isEmpty else { return false }
+        
+        let mainFrame = NSRect(origin: mainOrigin, size: mainSize)
+        
+        // Find which screen the main window would be on after snapping
+        var mainScreen: NSScreen? = nil
+        var maxIntersection: CGFloat = 0
+        for screen in NSScreen.screens {
+            let intersection = mainFrame.intersection(screen.frame)
+            let area = intersection.width * intersection.height
+            if area > maxIntersection {
+                maxIntersection = area
+                mainScreen = screen
+            }
+        }
+        
+        guard let targetScreen = mainScreen else { return false }
+        
+        // Check if any docked window would end up primarily on a different screen
+        for dockedWindow in dockedWindowsToMove {
+            guard let offset = dockedWindowOffsets[ObjectIdentifier(dockedWindow)] else { continue }
+            
+            let dockedOrigin = NSPoint(
+                x: mainOrigin.x + offset.x,
+                y: mainOrigin.y + offset.y
+            )
+            let dockedFrame = NSRect(origin: dockedOrigin, size: dockedWindow.frame.size)
+            
+            // Find which screen this docked window would be on
+            var dockedScreen: NSScreen? = nil
+            var dockedMaxIntersection: CGFloat = 0
+            for screen in NSScreen.screens {
+                let intersection = dockedFrame.intersection(screen.frame)
+                let area = intersection.width * intersection.height
+                if area > dockedMaxIntersection {
+                    dockedMaxIntersection = area
+                    dockedScreen = screen
+                }
+            }
+            
+            // If docked window would be on a different screen, snapping would cause separation
+            if dockedScreen !== targetScreen {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
     /// Apply snapping to other windows and screen edges
     private func applySnapping(for window: NSWindow, to newOrigin: NSPoint) -> NSPoint {
         var snappedX = newOrigin.x
@@ -1279,39 +1369,58 @@ class WindowManager {
             return max1 > min2 - snapThreshold && min1 < max2 + snapThreshold
         }
         
-        // Snap to screen edges first
+        // Track if we're dragging a group (for screen separation checks)
+        let isDraggingGroup = !dockedWindowsToMove.isEmpty
+        let windowSize = window.frame.size
+        
+        // Snap to screen edges (with special handling for groups to prevent separation)
         if let screen = window.screen ?? NSScreen.main {
             let screenFrame = screen.visibleFrame
             
             // Left edge to screen left
             let leftDist = abs(frame.minX - screenFrame.minX)
             if leftDist < snapThreshold {
-                if bestHorizontalSnap == nil || leftDist < bestHorizontalSnap!.distance {
-                    bestHorizontalSnap = (leftDist, screenFrame.minX)
+                let candidateOrigin = NSPoint(x: screenFrame.minX, y: newOrigin.y)
+                // Only snap if it won't cause docked windows to end up on different screen
+                if !isDraggingGroup || !wouldSnapCauseScreenSeparation(mainOrigin: candidateOrigin, mainSize: windowSize) {
+                    if bestHorizontalSnap == nil || leftDist < bestHorizontalSnap!.distance {
+                        bestHorizontalSnap = (leftDist, screenFrame.minX)
+                    }
                 }
             }
             
             // Right edge to screen right
             let rightDist = abs(frame.maxX - screenFrame.maxX)
             if rightDist < snapThreshold {
-                if bestHorizontalSnap == nil || rightDist < bestHorizontalSnap!.distance {
-                    bestHorizontalSnap = (rightDist, screenFrame.maxX - frame.width)
+                let candidateX = screenFrame.maxX - frame.width
+                let candidateOrigin = NSPoint(x: candidateX, y: newOrigin.y)
+                if !isDraggingGroup || !wouldSnapCauseScreenSeparation(mainOrigin: candidateOrigin, mainSize: windowSize) {
+                    if bestHorizontalSnap == nil || rightDist < bestHorizontalSnap!.distance {
+                        bestHorizontalSnap = (rightDist, candidateX)
+                    }
                 }
             }
             
             // Bottom edge to screen bottom
             let bottomDist = abs(frame.minY - screenFrame.minY)
             if bottomDist < snapThreshold {
-                if bestVerticalSnap == nil || bottomDist < bestVerticalSnap!.distance {
-                    bestVerticalSnap = (bottomDist, screenFrame.minY)
+                let candidateOrigin = NSPoint(x: newOrigin.x, y: screenFrame.minY)
+                if !isDraggingGroup || !wouldSnapCauseScreenSeparation(mainOrigin: candidateOrigin, mainSize: windowSize) {
+                    if bestVerticalSnap == nil || bottomDist < bestVerticalSnap!.distance {
+                        bestVerticalSnap = (bottomDist, screenFrame.minY)
+                    }
                 }
             }
             
             // Top edge to screen top
             let topDist = abs(frame.maxY - screenFrame.maxY)
             if topDist < snapThreshold {
-                if bestVerticalSnap == nil || topDist < bestVerticalSnap!.distance {
-                    bestVerticalSnap = (topDist, screenFrame.maxY - frame.height)
+                let candidateY = screenFrame.maxY - frame.height
+                let candidateOrigin = NSPoint(x: newOrigin.x, y: candidateY)
+                if !isDraggingGroup || !wouldSnapCauseScreenSeparation(mainOrigin: candidateOrigin, mainSize: windowSize) {
+                    if bestVerticalSnap == nil || topDist < bestVerticalSnap!.distance {
+                        bestVerticalSnap = (topDist, candidateY)
+                    }
                 }
             }
         }
