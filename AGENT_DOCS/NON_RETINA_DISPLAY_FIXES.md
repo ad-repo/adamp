@@ -307,6 +307,30 @@ self.setNeedsDisplay(contentRect)
 - The menu items remain stable since they're not part of the dirty rect
 - This is a non-Retina-specific visual issue, but the fix improves performance on all displays
 
+### 9. Targeted Redraw for Loading Animation
+
+**Problem**: When refreshing the Library Browser, the loading spinner animation caused the top menu items (title bar, server bar, tabs) to shimmer on non-Retina displays.
+
+**Solution**: Apply the same targeted redraw approach to the loading animation timer.
+
+**Implementation** in `PlexBrowserView.swift`:
+
+```swift
+// In startLoadingAnimation():
+
+// Only redraw the list area where the loading spinner is displayed
+// This prevents menu items from shimmering on non-Retina displays
+var listY = self.Layout.titleBarHeight + self.Layout.serverBarHeight + self.Layout.tabBarHeight
+if self.browseMode == .search {
+    listY += self.Layout.searchBarHeight
+}
+let listHeight = self.bounds.height - listY - self.Layout.statusBarHeight
+// Convert from Winamp top-down coordinates to macOS bottom-up coordinates
+let nativeY = self.Layout.statusBarHeight
+let listRect = NSRect(x: 0, y: nativeY, width: self.bounds.width, height: listHeight)
+self.setNeedsDisplay(listRect)
+```
+
 ## Current State
 
 ### Files Changed from `main`

@@ -4132,7 +4132,17 @@ class PlexBrowserView: NSView {
             guard let self = self else { return }
             self.loadingAnimationFrame += 1
             if self.isLoading {
-                self.needsDisplay = true
+                // Only redraw the list area where the loading spinner is displayed
+                // This prevents menu items from shimmering on non-Retina displays
+                var listY = self.Layout.titleBarHeight + self.Layout.serverBarHeight + self.Layout.tabBarHeight
+                if self.browseMode == .search {
+                    listY += self.Layout.searchBarHeight
+                }
+                let listHeight = self.bounds.height - listY - self.Layout.statusBarHeight
+                // Convert from Winamp top-down coordinates to macOS bottom-up coordinates
+                let nativeY = self.Layout.statusBarHeight
+                let listRect = NSRect(x: 0, y: nativeY, width: self.bounds.width, height: listHeight)
+                self.setNeedsDisplay(listRect)
             } else {
                 self.stopLoadingAnimation()
             }
