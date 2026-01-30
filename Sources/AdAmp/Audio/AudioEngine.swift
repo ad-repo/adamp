@@ -1216,6 +1216,11 @@ class AudioEngine {
         state = .playing
         startTimeUpdates()
         
+        // Report cast playback start to Plex (for dashboard "Now Playing" and scrobbling)
+        if let track = currentTrack {
+            PlexPlaybackReporter.shared.trackDidStart(track, at: position)
+        }
+        
         // Notify delegate of track change
         delegate?.audioEngineDidChangeTrack(currentTrack)
         delegate?.audioEngineDidUpdateTime(current: position, duration: duration)
@@ -1237,6 +1242,11 @@ class AudioEngine {
         state = .playing
         startTimeUpdates()
         
+        // Report cast playback start to Plex (for dashboard "Now Playing" and scrobbling)
+        if let track = currentTrack {
+            PlexPlaybackReporter.shared.trackDidStart(track, at: position)
+        }
+        
         // Notify delegate of track change (but not time - wait for Chromecast status)
         delegate?.audioEngineDidChangeTrack(currentTrack)
     }
@@ -1249,6 +1259,9 @@ class AudioEngine {
         }
         castPlaybackStartDate = nil
         
+        // Report pause to Plex
+        PlexPlaybackReporter.shared.trackDidPause(at: castStartPosition)
+        
         // Update state
         state = .paused
     }
@@ -1256,6 +1269,9 @@ class AudioEngine {
     /// Reset cast time to 0 but keep cast session active
     /// Used when user presses stop - allows playing another track without re-selecting device
     func resetCastTime() {
+        // Report stop to Plex before resetting position
+        PlexPlaybackReporter.shared.trackDidStop(at: castStartPosition, finished: false)
+        
         castStartPosition = 0
         castPlaybackStartDate = nil
         // Keep castHasReceivedStatus true so UI updates work when playing again
@@ -1265,6 +1281,9 @@ class AudioEngine {
     /// Resume cast playback time tracking
     func resumeCastPlayback() {
         castPlaybackStartDate = Date()
+        
+        // Report resume to Plex
+        PlexPlaybackReporter.shared.trackDidResume(at: castStartPosition)
         
         // Update state
         state = .playing
@@ -1440,6 +1459,9 @@ class AudioEngine {
     
     /// Handle cast track completion - advance to next track
     private func castTrackDidFinish() {
+        // Report track finished to Plex (natural end)
+        PlexPlaybackReporter.shared.trackDidStop(at: duration, finished: true)
+        
         // Prevent multiple calls
         castPlaybackStartDate = nil
         
