@@ -858,6 +858,16 @@ class SonosRoomCheckboxView: NSView {
                     await MainActor.run {
                         sender.state = isNowChecked ? .off : .on
                     }
+                    // If we can't control the Sonos, the session is effectively broken
+                    // Clean up to prevent local+cast conflict and show error
+                    await castManager.stopCasting()
+                    await MainActor.run {
+                        let alert = NSAlert()
+                        alert.messageText = "Sonos Unavailable"
+                        alert.informativeText = "Lost connection to Sonos: \(error.localizedDescription)"
+                        alert.alertStyle = .warning
+                        alert.runModal()
+                    }
                 }
             }
         } else {
@@ -1822,6 +1832,8 @@ class MenuActions: NSObject {
                 
             } catch {
                 NSLog("MenuActions: Cast to Sonos failed: %@", error.localizedDescription)
+                // Clean up any partial session state to prevent local+cast conflict
+                await castManager.stopCasting()
                 await MainActor.run {
                     let alert = NSAlert()
                     alert.messageText = "Cast Failed"
