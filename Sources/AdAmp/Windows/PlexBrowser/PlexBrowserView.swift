@@ -197,6 +197,9 @@ class PlexBrowserView: NSView {
     /// Scroll offset
     private var scrollOffset: CGFloat = 0
     
+    /// Horizontal scroll offset for column headers
+    private var horizontalScrollOffset: CGFloat = 0
+    
     /// Item height
     private let itemHeight: CGFloat = 18
     
@@ -282,6 +285,19 @@ class PlexBrowserView: NSView {
             return max(column.minWidth, availableWidth - fixedWidth - 8)
         }
         return columnWidths[column.id] ?? column.minWidth
+    }
+    
+    /// Calculate total width needed for all columns
+    private func totalColumnsWidth(columns: [BrowserColumn]) -> CGFloat {
+        var total: CGFloat = 8  // Initial padding
+        for column in columns {
+            if column.id == "title" {
+                total += column.minWidth  // Title uses minWidth for total calculation
+            } else {
+                total += columnWidths[column.id] ?? column.minWidth
+            }
+        }
+        return total
     }
     
     /// Save column widths to UserDefaults
@@ -2219,7 +2235,20 @@ class PlexBrowserView: NSView {
     
     /// Draw column headers with separator line and resize handles
     private func drawColumnHeaders(in context: CGContext, rect: NSRect, columns: [BrowserColumn], colors: PlaylistColors) {
+        // Clip to the header rect to prevent drawing over scrollbar/alphabet index
+        context.saveGState()
+        context.clip(to: rect)
+        
         let totalWidth = rect.width
+        
+        // Calculate total columns width to determine if horizontal scroll is needed
+        let columnsWidth = totalColumnsWidth(columns: columns)
+        let maxHorizontalScroll = max(0, columnsWidth - totalWidth)
+        
+        // Clamp horizontal scroll offset
+        if horizontalScrollOffset > maxHorizontalScroll {
+            horizontalScrollOffset = maxHorizontalScroll
+        }
         
         // Header background (slightly darker)
         colors.normalBackground.withAlphaComponent(0.9).setFill()
@@ -2237,7 +2266,7 @@ class PlexBrowserView: NSView {
         let sortedHeaderColor = colors.normalText.withAlphaComponent(0.9)
         let separatorColor = colors.normalText.withAlphaComponent(0.2)
         
-        var x = rect.minX + 4
+        var x = rect.minX + 4 - horizontalScrollOffset
         for (index, column) in columns.enumerated() {
             let width = widthForColumn(column, availableWidth: totalWidth, columns: columns)
             
@@ -2289,6 +2318,9 @@ class PlexBrowserView: NSView {
         context.move(to: CGPoint(x: rect.minX, y: rect.minY + columnHeaderHeight))
         context.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + columnHeaderHeight))
         context.strokePath()
+        
+        // Restore clipping context
+        context.restoreGState()
     }
     
     /// Draw a single row with columns
@@ -2308,7 +2340,7 @@ class PlexBrowserView: NSView {
         let font = NSFont.systemFont(ofSize: 10)
         let smallFont = NSFont.systemFont(ofSize: 9)
         
-        var x = rect.minX + indent + 4
+        var x = rect.minX + indent + 4 - horizontalScrollOffset
         for column in columns {
             let width = widthForColumn(column, availableWidth: totalWidth, columns: columns)
             let value = item.columnValue(for: column)
@@ -6464,9 +6496,47 @@ class PlexBrowserView: NSView {
         let listHeight = originalWindowSize.height - listY - Layout.statusBarHeight
         let totalHeight = CGFloat(displayItems.count) * itemHeight
         
-        if totalHeight > listHeight {
-            scrollOffset = max(0, min(totalHeight - listHeight, scrollOffset - event.deltaY * 3))
+        // Determine which columns are active for horizontal scroll calculation
+        let columns: [BrowserColumn]?
+        if displayItems.contains(where: { 
+            switch $0.type { case .track, .subsonicTrack, .localTrack: return true; default: return false }
+        }) {
+            columns = BrowserColumn.trackColumns
+        } else if displayItems.contains(where: {
+            switch $0.type { case .album, .subsonicAlbum, .localAlbum: return true; default: return false }
+        }) {
+            columns = BrowserColumn.albumColumns
+        } else if displayItems.contains(where: {
+            switch $0.type { case .artist, .subsonicArtist, .localArtist: return true; default: return false }
+        }) {
+            columns = BrowserColumn.artistColumns
+        } else {
+            columns = nil
+        }
+        
+        var needsRedraw = false
+        
+        // Handle horizontal scrolling (shift+scroll or trackpad horizontal gesture)
+        if let cols = columns, (event.modifierFlags.contains(.shift) || abs(event.deltaX) > abs(event.deltaY)) {
+            let alphabetWidth = Layout.alphabetWidth
+            let availableWidth = originalWindowSize.width - Layout.leftBorder - Layout.rightBorder - Layout.scrollbarWidth - alphabetWidth
+            let columnsWidth = totalColumnsWidth(columns: cols)
+            let maxHorizontalScroll = max(0, columnsWidth - availableWidth)
             
+            if maxHorizontalScroll > 0 {
+                let delta = event.modifierFlags.contains(.shift) ? event.deltaY : event.deltaX
+                horizontalScrollOffset = max(0, min(maxHorizontalScroll, horizontalScrollOffset - delta * 3))
+                needsRedraw = true
+            }
+        }
+        
+        // Handle vertical scrolling
+        if totalHeight > listHeight && abs(event.deltaY) > 0 && !event.modifierFlags.contains(.shift) {
+            scrollOffset = max(0, min(totalHeight - listHeight, scrollOffset - event.deltaY * 3))
+            needsRedraw = true
+        }
+        
+        if needsRedraw {
             // Only redraw the list area and scrollbar, not the entire view
             // This prevents tabs and server bar from shimmering during scroll
             let scale = bounds.width / originalWindowSize.width
@@ -9402,6 +9472,9 @@ class PlexBrowserView: NSView {
     /// Rebuild display items for the current browse mode
     /// This ensures expand/collapse works correctly regardless of which tab we're on
     private func rebuildCurrentModeItems() {
+        // Reset horizontal scroll when items change
+        horizontalScrollOffset = 0
+        
         // Check source type
         if case .local = currentSource {
             switch browseMode {
