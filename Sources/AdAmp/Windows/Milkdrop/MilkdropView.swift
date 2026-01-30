@@ -387,7 +387,11 @@ class MilkdropView: NSView {
             if let window = window {
                 WindowManager.shared.windowWillStartDragging(window, fromTitleBar: true)
             }
+            return
         }
+        
+        // Click in visualization content area - advance to next preset
+        visualizationGLView?.nextPreset(hardCut: false)
     }
     
     /// Handle mouse down in shade mode
