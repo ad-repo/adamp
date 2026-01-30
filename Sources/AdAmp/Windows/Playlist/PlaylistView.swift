@@ -242,13 +242,17 @@ class PlaylistView: NSView {
         let tracks = WindowManager.shared.audioEngine.playlist
         let currentIndex = WindowManager.shared.audioEngine.currentIndex
         
+        // Round scroll offset to integer pixels to prevent text shimmering on non-Retina displays
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let roundedScrollOffset = backingScale < 1.5 ? round(scrollOffset) : scrollOffset
+        
         // Calculate visible range
         let visibleStart = Int(scrollOffset / itemHeight)
         let visibleEnd = min(tracks.count, visibleStart + Int(listRect.height / itemHeight) + 2)
         
         for index in visibleStart..<visibleEnd {
             // In Winamp coordinates, items go from top to bottom (y increases downward)
-            let y = titleHeight + CGFloat(index) * itemHeight - scrollOffset
+            let y = titleHeight + CGFloat(index) * itemHeight - roundedScrollOffset
             
             // Skip if outside visible area
             if y + itemHeight < titleHeight || y > drawBounds.height - bottomHeight {

@@ -89,10 +89,44 @@ class EQView: NSView {
         setupView()
     }
     
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
     private func setupView() {
         wantsLayer = true
         loadCurrentEQState()
         setupAccessibility()
+        setupAutoEQNotification()
+    }
+    
+    /// Subscribe to track change notifications for Auto EQ
+    private func setupAutoEQNotification() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTrackChange(_:)),
+            name: .audioTrackDidChange,
+            object: nil
+        )
+    }
+    
+    /// Handle track change for Auto EQ
+    @objc private func handleTrackChange(_ notification: Notification) {
+        applyAutoEQForCurrentTrack()
+    }
+    
+    /// Apply an EQ preset (updates UI and audio engine)
+    private func applyPreset(_ preset: EQPreset) {
+        preamp = preset.preamp
+        bands = preset.bands
+        
+        // Apply to audio engine
+        WindowManager.shared.audioEngine.setPreamp(preset.preamp)
+        for (index, gain) in preset.bands.enumerated() {
+            WindowManager.shared.audioEngine.setEQBand(index, gain: gain)
+        }
+        
+        needsDisplay = true
     }
     
     // MARK: - Accessibility
@@ -110,10 +144,119 @@ class EQView: NSView {
         // Load EQ enabled state from engine
         isEnabled = engine.isEQEnabled()
         
+        // Load Auto EQ state from UserDefaults only if "Remember State" is enabled
+        // Otherwise default to off (Auto EQ doesn't persist across restarts)
+        if AppStateManager.shared.isEnabled {
+            isAuto = UserDefaults.standard.bool(forKey: "EQAutoEnabled")
+        } else {
+            isAuto = false
+        }
+        
         // Load preamp and band values
         preamp = engine.getPreamp()
         for i in 0..<10 {
             bands[i] = engine.getEQBand(i)
+        }
+        
+        // If Auto EQ is enabled and a track is already playing, apply the genre preset
+        // This handles the case where a track was loaded before the EQ view was created
+        if isAuto {
+            // Delay slightly to ensure audio engine has fully loaded the track
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.applyAutoEQForCurrentTrack()
+            }
+        }
+    }
+    
+    /// Apply Auto EQ for the currently playing track (if genre matches)
+    private func applyAutoEQForCurrentTrack() {
+        guard isAuto else { return }
+        
+        guard let track = WindowManager.shared.audioEngine.currentTrack else {
+            NSLog("Auto EQ: No track currently playing")
+            return
+        }
+        
+        // If track has genre, apply preset directly
+        if let genre = track.genre {
+            applyPresetForGenre(genre)
+            return
+        }
+        
+        // For Plex tracks without genre, try to fetch it from the server
+        if let ratingKey = track.plexRatingKey {
+            NSLog("Auto EQ: Track '%@' has no genre, fetching from Plex...", track.title)
+            Task {
+                await fetchAndApplyPlexGenre(ratingKey: ratingKey, trackTitle: track.title)
+            }
+            return
+        }
+        
+        // For Subsonic tracks without genre, try to fetch it
+        if let subsonicId = track.subsonicId {
+            NSLog("Auto EQ: Track '%@' has no genre, fetching from Subsonic...", track.title)
+            Task {
+                await fetchAndApplySubsonicGenre(songId: subsonicId, trackTitle: track.title)
+            }
+            return
+        }
+        
+        NSLog("Auto EQ: Track '%@' has no genre metadata", track.title)
+    }
+    
+    /// Apply preset for a given genre string
+    private func applyPresetForGenre(_ genre: String) {
+        guard let preset = EQPreset.forGenre(genre) else {
+            NSLog("Auto EQ: No preset match for genre '%@'", genre)
+            return
+        }
+        
+        NSLog("Auto EQ: Applying '%@' preset for genre '%@'", preset.name, genre)
+        
+        // Enable EQ if it's off
+        if !isEnabled {
+            isEnabled = true
+            WindowManager.shared.audioEngine.setEQEnabled(true)
+        }
+        
+        applyPreset(preset)
+    }
+    
+    /// Fetch genre from Plex and apply preset
+    private func fetchAndApplyPlexGenre(ratingKey: String, trackTitle: String) async {
+        guard let client = PlexManager.shared.serverClient else { return }
+        
+        do {
+            if let detailedTrack = try await client.fetchTrackDetails(trackID: ratingKey),
+               let genre = detailedTrack.genre {
+                await MainActor.run {
+                    NSLog("Auto EQ: Fetched genre '%@' for '%@'", genre, trackTitle)
+                    self.applyPresetForGenre(genre)
+                }
+            } else {
+                NSLog("Auto EQ: Plex track '%@' has no genre even in detailed metadata", trackTitle)
+            }
+        } catch {
+            NSLog("Auto EQ: Failed to fetch Plex track details: %@", error.localizedDescription)
+        }
+    }
+    
+    /// Fetch genre from Subsonic and apply preset
+    private func fetchAndApplySubsonicGenre(songId: String, trackTitle: String) async {
+        guard let client = SubsonicManager.shared.serverClient else { return }
+        
+        do {
+            if let song = try await client.fetchSong(id: songId),
+               let genre = song.genre {
+                await MainActor.run {
+                    NSLog("Auto EQ: Fetched genre '%@' for '%@'", genre, trackTitle)
+                    self.applyPresetForGenre(genre)
+                }
+            } else {
+                NSLog("Auto EQ: Subsonic track '%@' has no genre", trackTitle)
+            }
+        } catch {
+            NSLog("Auto EQ: Failed to fetch Subsonic song details: %@", error.localizedDescription)
         }
     }
     
@@ -388,6 +531,17 @@ class EQView: NSView {
         
         if Layout.autoRect.contains(winampPoint) {
             isAuto.toggle()
+            
+            // Only persist Auto EQ state if "Remember State" is enabled
+            if AppStateManager.shared.isEnabled {
+                UserDefaults.standard.set(isAuto, forKey: "EQAutoEnabled")
+            }
+            
+            // If Auto was just enabled, immediately apply genre preset for current track
+            if isAuto {
+                applyAutoEQForCurrentTrack()
+            }
+            
             needsDisplay = true
             return
         }
@@ -598,17 +752,7 @@ class EQView: NSView {
     
     @objc private func selectPreset(_ sender: NSMenuItem) {
         guard let preset = sender.representedObject as? EQPreset else { return }
-        
-        preamp = preset.preamp
-        bands = preset.bands
-        
-        // Apply to audio engine
-        WindowManager.shared.audioEngine.setPreamp(preset.preamp)
-        for (index, gain) in preset.bands.enumerated() {
-            WindowManager.shared.audioEngine.setEQBand(index, gain: gain)
-        }
-        
-        needsDisplay = true
+        applyPreset(preset)
     }
     
     // MARK: - Context Menu

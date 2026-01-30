@@ -42,6 +42,7 @@ override func draw(_ dirtyRect: NSRect) {
     
     // Use low interpolation for clean sprite scaling on large monitors
     // .none causes artifacts, .high causes blur
+    // NOTE: For non-Retina specific fixes, see NON_RETINA_DISPLAY_FIXES.md
     context.interpolationQuality = .low
     
     if scale != 1.0 {
@@ -120,6 +121,8 @@ Width = (N * 25) + 50  (50 = left corner + right corner)
 ```
 
 Valid widths: 275, 300, 425, 450, 475, 500, 550px
+
+**Non-Retina displays**: Even with aligned widths, tile seams may be visible on 1x displays. See [NON_RETINA_DISPLAY_FIXES.md](NON_RETINA_DISPLAY_FIXES.md) for techniques like background fill, tile overlap, and bottom-to-top drawing.
 
 ## Custom Sprites
 
@@ -280,6 +283,7 @@ The offscreen buffer approach processes pixels at native resolution before scali
 4. **Non-tile-aligned widths** - causes sprite interpolation artifacts
 5. **Drawing over skin sprites** - they already contain labels
 6. **Using blend modes for color conversion** - causes sub-pixel artifacts when scaling; use offscreen pixel manipulation instead
+7. **Tile seams on non-Retina** - visible lines at tile boundaries on 1x displays; requires background fill, overlap, and careful draw order (see [NON_RETINA_DISPLAY_FIXES.md](NON_RETINA_DISPLAY_FIXES.md))
 
 ## Key Files
 
@@ -334,6 +338,10 @@ The visualizer uses the existing 75-band spectrum data from `AudioEngine`:
 - Bands 36-74: Treble (4000-20000Hz)
 
 Beat detection triggers on bass energy spikes above threshold.
+
+## Related Documentation
+
+- [NON_RETINA_DISPLAY_FIXES.md](NON_RETINA_DISPLAY_FIXES.md) - Fixes for rendering artifacts on 1x displays (blue lines, tile seams, text shimmering)
 
 ## External References
 

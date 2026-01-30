@@ -197,6 +197,9 @@ class PlexBrowserView: NSView {
     /// Scroll offset
     private var scrollOffset: CGFloat = 0
     
+    /// Horizontal scroll offset for column headers
+    private var horizontalScrollOffset: CGFloat = 0
+    
     /// Item height
     private let itemHeight: CGFloat = 18
     
@@ -284,6 +287,19 @@ class PlexBrowserView: NSView {
         return columnWidths[column.id] ?? column.minWidth
     }
     
+    /// Calculate total width needed for all columns
+    private func totalColumnsWidth(columns: [BrowserColumn]) -> CGFloat {
+        var total: CGFloat = 8  // Initial padding
+        for column in columns {
+            if column.id == "title" {
+                total += column.minWidth  // Title uses minWidth for total calculation
+            } else {
+                total += columnWidths[column.id] ?? column.minWidth
+            }
+        }
+        return total
+    }
+    
     /// Save column widths to UserDefaults
     private func saveColumnWidths() {
         UserDefaults.standard.set(columnWidths, forKey: "BrowserColumnWidths")
@@ -348,14 +364,21 @@ class PlexBrowserView: NSView {
             return
         }
         
-        // Sort items that have columns (tracks/albums), keep others in place
-        // We need to sort contiguous groups of sortable items while preserving hierarchy
+        // If there are any nested/expanded items (indentLevel > 0), skip column sorting
+        // to avoid orphaning children from their parents. The build functions already
+        // handle proper ordering of hierarchical items.
+        let hasNestedItems = displayItems.contains { $0.indentLevel > 0 }
+        if hasNestedItems {
+            needsDisplay = true
+            return
+        }
+        
+        // Sort top-level items only (flat list with no expanded children)
         var sortableIndices: [Int] = []
         var sortableItems: [PlexDisplayItem] = []
         
         for (index, item) in displayItems.enumerated() {
             if columnsForItem(item) != nil && item.indentLevel == 0 {
-                // Top-level sortable item (not nested under artist/album)
                 sortableIndices.append(index)
                 sortableItems.append(item)
             }
@@ -412,7 +435,7 @@ class PlexBrowserView: NSView {
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
         
-        // Put sorted items back
+        // Put sorted items back at their original indices
         for (sortedIndex, originalIndex) in sortableIndices.enumerated() {
             displayItems[originalIndex] = sortableItems[sortedIndex]
         }
@@ -886,7 +909,8 @@ class PlexBrowserView: NSView {
         silenceFrames = 0
         visualizerTimer?.invalidate()
         // 60fps for smooth trippy effects
-        visualizerTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak self] _ in
+        // Use .common run loop mode so timer continues during context menu display
+        let timer = Timer(timeInterval: 1.0/60.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.visualizerTime += 1.0/60.0
             
@@ -919,8 +943,18 @@ class PlexBrowserView: NSView {
             }
             
             self.lastAudioLevel = currentLevel
-            self.needsDisplay = true
+            
+            // Only redraw the visualization content area, not the entire view
+            // This prevents menu items (title bar, server bar) from shimmering on non-Retina displays
+            let contentY = self.Layout.titleBarHeight + self.Layout.serverBarHeight
+            let contentHeight = self.bounds.height - contentY - self.Layout.statusBarHeight
+            // Convert from Winamp top-down coordinates to macOS bottom-up coordinates
+            let nativeY = self.Layout.statusBarHeight
+            let contentRect = NSRect(x: 0, y: nativeY, width: self.bounds.width, height: contentHeight)
+            self.setNeedsDisplay(contentRect)
         }
+        RunLoop.main.add(timer, forMode: .common)
+        visualizerTimer = timer
         
         // Start cycle timer if in cycle mode
         if visMode == .cycle {
@@ -939,7 +973,8 @@ class PlexBrowserView: NSView {
     /// Start cycle mode timer
     private func startCycleTimer() {
         cycleTimer?.invalidate()
-        cycleTimer = Timer.scheduledTimer(withTimeInterval: cycleInterval, repeats: true) { [weak self] _ in
+        // Use .common run loop mode so timer continues during context menu display
+        let timer = Timer(timeInterval: cycleInterval, repeats: true) { [weak self] _ in
             guard let self = self, self.visMode == .cycle else { return }
             let effects = VisEffect.allCases
             if let currentIndex = effects.firstIndex(of: self.currentVisEffect) {
@@ -947,6 +982,8 @@ class PlexBrowserView: NSView {
                 self.currentVisEffect = effects[nextIndex]
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        cycleTimer = timer
     }
     
     /// Toggle visualization mode
@@ -1287,8 +1324,12 @@ class PlexBrowserView: NSView {
         let charHeight = SkinElements.TextFont.charHeight
         let textWidth = CGFloat(text.count) * charWidth * scale
         let textHeight = charHeight * scale
-        let x = rect.midX - textWidth / 2
-        let y = rect.midY - textHeight / 2
+        let rawX = rect.midX - textWidth / 2
+        let rawY = rect.midY - textHeight / 2
+        // Round coordinates on non-Retina to prevent shimmering
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let x = backingScale < 1.5 ? round(rawX) : rawX
+        let y = backingScale < 1.5 ? round(rawY) : rawY
         drawScaledWhiteSkinText(text, at: NSPoint(x: x, y: y), scale: scale, renderer: renderer, in: context)
     }
     
@@ -1332,8 +1373,13 @@ class PlexBrowserView: NSView {
                             width: drawBounds.width - Layout.leftBorder - Layout.rightBorder,
                             height: Layout.serverBarHeight)
         
-        // Background
-        colors.normalBackground.withAlphaComponent(0.6).setFill()
+        // Background - use fully opaque on non-Retina to prevent compositing artifacts
+        let backingScaleForBg = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScaleForBg < 1.5 {
+            colors.normalBackground.setFill()
+        } else {
+            colors.normalBackground.withAlphaComponent(0.6).setFill()
+        }
         context.fill(barRect)
         
         let charWidth = SkinElements.TextFont.charWidth
@@ -1341,7 +1387,10 @@ class PlexBrowserView: NSView {
         let textScale: CGFloat = 1.5
         let scaledCharWidth = charWidth * textScale
         let scaledCharHeight = charHeight * textScale
-        let textY = barRect.minY + (barRect.height - scaledCharHeight) / 2
+        // Round textY to prevent shimmering on non-Retina displays
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let rawTextY = barRect.minY + (barRect.height - scaledCharHeight) / 2
+        let textY = backingScale < 1.5 ? round(rawTextY) : rawTextY
         
         // Common prefix for all sources
         let prefix = "Source: "
@@ -1733,8 +1782,13 @@ class PlexBrowserView: NSView {
                                width: drawBounds.width - Layout.leftBorder - Layout.rightBorder,
                                height: Layout.tabBarHeight)
         
-        // Background
-        colors.normalBackground.withAlphaComponent(0.4).setFill()
+        // Background - use fully opaque on non-Retina to prevent compositing artifacts
+        let backingScaleForTabBg = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScaleForTabBg < 1.5 {
+            colors.normalBackground.setFill()
+        } else {
+            colors.normalBackground.withAlphaComponent(0.4).setFill()
+        }
         context.fill(tabBarRect)
         
         let charWidth = SkinElements.TextFont.charWidth
@@ -1742,6 +1796,10 @@ class PlexBrowserView: NSView {
         let textScale: CGFloat = 1.5
         let scaledCharWidth = charWidth * textScale
         let scaledCharHeight = charHeight * textScale
+        
+        // Round Y coordinates on non-Retina to prevent shimmering
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let shouldRound = backingScale < 1.5
         
         // Calculate sort indicator width (on the right)
         let sortText = "Sort:\(currentSort.shortName)"
@@ -1763,15 +1821,19 @@ class PlexBrowserView: NSView {
             } else {
                 // Unselected tabs in green skin text
                 let titleWidth = CGFloat(mode.title.count) * scaledCharWidth
-                let textX = tabRect.midX - titleWidth / 2
-                let textY = tabRect.minY + (tabRect.height - scaledCharHeight) / 2
+                let rawTextX = tabRect.midX - titleWidth / 2
+                let rawTextY = tabRect.minY + (tabRect.height - scaledCharHeight) / 2
+                let textX = shouldRound ? round(rawTextX) : rawTextX
+                let textY = shouldRound ? round(rawTextY) : rawTextY
                 drawScaledSkinText(mode.title, at: NSPoint(x: textX, y: textY), scale: textScale, renderer: renderer, in: context)
             }
         }
         
         // Draw sort indicator on the right
-        let sortX = tabBarRect.maxX - sortWidth + 4
-        let sortY = tabBarY + (Layout.tabBarHeight - scaledCharHeight) / 2
+        let rawSortX = tabBarRect.maxX - sortWidth + 4
+        let rawSortY = tabBarY + (Layout.tabBarHeight - scaledCharHeight) / 2
+        let sortX = shouldRound ? round(rawSortX) : rawSortX
+        let sortY = shouldRound ? round(rawSortY) : rawSortY
         drawScaledSkinText(sortText, at: NSPoint(x: sortX, y: sortY), scale: textScale, renderer: renderer, in: context)
     }
     
@@ -2027,6 +2089,14 @@ class PlexBrowserView: NSView {
         context.saveGState()
         context.clip(to: listRect)
         
+        // On non-Retina displays, fill the entire list area with background color first
+        // to prevent any gaps/lines showing through between items
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if backingScale < 1.5 {
+            colors.normalBackground.setFill()
+            context.fill(listRect)
+        }
+        
         // Draw album art background if enabled and available
         if WindowManager.shared.showBrowserArtworkBackground, let artwork = currentArtwork,
            let cgImage = artwork.cgImage(forProposedRect: nil, context: nil, hints: nil) {
@@ -2051,6 +2121,9 @@ class PlexBrowserView: NSView {
         }
         
         // Draw items
+        // Round scroll offset to integer pixels to prevent text shimmering on non-Retina displays
+        let roundedScrollOffset = backingScale < 1.5 ? round(scrollOffset) : scrollOffset
+        
         let visibleStart = max(0, Int(scrollOffset / itemHeight))
         let visibleEnd = min(displayItems.count, visibleStart + Int(contentHeight / itemHeight) + 2)
         
@@ -2065,7 +2138,7 @@ class PlexBrowserView: NSView {
         }
         
         for index in visibleStart..<visibleEnd {
-            let y = contentListY + CGFloat(index) * itemHeight - scrollOffset
+            let y = contentListY + CGFloat(index) * itemHeight - roundedScrollOffset
             
             if y + itemHeight < contentListY || y > contentListY + contentHeight {
                 continue
@@ -2075,8 +2148,16 @@ class PlexBrowserView: NSView {
             let item = displayItems[index]
             let isSelected = selectedIndices.contains(index)
             
-            // Selection background
-            if isSelected {
+            // On non-Retina displays, fill item background to prevent gaps/lines
+            // BUT skip this when artwork background is showing (it already provides a continuous background)
+            // On Retina, only fill background for selected items
+            let hasArtworkBackground = WindowManager.shared.showBrowserArtworkBackground && currentArtwork != nil
+            if backingScale < 1.5 && !hasArtworkBackground {
+                // Fill with normal or selected background (only when no artwork)
+                let bgColor = isSelected ? colors.selectedBackground : colors.normalBackground
+                bgColor.setFill()
+                context.fill(itemRect)
+            } else if isSelected {
                 colors.selectedBackground.setFill()
                 context.fill(itemRect)
             }
@@ -2156,7 +2237,20 @@ class PlexBrowserView: NSView {
     
     /// Draw column headers with separator line and resize handles
     private func drawColumnHeaders(in context: CGContext, rect: NSRect, columns: [BrowserColumn], colors: PlaylistColors) {
+        // Clip to the header rect to prevent drawing over scrollbar/alphabet index
+        context.saveGState()
+        context.clip(to: rect)
+        
         let totalWidth = rect.width
+        
+        // Calculate total columns width to determine if horizontal scroll is needed
+        let columnsWidth = totalColumnsWidth(columns: columns)
+        let maxHorizontalScroll = max(0, columnsWidth - totalWidth)
+        
+        // Clamp horizontal scroll offset
+        if horizontalScrollOffset > maxHorizontalScroll {
+            horizontalScrollOffset = maxHorizontalScroll
+        }
         
         // Header background (slightly darker)
         colors.normalBackground.withAlphaComponent(0.9).setFill()
@@ -2174,7 +2268,7 @@ class PlexBrowserView: NSView {
         let sortedHeaderColor = colors.normalText.withAlphaComponent(0.9)
         let separatorColor = colors.normalText.withAlphaComponent(0.2)
         
-        var x = rect.minX + 4
+        var x = rect.minX + 4 - horizontalScrollOffset
         for (index, column) in columns.enumerated() {
             let width = widthForColumn(column, availableWidth: totalWidth, columns: columns)
             
@@ -2226,6 +2320,9 @@ class PlexBrowserView: NSView {
         context.move(to: CGPoint(x: rect.minX, y: rect.minY + columnHeaderHeight))
         context.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + columnHeaderHeight))
         context.strokePath()
+        
+        // Restore clipping context
+        context.restoreGState()
     }
     
     /// Draw a single row with columns
@@ -2245,7 +2342,7 @@ class PlexBrowserView: NSView {
         let font = NSFont.systemFont(ofSize: 10)
         let smallFont = NSFont.systemFont(ofSize: 9)
         
-        var x = rect.minX + indent + 4
+        var x = rect.minX + indent + 4 - horizontalScrollOffset
         for column in columns {
             let width = widthForColumn(column, availableWidth: totalWidth, columns: columns)
             let value = item.columnValue(for: column)
@@ -4071,15 +4168,28 @@ class PlexBrowserView: NSView {
     
     private func startLoadingAnimation() {
         guard loadingAnimationTimer == nil else { return }
-        loadingAnimationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        // Use .common run loop mode so timer continues during context menu display
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.loadingAnimationFrame += 1
             if self.isLoading {
-                self.needsDisplay = true
+                // Only redraw the list area where the loading spinner is displayed
+                // This prevents menu items from shimmering on non-Retina displays
+                var listY = self.Layout.titleBarHeight + self.Layout.serverBarHeight + self.Layout.tabBarHeight
+                if self.browseMode == .search {
+                    listY += self.Layout.searchBarHeight
+                }
+                let listHeight = self.bounds.height - listY - self.Layout.statusBarHeight
+                // Convert from Winamp top-down coordinates to macOS bottom-up coordinates
+                let nativeY = self.Layout.statusBarHeight
+                let listRect = NSRect(x: 0, y: nativeY, width: self.bounds.width, height: listHeight)
+                self.setNeedsDisplay(listRect)
             } else {
                 self.stopLoadingAnimation()
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        loadingAnimationTimer = timer
     }
     
     private func stopLoadingAnimation() {
@@ -4952,6 +5062,32 @@ class PlexBrowserView: NSView {
                     image = await self.loadSubsonicArtworkByCoverId(coverArt: coverArt, cacheKey: "subsonic:\(song.id)")
                 }
                 
+            case .localArtist(let artist):
+                // Load artwork from first track by this artist
+                let artistTracks = self.cachedLocalTracks.filter { $0.artist == artist.name }
+                if let firstTrack = artistTracks.first {
+                    image = await self.loadLocalArtwork(url: firstTrack.url)
+                    if image == nil {
+                        image = await self.loadWebArtwork(artist: firstTrack.artist, album: firstTrack.album, title: firstTrack.title)
+                    }
+                }
+                
+            case .subsonicArtist(let artist):
+                // Load artist image if available
+                if let coverArt = artist.coverArt {
+                    image = await self.loadSubsonicArtworkByCoverId(coverArt: coverArt, cacheKey: "subsonic:\(artist.id)")
+                }
+                
+            case .subsonicPlaylist(let playlist):
+                if let coverArt = playlist.coverArt {
+                    image = await self.loadSubsonicArtworkByCoverId(coverArt: coverArt, cacheKey: "subsonic:playlist:\(playlist.id)")
+                }
+                
+            case .plexPlaylist(let playlist):
+                if let thumb = playlist.thumb {
+                    image = await self.loadPlexArtworkByThumb(thumb: thumb, cacheKey: "plex:playlist:\(playlist.id)")
+                }
+                
             default:
                 break
             }
@@ -5358,12 +5494,12 @@ class PlexBrowserView: NSView {
         }
         let listHeight = originalWindowSize.height - listY - Layout.statusBarHeight
         
-        // Scrollbar is drawn at x = bounds.width - 11 (width 8, with 3px edge)
-        // Use generous 30px wide hit area on the right edge
+        // Scrollbar hit area: scrollbar (10px) + right border (6px) = 16px
+        // Must not overlap with alphabet index area (which is to the left of scrollbar)
         let scrollbarRect = NSRect(
-            x: originalWindowSize.width - 30,
+            x: originalWindowSize.width - Layout.rightBorder - Layout.scrollbarWidth,
             y: listY,
-            width: 30,
+            width: Layout.rightBorder + Layout.scrollbarWidth,
             height: listHeight
         )
         
@@ -6285,7 +6421,14 @@ class PlexBrowserView: NSView {
                 let trackRange = listHeight - 18  // Thumb height
                 let scrollDelta = (deltaY / trackRange) * scrollRange
                 scrollOffset = max(0, min(scrollRange, scrollbarDragStartOffset + scrollDelta))
-                needsDisplay = true
+                
+                // Only redraw the list area and scrollbar, not the entire view
+                let scale = bounds.width / originalWindowSize.width
+                let scaledListY = bounds.height - (listY + listHeight) * scale
+                let scaledListHeight = (listHeight + Layout.statusBarHeight) * scale
+                let listRect = NSRect(x: 0, y: scaledListY,
+                                     width: bounds.width, height: scaledListHeight)
+                setNeedsDisplay(listRect)
             }
             return
         }
@@ -6381,9 +6524,55 @@ class PlexBrowserView: NSView {
         let listHeight = originalWindowSize.height - listY - Layout.statusBarHeight
         let totalHeight = CGFloat(displayItems.count) * itemHeight
         
-        if totalHeight > listHeight {
+        // Determine which columns are active for horizontal scroll calculation
+        let columns: [BrowserColumn]?
+        if displayItems.contains(where: { 
+            switch $0.type { case .track, .subsonicTrack, .localTrack: return true; default: return false }
+        }) {
+            columns = BrowserColumn.trackColumns
+        } else if displayItems.contains(where: {
+            switch $0.type { case .album, .subsonicAlbum, .localAlbum: return true; default: return false }
+        }) {
+            columns = BrowserColumn.albumColumns
+        } else if displayItems.contains(where: {
+            switch $0.type { case .artist, .subsonicArtist, .localArtist: return true; default: return false }
+        }) {
+            columns = BrowserColumn.artistColumns
+        } else {
+            columns = nil
+        }
+        
+        var needsRedraw = false
+        
+        // Handle horizontal scrolling (shift+scroll or trackpad horizontal gesture)
+        if let cols = columns, (event.modifierFlags.contains(.shift) || abs(event.deltaX) > abs(event.deltaY)) {
+            let alphabetWidth = Layout.alphabetWidth
+            let availableWidth = originalWindowSize.width - Layout.leftBorder - Layout.rightBorder - Layout.scrollbarWidth - alphabetWidth
+            let columnsWidth = totalColumnsWidth(columns: cols)
+            let maxHorizontalScroll = max(0, columnsWidth - availableWidth)
+            
+            if maxHorizontalScroll > 0 {
+                let delta = event.modifierFlags.contains(.shift) ? event.deltaY : event.deltaX
+                horizontalScrollOffset = max(0, min(maxHorizontalScroll, horizontalScrollOffset - delta * 3))
+                needsRedraw = true
+            }
+        }
+        
+        // Handle vertical scrolling
+        if totalHeight > listHeight && abs(event.deltaY) > 0 && !event.modifierFlags.contains(.shift) {
             scrollOffset = max(0, min(totalHeight - listHeight, scrollOffset - event.deltaY * 3))
-            needsDisplay = true
+            needsRedraw = true
+        }
+        
+        if needsRedraw {
+            // Only redraw the list area and scrollbar, not the entire view
+            // This prevents tabs and server bar from shimmering during scroll
+            let scale = bounds.width / originalWindowSize.width
+            let scaledListY = bounds.height - (listY + listHeight) * scale
+            let scaledListHeight = (listHeight + Layout.statusBarHeight) * scale
+            let listRect = NSRect(x: 0, y: scaledListY,
+                                 width: bounds.width, height: scaledListHeight)
+            setNeedsDisplay(listRect)
         }
     }
     
@@ -9311,6 +9500,9 @@ class PlexBrowserView: NSView {
     /// Rebuild display items for the current browse mode
     /// This ensures expand/collapse works correctly regardless of which tab we're on
     private func rebuildCurrentModeItems() {
+        // Reset horizontal scroll when items change
+        horizontalScrollOffset = 0
+        
         // Check source type
         if case .local = currentSource {
             switch browseMode {

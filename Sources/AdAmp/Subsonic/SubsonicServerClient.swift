@@ -298,6 +298,17 @@ class SubsonicServerClient {
         return allAlbums
     }
     
+    /// Fetch a single song by ID
+    func fetchSong(id: String) async throws -> SubsonicSong? {
+        let params = [URLQueryItem(name: "id", value: id)]
+        guard let request = buildRequest(endpoint: "getSong", params: params) else {
+            throw SubsonicClientError.invalidURL
+        }
+        
+        let response: SubsonicSongResponse = try await performRequest(request)
+        return response.song?.toSong()
+    }
+    
     /// Fetch album details with tracks
     func fetchAlbum(id: String) async throws -> (album: SubsonicAlbum, songs: [SubsonicSong]) {
         let params = [URLQueryItem(name: "id", value: id)]

@@ -269,6 +269,11 @@ struct SubsonicAlbumResponse: Decodable {
     }
 }
 
+/// Response for getSong endpoint
+struct SubsonicSongResponse: Decodable {
+    let song: SongDTO?
+}
+
 /// Response for getAlbumList2 endpoint
 struct SubsonicAlbumListResponse: Decodable {
     let albumList2: AlbumListContainer?

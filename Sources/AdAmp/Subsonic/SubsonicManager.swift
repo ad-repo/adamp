@@ -497,7 +497,9 @@ class SubsonicManager {
             channels: nil,
             plexRatingKey: nil,
             subsonicId: song.id,
-            subsonicServerId: currentServer?.id
+            subsonicServerId: currentServer?.id,
+            artworkThumb: song.coverArt,
+            genre: song.genre
         )
     }
     

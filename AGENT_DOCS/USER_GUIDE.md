@@ -214,10 +214,30 @@ The 10-band graphic equalizer lets you shape your sound.
 ### Controls
 
 - **ON/OFF** - Enable/disable EQ processing
-- **AUTO** - Automatic EQ adjustment (reserved)
+- **AUTO** - Automatic genre-based EQ (see Auto EQ below)
 - **PRESETS** - Load pre-configured EQ settings
 - **Preamp Slider** - Global gain adjustment (-12dB to +12dB)
 - **Band Sliders** - Per-frequency adjustment (-12dB to +12dB)
+
+### Auto EQ
+
+When **AUTO** is enabled, the equalizer automatically applies genre-appropriate presets when tracks change:
+
+| Genre Category | Matched Genres |
+|----------------|----------------|
+| **Rock** | rock, metal, punk, grunge, alternative, hard rock, indie rock |
+| **Pop** | pop, dance-pop, synth-pop, k-pop, indie pop |
+| **Electronic** | electronic, techno, house, trance, edm, dubstep, ambient |
+| **Hip-Hop** | hip-hop, rap, r&b, rnb, soul, funk, trap |
+| **Jazz** | jazz, swing, bebop, fusion, smooth jazz, blues |
+| **Classical** | classical, orchestra, symphony, opera, baroque, chamber |
+
+**Behavior:**
+- When enabled, AUTO immediately applies a preset if the current track has a matching genre
+- If the EQ is off when AUTO is enabled, it turns on automatically
+- If no genre match is found, the current EQ settings remain unchanged
+- Manual EQ adjustments are overridden when the track changes (while AUTO is on)
+- AUTO state persists across app restarts
 
 ### EQ Graph
 

@@ -26,6 +26,7 @@ class ContextMenuBuilder {
         menu.addItem(buildWindowItem("Playlist Editor", visible: wm.isPlaylistVisible, action: #selector(MenuActions.togglePlaylist)))
         menu.addItem(buildWindowItem("Library Browser", visible: wm.isPlexBrowserVisible, action: #selector(MenuActions.togglePlexBrowser)))
         menu.addItem(buildWindowItem("Milkdrop", visible: wm.isMilkdropVisible, action: #selector(MenuActions.toggleMilkdrop)))
+        menu.addItem(buildWindowItem("Debug Console", visible: wm.isDebugWindowVisible, action: #selector(MenuActions.toggleDebugConsole)))
         
         menu.addItem(NSMenuItem.separator())
         
@@ -52,20 +53,20 @@ class ContextMenuBuilder {
         
         menu.addItem(NSMenuItem.separator())
         
-        // Always on Top
-        let alwaysOnTop = NSMenuItem(title: "Always on Top", action: #selector(MenuActions.toggleAlwaysOnTop), keyEquivalent: "")
+        // Always On Top
+        let alwaysOnTop = NSMenuItem(title: "Always On Top", action: #selector(MenuActions.toggleAlwaysOnTop), keyEquivalent: "")
         alwaysOnTop.target = MenuActions.shared
         alwaysOnTop.state = wm.isAlwaysOnTop ? .on : .off
         menu.addItem(alwaysOnTop)
         
-        // Remember State on Quit
-        let rememberState = NSMenuItem(title: "Remember State on Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
+        // Remember State On Quit
+        let rememberState = NSMenuItem(title: "Remember State On Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
         rememberState.target = MenuActions.shared
         rememberState.state = AppStateManager.shared.isEnabled ? .on : .off
         menu.addItem(rememberState)
         
-        // Snap to Default
-        let snapToDefault = NSMenuItem(title: "Snap to Default", action: #selector(MenuActions.snapToDefault), keyEquivalent: "")
+        // Snap To Default
+        let snapToDefault = NSMenuItem(title: "Snap To Default", action: #selector(MenuActions.snapToDefault), keyEquivalent: "")
         snapToDefault.target = MenuActions.shared
         menu.addItem(snapToDefault)
         
@@ -951,6 +952,10 @@ class MenuActions: NSObject {
     
     @objc func toggleMilkdrop() {
         WindowManager.shared.toggleMilkdrop()
+    }
+    
+    @objc func toggleDebugConsole() {
+        WindowManager.shared.toggleDebugWindow()
     }
     
     // MARK: - About Playing

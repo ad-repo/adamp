@@ -28,8 +28,14 @@ struct Track: Identifiable, Equatable {
     /// Subsonic server ID to identify which server the track belongs to
     let subsonicServerId: String?
     
+    /// Artwork identifier for casting (Plex thumb path or Subsonic coverArt ID)
+    let artworkThumb: String?
+    
     /// Media type (audio or video)
     let mediaType: MediaType
+    
+    /// Genre metadata for Auto EQ
+    let genre: String?
     
     init(url: URL) {
         self.id = UUID()
@@ -43,6 +49,7 @@ struct Track: Identifiable, Equatable {
         var extractedBitrate: Int?
         var extractedSampleRate: Int?
         var extractedChannels: Int?
+        var extractedGenre: String?
         
         // Try AVAudioFile first for local files (more reliable for audio format info)
         if url.isFileURL {
@@ -128,6 +135,12 @@ struct Track: Identifiable, Equatable {
                         break
                     }
                 }
+                // Also check for genre in ID3 metadata (not exposed via commonKey)
+                if let key = item.key as? String, (key == "TCON" || key == "©gen") {
+                    if let value = item.stringValue, !value.isEmpty {
+                        extractedGenre = value
+                    }
+                }
             }
         }
         
@@ -141,10 +154,12 @@ struct Track: Identifiable, Equatable {
         self.plexRatingKey = nil  // Local files don't have Plex rating keys
         self.subsonicId = nil     // Local files don't have Subsonic IDs
         self.subsonicServerId = nil
+        self.artworkThumb = nil   // Local files use embedded artwork
         
         // Detect media type by checking for video tracks in the asset
         let videoTracks = asset.tracks(withMediaType: .video)
         self.mediaType = videoTracks.isEmpty ? .audio : .video
+        self.genre = extractedGenre
     }
     
     init(id: UUID = UUID(),
@@ -159,7 +174,9 @@ struct Track: Identifiable, Equatable {
          plexRatingKey: String? = nil,
          subsonicId: String? = nil,
          subsonicServerId: String? = nil,
-         mediaType: MediaType = .audio) {
+         artworkThumb: String? = nil,
+         mediaType: MediaType = .audio,
+         genre: String? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -172,7 +189,9 @@ struct Track: Identifiable, Equatable {
         self.plexRatingKey = plexRatingKey
         self.subsonicId = subsonicId
         self.subsonicServerId = subsonicServerId
+        self.artworkThumb = artworkThumb
         self.mediaType = mediaType
+        self.genre = genre
     }
     
     /// Display title (artist - title or just title)
