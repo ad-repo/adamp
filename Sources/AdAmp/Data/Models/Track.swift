@@ -31,6 +31,9 @@ struct Track: Identifiable, Equatable {
     /// Media type (audio or video)
     let mediaType: MediaType
     
+    /// Genre metadata for Auto EQ
+    let genre: String?
+    
     init(url: URL) {
         self.id = UUID()
         self.url = url
@@ -43,6 +46,7 @@ struct Track: Identifiable, Equatable {
         var extractedBitrate: Int?
         var extractedSampleRate: Int?
         var extractedChannels: Int?
+        var extractedGenre: String?
         
         // Try AVAudioFile first for local files (more reliable for audio format info)
         if url.isFileURL {
@@ -128,6 +132,12 @@ struct Track: Identifiable, Equatable {
                         break
                     }
                 }
+                // Also check for genre in ID3 metadata (not exposed via commonKey)
+                if let key = item.key as? String, (key == "TCON" || key == "©gen") {
+                    if let value = item.stringValue, !value.isEmpty {
+                        extractedGenre = value
+                    }
+                }
             }
         }
         
@@ -145,6 +155,7 @@ struct Track: Identifiable, Equatable {
         // Detect media type by checking for video tracks in the asset
         let videoTracks = asset.tracks(withMediaType: .video)
         self.mediaType = videoTracks.isEmpty ? .audio : .video
+        self.genre = extractedGenre
     }
     
     init(id: UUID = UUID(),
@@ -159,7 +170,8 @@ struct Track: Identifiable, Equatable {
          plexRatingKey: String? = nil,
          subsonicId: String? = nil,
          subsonicServerId: String? = nil,
-         mediaType: MediaType = .audio) {
+         mediaType: MediaType = .audio,
+         genre: String? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -173,6 +185,7 @@ struct Track: Identifiable, Equatable {
         self.subsonicId = subsonicId
         self.subsonicServerId = subsonicServerId
         self.mediaType = mediaType
+        self.genre = genre
     }
     
     /// Display title (artist - title or just title)

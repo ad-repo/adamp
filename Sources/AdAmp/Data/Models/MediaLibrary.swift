@@ -104,7 +104,8 @@ struct LibraryTrack: Identifiable, Codable, Hashable {
             duration: duration,
             bitrate: bitrate,
             sampleRate: sampleRate,
-            channels: channels
+            channels: channels,
+            genre: genre
         )
     }
     

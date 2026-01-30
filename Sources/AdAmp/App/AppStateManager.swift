@@ -47,6 +47,7 @@ class AppStateManager {
         
         // EQ settings
         var eqEnabled: Bool
+        var eqAutoEnabled: Bool = false
         var eqPreamp: Float
         var eqBands: [Float]
         
@@ -74,7 +75,7 @@ class AppStateManager {
             case mainWindowFrame, playlistWindowFrame, equalizerWindowFrame, plexBrowserWindowFrame, milkdropWindowFrame
             case volume, balance, shuffleEnabled, repeatEnabled, gaplessPlaybackEnabled, volumeNormalizationEnabled
             case sweetFadeEnabled, sweetFadeDuration
-            case eqEnabled, eqPreamp, eqBands
+            case eqEnabled, eqAutoEnabled, eqPreamp, eqBands
             case playlistURLs, currentTrackIndex, playbackPosition, wasPlaying
             case timeDisplayMode, isAlwaysOnTop
             case customSkinPath, baseSkinIndex
@@ -111,6 +112,7 @@ class AppStateManager {
             
             // EQ settings
             eqEnabled = try container.decode(Bool.self, forKey: .eqEnabled)
+            eqAutoEnabled = try container.decodeIfPresent(Bool.self, forKey: .eqAutoEnabled) ?? false
             eqPreamp = try container.decode(Float.self, forKey: .eqPreamp)
             eqBands = try container.decode([Float].self, forKey: .eqBands)
             
@@ -152,6 +154,7 @@ class AppStateManager {
             sweetFadeEnabled: Bool,
             sweetFadeDuration: Double,
             eqEnabled: Bool,
+            eqAutoEnabled: Bool,
             eqPreamp: Float,
             eqBands: [Float],
             playlistURLs: [String],
@@ -182,6 +185,7 @@ class AppStateManager {
             self.sweetFadeEnabled = sweetFadeEnabled
             self.sweetFadeDuration = sweetFadeDuration
             self.eqEnabled = eqEnabled
+            self.eqAutoEnabled = eqAutoEnabled
             self.eqPreamp = eqPreamp
             self.eqBands = eqBands
             self.playlistURLs = playlistURLs
@@ -259,6 +263,7 @@ class AppStateManager {
             
             // EQ settings
             eqEnabled: engine.isEQEnabled(),
+            eqAutoEnabled: UserDefaults.standard.bool(forKey: "EQAutoEnabled"),
             eqPreamp: engine.getPreamp(),
             eqBands: (0..<10).map { engine.getEQBand($0) },
             
@@ -409,6 +414,7 @@ class AppStateManager {
         
         // Restore EQ settings
         engine.setEQEnabled(state.eqEnabled)
+        UserDefaults.standard.set(state.eqAutoEnabled, forKey: "EQAutoEnabled")
         engine.setPreamp(state.eqPreamp)
         for (index, gain) in state.eqBands.enumerated() {
             engine.setEQBand(index, gain: gain)
@@ -461,7 +467,7 @@ class AppStateManager {
             }
         }
         
-        NSLog("AppStateManager: Settings state restored")
+        NSLog("AppStateManager: Settings state restored (eqAutoEnabled: %d)", state.eqAutoEnabled ? 1 : 0)
     }
     
     /// Apply playlist state only
@@ -535,6 +541,7 @@ class AppStateManager {
         
         // Restore EQ settings
         engine.setEQEnabled(state.eqEnabled)
+        UserDefaults.standard.set(state.eqAutoEnabled, forKey: "EQAutoEnabled")
         engine.setPreamp(state.eqPreamp)
         for (index, gain) in state.eqBands.enumerated() {
             engine.setEQBand(index, gain: gain)
