@@ -793,6 +793,16 @@ class WindowManager {
         milkdropWindowController?.window?.isVisible == true
     }
     
+    /// Whether Milkdrop is in fullscreen mode
+    var isMilkdropFullscreen: Bool {
+        milkdropWindowController?.isFullscreen ?? false
+    }
+    
+    /// Toggle Milkdrop fullscreen
+    func toggleMilkdropFullscreen() {
+        milkdropWindowController?.toggleFullscreen()
+    }
+    
     /// Whether the debug console window is visible
     var isDebugWindowVisible: Bool {
         debugWindowController?.window?.isVisible == true

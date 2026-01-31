@@ -1738,6 +1738,14 @@ class AudioEngine {
         delegate?.audioEngineDidChangePlaylist()
     }
     
+    /// Append tracks to the playlist without starting playback
+    /// Used for restoring streaming tracks from saved state
+    func appendTracks(_ tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlist.append(contentsOf: tracks)
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
     /// Set the playlist files without starting playback (for state restoration)
     /// This clears the existing playlist and populates it with the given files,
     /// but does NOT load or play any track.

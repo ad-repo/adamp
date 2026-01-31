@@ -1013,14 +1013,16 @@ The main window displays real-time frequency analysis:
 
 When enabled, the following is saved on quit and restored on launch:
 - **Window positions and visibility** (Main, EQ, Playlist, Browser, Milkdrop)
+- **Milkdrop fullscreen state** (restores to fullscreen if it was fullscreen)
 - **Audio settings** (volume, balance, shuffle, repeat, gapless, normalization, Sweet Fades)
 - **Equalizer settings** (enabled state, preamp, all band values)
-- **Playlist** (local files only, not streaming tracks)
+- **Playlist** (local files AND streaming tracks from Plex/Subsonic)
 - **Milkdrop preset** (restores the last-used visualization preset)
+- **Library Browser source** (remembers which library was selected)
 - **Custom skin** (if a non-default skin was loaded)
-- **UI preferences** (time display mode, always on top, double size)
+- **UI preferences** (time display mode, always on top)
 
-**Note**: Only local file playlists are saved. Streaming tracks (Plex, Subsonic) are not persisted as they require authentication on each launch. The playlist is restored but no track is automatically loaded or played - you choose when to start playback.
+**Note**: Streaming tracks require their respective servers (Plex/Navidrome) to be available on launch. Tracks from unavailable servers will be skipped. The playlist is restored but no track is automatically loaded or played - you choose when to start playback.
 
 ---
 
