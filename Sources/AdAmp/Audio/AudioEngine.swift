@@ -23,6 +23,10 @@ extension Notification.Name {
     /// Posted when the current track changes
     /// userInfo contains: "track" (Track?) - may be nil when playback stops
     static let audioTrackDidChange = Notification.Name("audioTrackDidChange")
+    
+    /// Posted when a track fails to load
+    /// userInfo contains: "track" (Track), "error" (Error), "message" (String)
+    static let audioTrackDidFailToLoad = Notification.Name("audioTrackDidFailToLoad")
 }
 
 /// Audio playback state
@@ -39,6 +43,7 @@ protocol AudioEngineDelegate: AnyObject {
     func audioEngineDidChangeTrack(_ track: Track?)
     func audioEngineDidUpdateSpectrum(_ levels: [Float])
     func audioEngineDidChangePlaylist()
+    func audioEngineDidFailToLoadTrack(_ track: Track, error: Error)
 }
 
 /// Core audio engine using AVAudioEngine for playback and DSP
@@ -1554,36 +1559,17 @@ class AudioEngine {
     func loadFiles(_ urls: [URL]) {
         NSLog("loadFiles: %d URLs", urls.count)
         
-        // Filter out missing local files (remote URLs pass through)
-        var missingCount = 0
-        let validURLs = urls.filter { url in
-            // Remote URLs (Plex/Subsonic streams) don't need file existence check
-            if url.scheme == "http" || url.scheme == "https" {
-                return true
-            }
-            // Local file - check existence
-            if FileManager.default.fileExists(atPath: url.path) {
-                return true
-            }
-            missingCount += 1
-            return false
+        // Quick validate files (checks existence and extension - fast)
+        // Full format validation happens at playback time
+        let validation = AudioFileValidator.quickValidate(urls: urls)
+        
+        // Notify about invalid files
+        if validation.hasInvalidFiles {
+            AudioFileValidator.notifyInvalidFiles(validation.invalidFiles)
         }
         
-        // Show single alert if any files were missing
-        if missingCount > 0 {
-            DispatchQueue.main.async {
-                let alert = NSAlert()
-                alert.messageText = "Files Not Found"
-                alert.informativeText = missingCount == 1
-                    ? "1 file could not be found and was skipped."
-                    : "\(missingCount) files could not be found and were skipped."
-                alert.alertStyle = .warning
-                alert.runModal()
-            }
-        }
-        
-        let tracks = validURLs.compactMap { Track(url: $0) }
-        NSLog("loadFiles: %d tracks created (%d skipped)", tracks.count, missingCount)
+        let tracks = validation.validURLs.compactMap { Track(url: $0) }
+        NSLog("loadFiles: %d tracks created (%d invalid)", tracks.count, validation.invalidFiles.count)
         loadTracks(tracks)
     }
     
@@ -1705,6 +1691,34 @@ class AudioEngine {
     
     /// Append files to the playlist without starting playback
     func appendFiles(_ urls: [URL]) {
+        // Quick validate files (checks existence and extension - fast)
+        // Full format validation happens at playback time
+        let validation = AudioFileValidator.quickValidate(urls: urls)
+        
+        // Notify about invalid files
+        if validation.hasInvalidFiles {
+            AudioFileValidator.notifyInvalidFiles(validation.invalidFiles)
+        }
+        
+        let tracks = validation.validURLs.compactMap { Track(url: $0) }
+        playlist.append(contentsOf: tracks)
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
+    /// Append tracks to the playlist without starting playback
+    /// Used for restoring streaming tracks from saved state
+    func appendTracks(_ tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        playlist.append(contentsOf: tracks)
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
+    /// Set the playlist files without starting playback (for state restoration)
+    /// This clears the existing playlist and populates it with the given files,
+    /// but does NOT load or play any track.
+    func setPlaylistFiles(_ urls: [URL]) {
+        NSLog("setPlaylistFiles: %d URLs", urls.count)
+        
         // Filter out missing local files (remote URLs pass through)
         var missingCount = 0
         let validURLs = urls.filter { url in
@@ -1720,21 +1734,15 @@ class AudioEngine {
             return false
         }
         
-        // Show single alert if any files were missing
-        if missingCount > 0 {
-            DispatchQueue.main.async {
-                let alert = NSAlert()
-                alert.messageText = "Files Not Found"
-                alert.informativeText = missingCount == 1
-                    ? "1 file could not be found and was skipped."
-                    : "\(missingCount) files could not be found and were skipped."
-                alert.alertStyle = .warning
-                alert.runModal()
-            }
-        }
+        NSLog("setPlaylistFiles: %d valid URLs (%d missing)", validURLs.count, missingCount)
         
         let tracks = validURLs.compactMap { Track(url: $0) }
+        
+        // Clear and set playlist without loading or playing
+        playlist.removeAll()
         playlist.append(contentsOf: tracks)
+        currentIndex = -1  // No track selected
+        
         delegate?.audioEngineDidChangePlaylist()
     }
     
@@ -1796,7 +1804,10 @@ class AudioEngine {
         // Check if file exists before attempting to load
         let filePath = track.url.path
         if !FileManager.default.fileExists(atPath: filePath) {
-            NSLog("loadLocalTrack: File does not exist - %@", filePath)
+            let errorMessage = "File does not exist: \(track.url.lastPathComponent)"
+            NSLog("loadLocalTrack: %@", errorMessage)
+            stopPlaybackOnError()
+            notifyTrackLoadFailure(track: track, error: NSError(domain: "AudioEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: errorMessage]), message: errorMessage)
             return false
         }
         
@@ -1858,8 +1869,51 @@ class AudioEngine {
             NSLog("loadLocalTrack: file scheduled, EQ bypass = %d, normGain = %.2f", eqNode.bypass, normalizationGain)
             return true
         } catch {
-            NSLog("loadLocalTrack: FAILED - %@", error.localizedDescription)
+            // Build detailed error message for diagnostics
+            let fileExtension = track.url.pathExtension.lowercased()
+            var errorMessage = "Failed to load '\(track.url.lastPathComponent)': \(error.localizedDescription)"
+            
+            // Add format-specific hints
+            if fileExtension == "wav" {
+                errorMessage += " (WAV files with compressed audio or unusual formats may not be supported)"
+            }
+            
+            // Log detailed info for debugging
+            NSLog("loadLocalTrack: FAILED to load file")
+            NSLog("  File: %@", track.url.path)
+            NSLog("  Extension: %@", fileExtension)
+            NSLog("  Error: %@", error.localizedDescription)
+            if let nsError = error as NSError? {
+                NSLog("  Error domain: %@, code: %d", nsError.domain, nsError.code)
+            }
+            
+            stopPlaybackOnError()
+            notifyTrackLoadFailure(track: track, error: error, message: errorMessage)
             return false
+        }
+    }
+    
+    /// Stop playback completely when a track fails to load
+    private func stopPlaybackOnError() {
+        playerNode.stop()
+        audioFile = nil
+        currentTrack = nil
+        _currentTime = 0
+        lastReportedTime = 0
+        state = .stopped
+        stopTimeUpdates()
+    }
+    
+    /// Notify delegate and post notification when a track fails to load
+    private func notifyTrackLoadFailure(track: Track, error: Error, message: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.delegate?.audioEngineDidFailToLoadTrack(track, error: error)
+            
+            NotificationCenter.default.post(
+                name: .audioTrackDidFailToLoad,
+                object: self,
+                userInfo: ["track": track, "error": error, "message": message]
+            )
         }
     }
     

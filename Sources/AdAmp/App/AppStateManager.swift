@@ -17,6 +17,75 @@ class AppStateManager {
     
     // MARK: - State Structure
     
+    /// Represents a saved track that can be restored
+    struct SavedTrack: Codable, Equatable {
+        // For local files
+        var localURL: String?
+        
+        // For Plex tracks
+        var plexRatingKey: String?
+        var plexServerId: String?
+        
+        // For Subsonic tracks
+        var subsonicId: String?
+        var subsonicServerId: String?
+        
+        // Display metadata (shown while loading streaming tracks)
+        var title: String
+        var artist: String?
+        var album: String?
+        var duration: Double?
+        
+        /// Create from a Track
+        static func from(_ track: Track, plexServerId: String?) -> SavedTrack {
+            if track.url.isFileURL {
+                return SavedTrack(
+                    localURL: track.url.absoluteString,
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    duration: track.duration
+                )
+            } else if let plexKey = track.plexRatingKey {
+                return SavedTrack(
+                    plexRatingKey: plexKey,
+                    plexServerId: plexServerId,
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    duration: track.duration
+                )
+            } else if let subId = track.subsonicId {
+                return SavedTrack(
+                    subsonicId: subId,
+                    subsonicServerId: track.subsonicServerId,
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    duration: track.duration
+                )
+            } else {
+                // Unknown streaming source - save as local URL fallback
+                return SavedTrack(
+                    localURL: track.url.absoluteString,
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    duration: track.duration
+                )
+            }
+        }
+        
+        /// Whether this is a local file
+        var isLocal: Bool { localURL != nil }
+        
+        /// Whether this is a Plex track
+        var isPlex: Bool { plexRatingKey != nil }
+        
+        /// Whether this is a Subsonic track
+        var isSubsonic: Bool { subsonicId != nil }
+    }
+    
     /// Complete application state that can be saved/restored
     struct AppState: Codable {
         // Window visibility
@@ -31,6 +100,7 @@ class AppStateManager {
         var equalizerWindowFrame: String?
         var plexBrowserWindowFrame: String?
         var milkdropWindowFrame: String?
+        var isMilkdropFullscreen: Bool = false
         
         // Audio settings
         var volume: Float
@@ -52,7 +122,8 @@ class AppStateManager {
         var eqBands: [Float]
         
         // Playback state
-        var playlistURLs: [String]  // File URLs as strings
+        var playlistTracks: [SavedTrack]  // All tracks including streaming
+        var playlistURLs: [String]?  // Legacy - for backward compatibility reading old saved states
         var currentTrackIndex: Int
         var playbackPosition: Double  // Position in seconds
         var wasPlaying: Bool
@@ -65,6 +136,9 @@ class AppStateManager {
         var customSkinPath: String?
         var baseSkinIndex: Int?  // 1, 2, or 3 for base skins; nil for custom skin
         
+        // Milkdrop preset
+        var milkdropPresetIndex: Int?
+        
         // Version for future compatibility
         var stateVersion: Int = 1
         
@@ -72,13 +146,14 @@ class AppStateManager {
         
         enum CodingKeys: String, CodingKey {
             case isPlaylistVisible, isEqualizerVisible, isPlexBrowserVisible, isMilkdropVisible
-            case mainWindowFrame, playlistWindowFrame, equalizerWindowFrame, plexBrowserWindowFrame, milkdropWindowFrame
+            case mainWindowFrame, playlistWindowFrame, equalizerWindowFrame, plexBrowserWindowFrame, milkdropWindowFrame, isMilkdropFullscreen
             case volume, balance, shuffleEnabled, repeatEnabled, gaplessPlaybackEnabled, volumeNormalizationEnabled
             case sweetFadeEnabled, sweetFadeDuration
             case eqEnabled, eqAutoEnabled, eqPreamp, eqBands
-            case playlistURLs, currentTrackIndex, playbackPosition, wasPlaying
+            case playlistTracks, playlistURLs, currentTrackIndex, playbackPosition, wasPlaying
             case timeDisplayMode, isAlwaysOnTop
             case customSkinPath, baseSkinIndex
+            case milkdropPresetIndex
             case stateVersion
         }
         
@@ -97,6 +172,7 @@ class AppStateManager {
             equalizerWindowFrame = try container.decodeIfPresent(String.self, forKey: .equalizerWindowFrame)
             plexBrowserWindowFrame = try container.decodeIfPresent(String.self, forKey: .plexBrowserWindowFrame)
             milkdropWindowFrame = try container.decodeIfPresent(String.self, forKey: .milkdropWindowFrame)
+            isMilkdropFullscreen = try container.decodeIfPresent(Bool.self, forKey: .isMilkdropFullscreen) ?? false
             
             // Audio settings
             volume = try container.decode(Float.self, forKey: .volume)
@@ -116,8 +192,18 @@ class AppStateManager {
             eqPreamp = try container.decode(Float.self, forKey: .eqPreamp)
             eqBands = try container.decode([Float].self, forKey: .eqBands)
             
-            // Playback state
-            playlistURLs = try container.decode([String].self, forKey: .playlistURLs)
+            // Playback state - try new format first, fall back to legacy
+            if let tracks = try container.decodeIfPresent([SavedTrack].self, forKey: .playlistTracks) {
+                playlistTracks = tracks
+            } else if let urls = try container.decodeIfPresent([String].self, forKey: .playlistURLs) {
+                // Convert legacy URLs to SavedTrack
+                playlistTracks = urls.map { url in
+                    SavedTrack(localURL: url, title: URL(string: url)?.lastPathComponent ?? "Unknown")
+                }
+            } else {
+                playlistTracks = []
+            }
+            playlistURLs = nil  // Legacy field, not used anymore
             currentTrackIndex = try container.decode(Int.self, forKey: .currentTrackIndex)
             playbackPosition = try container.decode(Double.self, forKey: .playbackPosition)
             wasPlaying = try container.decode(Bool.self, forKey: .wasPlaying)
@@ -129,6 +215,9 @@ class AppStateManager {
             // Skin
             customSkinPath = try container.decodeIfPresent(String.self, forKey: .customSkinPath)
             baseSkinIndex = try container.decodeIfPresent(Int.self, forKey: .baseSkinIndex)
+            
+            // Milkdrop preset - nil for backward compatibility with older saved states
+            milkdropPresetIndex = try container.decodeIfPresent(Int.self, forKey: .milkdropPresetIndex)
             
             // Version
             stateVersion = try container.decodeIfPresent(Int.self, forKey: .stateVersion) ?? 1
@@ -145,6 +234,7 @@ class AppStateManager {
             equalizerWindowFrame: String?,
             plexBrowserWindowFrame: String?,
             milkdropWindowFrame: String?,
+            isMilkdropFullscreen: Bool = false,
             volume: Float,
             balance: Float,
             shuffleEnabled: Bool,
@@ -157,7 +247,7 @@ class AppStateManager {
             eqAutoEnabled: Bool,
             eqPreamp: Float,
             eqBands: [Float],
-            playlistURLs: [String],
+            playlistTracks: [SavedTrack],
             currentTrackIndex: Int,
             playbackPosition: Double,
             wasPlaying: Bool,
@@ -165,6 +255,7 @@ class AppStateManager {
             isAlwaysOnTop: Bool,
             customSkinPath: String? = nil,
             baseSkinIndex: Int? = nil,
+            milkdropPresetIndex: Int? = nil,
             stateVersion: Int = 1
         ) {
             self.isPlaylistVisible = isPlaylistVisible
@@ -176,6 +267,7 @@ class AppStateManager {
             self.equalizerWindowFrame = equalizerWindowFrame
             self.plexBrowserWindowFrame = plexBrowserWindowFrame
             self.milkdropWindowFrame = milkdropWindowFrame
+            self.isMilkdropFullscreen = isMilkdropFullscreen
             self.volume = volume
             self.balance = balance
             self.shuffleEnabled = shuffleEnabled
@@ -188,7 +280,8 @@ class AppStateManager {
             self.eqAutoEnabled = eqAutoEnabled
             self.eqPreamp = eqPreamp
             self.eqBands = eqBands
-            self.playlistURLs = playlistURLs
+            self.playlistTracks = playlistTracks
+            self.playlistURLs = nil  // Legacy, not used
             self.currentTrackIndex = currentTrackIndex
             self.playbackPosition = playbackPosition
             self.wasPlaying = wasPlaying
@@ -196,6 +289,7 @@ class AppStateManager {
             self.isAlwaysOnTop = isAlwaysOnTop
             self.customSkinPath = customSkinPath
             self.baseSkinIndex = baseSkinIndex
+            self.milkdropPresetIndex = milkdropPresetIndex
             self.stateVersion = stateVersion
         }
     }
@@ -247,7 +341,9 @@ class AppStateManager {
             playlistWindowFrame: wm.playlistWindowController?.window.map { NSStringFromRect($0.frame) },
             equalizerWindowFrame: wm.equalizerWindowController?.window.map { NSStringFromRect($0.frame) },
             plexBrowserWindowFrame: wm.plexBrowserWindowFrame.map { NSStringFromRect($0) },
-            milkdropWindowFrame: wm.isMilkdropVisible ? wm.milkdropWindowFrame.map { NSStringFromRect($0) } : nil,
+            // Don't save frame when fullscreen (it would be screen bounds)
+            milkdropWindowFrame: wm.isMilkdropVisible && !wm.isMilkdropFullscreen ? wm.milkdropWindowFrame.map { NSStringFromRect($0) } : nil,
+            isMilkdropFullscreen: wm.isMilkdropFullscreen,
             
             // Audio settings
             volume: engine.volume,
@@ -267,36 +363,11 @@ class AppStateManager {
             eqPreamp: engine.getPreamp(),
             eqBands: (0..<10).map { engine.getEQBand($0) },
             
-            // Playback state - only save local file URLs (not streaming)
-            // Build filtered list and calculate correct index within it
-            playlistURLs: {
-                // Get only local file URLs
-                let localURLs = engine.playlist.compactMap { track -> String? in
-                    guard track.url.isFileURL else { return nil }
-                    return track.url.absoluteString
-                }
-                return localURLs
-            }(),
-            currentTrackIndex: {
-                // Calculate the index within the filtered local-only playlist
-                // The saved index must correspond to the filtered playlistURLs, not the full playlist
-                guard engine.currentIndex >= 0 && engine.currentIndex < engine.playlist.count else {
-                    return -1
-                }
-                let currentTrack = engine.playlist[engine.currentIndex]
-                guard currentTrack.url.isFileURL else {
-                    // Current track is a streaming track, can't restore it
-                    return -1
-                }
-                // Count how many local file tracks come before the current one
-                var localIndex = 0
-                for i in 0..<engine.currentIndex {
-                    if engine.playlist[i].url.isFileURL {
-                        localIndex += 1
-                    }
-                }
-                return localIndex
-            }(),
+            // Playback state - save all tracks with metadata for restoration
+            playlistTracks: engine.playlist.map { track in
+                SavedTrack.from(track, plexServerId: PlexManager.shared.currentServer?.id)
+            },
+            currentTrackIndex: engine.currentIndex,
             playbackPosition: engine.currentTime,
             wasPlaying: engine.state == .playing,
             
@@ -306,7 +377,10 @@ class AppStateManager {
             
             // Skin - save path if using a custom skin, or base skin index
             customSkinPath: getCustomSkinPath(),
-            baseSkinIndex: wm.currentBaseSkinIndex
+            baseSkinIndex: wm.currentBaseSkinIndex,
+            
+            // Milkdrop preset
+            milkdropPresetIndex: wm.visualizationPresetIndex
         )
         
         // Encode and save
@@ -315,7 +389,7 @@ class AppStateManager {
             let data = try encoder.encode(state)
             UserDefaults.standard.set(data, forKey: Keys.savedAppState)
             NSLog("AppStateManager: Saved state - playlist: %d tracks, position: %.1fs, volume: %.2f, alwaysOnTop: %d",
-                  state.playlistURLs.count, state.playbackPosition, state.volume, state.isAlwaysOnTop ? 1 : 0)
+                  state.playlistTracks.count, state.playbackPosition, state.volume, state.isAlwaysOnTop ? 1 : 0)
         } catch {
             NSLog("AppStateManager: Failed to save state: %@", error.localizedDescription)
         }
@@ -341,7 +415,7 @@ class AppStateManager {
         do {
             let decoder = JSONDecoder()
             let state = try decoder.decode(AppState.self, from: data)
-            let hasPlaylist = !state.playlistURLs.isEmpty
+            let hasPlaylist = !state.playlistTracks.isEmpty
             applyState(state)
             return hasPlaylist
         } catch {
@@ -451,6 +525,8 @@ class AppStateManager {
         let equalizerFrame = state.equalizerWindowFrame.flatMap { NSRectFromString($0) }
         let browserFrame = state.plexBrowserWindowFrame.flatMap { NSRectFromString($0) }
         let milkdropFrame = state.milkdropWindowFrame.flatMap { NSRectFromString($0) }
+        let milkdropPresetIndex = state.milkdropPresetIndex
+        let milkdropFullscreen = state.isMilkdropFullscreen
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if state.isEqualizerVisible {
@@ -464,6 +540,20 @@ class AppStateManager {
             }
             if state.isMilkdropVisible {
                 wm.showMilkdrop(at: milkdropFrame)
+                
+                // Restore fullscreen state BEFORE preset
+                if milkdropFullscreen {
+                    wm.toggleMilkdropFullscreen()
+                }
+                
+                // Restore Milkdrop preset after engine is initialized on render thread
+                // The engine setup is deferred and takes ~200ms to complete
+                if let presetIndex = milkdropPresetIndex {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        wm.selectVisualizationPreset(at: presetIndex)
+                        NSLog("AppStateManager: Restored Milkdrop preset index: %d", presetIndex)
+                    }
+                }
             }
         }
         
@@ -471,52 +561,94 @@ class AppStateManager {
     }
     
     /// Apply playlist state only
+    /// Populates the playlist but does NOT load or play any track
     private func applyPlaylistState(_ state: AppState) {
         let wm = WindowManager.shared
         let engine = wm.audioEngine
         
-        guard !state.playlistURLs.isEmpty else {
+        guard !state.playlistTracks.isEmpty else {
             NSLog("AppStateManager: No playlist to restore")
             return
         }
         
-        NSLog("AppStateManager: Restoring playlist state - %d tracks", state.playlistURLs.count)
+        NSLog("AppStateManager: Restoring playlist state - %d tracks", state.playlistTracks.count)
         
-        let urls = state.playlistURLs.compactMap { URL(string: $0) }
-        let validURLs = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        // Separate local and streaming tracks
+        var localTracks: [Track] = []
+        var plexTracksToFetch: [(SavedTrack, Int)] = []  // (savedTrack, originalIndex)
+        var subsonicTracksToFetch: [(SavedTrack, Int)] = []
         
-        guard !validURLs.isEmpty else {
-            NSLog("AppStateManager: No valid playlist files found")
-            return
-        }
-        
-        // Calculate the correct index in the filtered playlist
-        var newTrackIndex = -1
-        if state.currentTrackIndex >= 0 && state.currentTrackIndex < urls.count {
-            let originalURL = urls[state.currentTrackIndex]
-            if let validIndex = validURLs.firstIndex(of: originalURL) {
-                newTrackIndex = validIndex
+        for (index, savedTrack) in state.playlistTracks.enumerated() {
+            if let urlString = savedTrack.localURL,
+               let url = URL(string: urlString),
+               FileManager.default.fileExists(atPath: url.path) {
+                localTracks.append(Track(url: url))
+            } else if savedTrack.isPlex {
+                plexTracksToFetch.append((savedTrack, index))
+            } else if savedTrack.isSubsonic {
+                subsonicTracksToFetch.append((savedTrack, index))
             }
         }
         
-        engine.loadFiles(validURLs)
+        // Load local tracks immediately
+        if !localTracks.isEmpty {
+            engine.setPlaylistFiles(localTracks.map { $0.url })
+            NSLog("AppStateManager: Restored %d local tracks immediately", localTracks.count)
+        }
         
-        // Restore track position after a short delay to let the playlist load
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if newTrackIndex >= 0 && newTrackIndex < engine.playlist.count {
-                engine.playTrack(at: newTrackIndex)
+        // Fetch streaming tracks asynchronously
+        let hasStreamingTracks = !plexTracksToFetch.isEmpty || !subsonicTracksToFetch.isEmpty
+        if hasStreamingTracks {
+            Task {
+                var restoredTracks: [(Track, Int)] = []  // (track, originalIndex)
                 
-                if state.playbackPosition > 0 {
-                    engine.seek(to: state.playbackPosition)
+                // Fetch Plex tracks
+                if !plexTracksToFetch.isEmpty, let client = PlexManager.shared.serverClient {
+                    for (savedTrack, index) in plexTracksToFetch {
+                        if let ratingKey = savedTrack.plexRatingKey {
+                            do {
+                                if let plexTrack = try await client.fetchTrackDetails(trackID: ratingKey),
+                                   let track = PlexManager.shared.convertToTrack(plexTrack) {
+                                    restoredTracks.append((track, index))
+                                }
+                            } catch {
+                                NSLog("AppStateManager: Failed to restore Plex track %@: %@", 
+                                      savedTrack.title, error.localizedDescription)
+                            }
+                        }
+                    }
                 }
                 
-                if !state.wasPlaying {
-                    engine.pause()
+                // Fetch Subsonic tracks
+                for (savedTrack, index) in subsonicTracksToFetch {
+                    if let songId = savedTrack.subsonicId,
+                       let serverId = savedTrack.subsonicServerId,
+                       SubsonicManager.shared.servers.contains(where: { $0.id == serverId }),
+                       let credentials = KeychainHelper.shared.getSubsonicServer(id: serverId),
+                       let client = SubsonicServerClient(credentials: credentials) {
+                        do {
+                            if let song = try await client.fetchSong(id: songId),
+                               let track = SubsonicManager.shared.convertToTrack(song) {
+                                restoredTracks.append((track, index))
+                            }
+                        } catch {
+                            NSLog("AppStateManager: Failed to restore Subsonic track %@: %@",
+                                  savedTrack.title, error.localizedDescription)
+                        }
+                    }
+                }
+                
+                // Add restored streaming tracks to playlist on main thread
+                await MainActor.run {
+                    for (track, _) in restoredTracks.sorted(by: { $0.1 < $1.1 }) {
+                        engine.appendTracks([track])
+                    }
+                    NSLog("AppStateManager: Restored %d streaming tracks", restoredTracks.count)
                 }
             }
         }
         
-        NSLog("AppStateManager: Playlist state restored")
+        NSLog("AppStateManager: Playlist state restoration initiated")
     }
     
     /// Apply the restored state to the app (full restore - used by restoreState())
@@ -525,7 +657,7 @@ class AppStateManager {
         let engine = wm.audioEngine
         
         NSLog("AppStateManager: Restoring state - playlist: %d tracks, volume: %.2f",
-              state.playlistURLs.count, state.volume)
+              state.playlistTracks.count, state.volume)
         
         // Restore audio settings first (before loading playlist)
         engine.volume = state.volume
@@ -574,43 +706,10 @@ class AppStateManager {
         // Restore window frames
         restoreWindowFrames(state)
         
-        // Restore playlist
-        if !state.playlistURLs.isEmpty {
-            let urls = state.playlistURLs.compactMap { URL(string: $0) }
-            let validURLs = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-            
-            if !validURLs.isEmpty {
-                // Calculate the correct index in the filtered playlist
-                // The saved index was relative to the full saved list, but some files may have been deleted
-                var newTrackIndex = -1
-                if state.currentTrackIndex >= 0 && state.currentTrackIndex < urls.count {
-                    let originalURL = urls[state.currentTrackIndex]
-                    // Find where this URL ended up in the filtered list
-                    if let validIndex = validURLs.firstIndex(of: originalURL) {
-                        newTrackIndex = validIndex
-                    }
-                }
-                
-                engine.loadFiles(validURLs)
-                
-                // Restore track position after a short delay to let the playlist load
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    // Set the current track index (use the recalculated index for the filtered playlist)
-                    if newTrackIndex >= 0 && newTrackIndex < engine.playlist.count {
-                        engine.playTrack(at: newTrackIndex)
-                        
-                        // Seek to the saved position
-                        if state.playbackPosition > 0 {
-                            engine.seek(to: state.playbackPosition)
-                        }
-                        
-                        // Pause if it wasn't playing when saved
-                        if !state.wasPlaying {
-                            engine.pause()
-                        }
-                    }
-                }
-            }
+        // Restore playlist (only populate, don't select or play any track)
+        if !state.playlistTracks.isEmpty {
+            // Use applyPlaylistState which handles both local and streaming tracks
+            applyPlaylistState(state)
         }
         
         // Restore window visibility (after a short delay to ensure proper positioning)
@@ -619,6 +718,8 @@ class AppStateManager {
         let equalizerFrame = state.equalizerWindowFrame.flatMap { NSRectFromString($0) }
         let browserFrame = state.plexBrowserWindowFrame.flatMap { NSRectFromString($0) }
         let milkdropFrame = state.milkdropWindowFrame.flatMap { NSRectFromString($0) }
+        let milkdropPresetIndex = state.milkdropPresetIndex
+        let milkdropFullscreen = state.isMilkdropFullscreen
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if state.isEqualizerVisible {
@@ -632,6 +733,20 @@ class AppStateManager {
             }
             if state.isMilkdropVisible {
                 wm.showMilkdrop(at: milkdropFrame)
+                
+                // Restore fullscreen state BEFORE preset
+                if milkdropFullscreen {
+                    wm.toggleMilkdropFullscreen()
+                }
+                
+                // Restore Milkdrop preset after engine is initialized on render thread
+                // The engine setup is deferred and takes ~200ms to complete
+                if let presetIndex = milkdropPresetIndex {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        wm.selectVisualizationPreset(at: presetIndex)
+                        NSLog("AppStateManager: Restored Milkdrop preset index: %d", presetIndex)
+                    }
+                }
             }
         }
         

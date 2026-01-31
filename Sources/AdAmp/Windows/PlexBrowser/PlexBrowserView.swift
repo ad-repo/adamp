@@ -176,6 +176,9 @@ class PlexBrowserView: NSView {
         }
     }
     
+    /// Pending source to restore after servers connect
+    private var pendingSourceRestore: BrowserSource?
+    
     /// Current browse mode
     private var browseMode: PlexBrowseMode = .artists
     
@@ -785,11 +788,18 @@ class PlexBrowserView: NSView {
                 currentSource = .local
             case .plex(let serverId):
                 // Only restore Plex source if server still exists and user is linked
-                if PlexManager.shared.isLinked,
-                   PlexManager.shared.servers.contains(where: { $0.id == serverId }) {
-                    currentSource = savedSource
-                } else if PlexManager.shared.isLinked, let firstServer = PlexManager.shared.servers.first {
-                    currentSource = .plex(serverId: firstServer.id)
+                if PlexManager.shared.isLinked {
+                    if PlexManager.shared.servers.contains(where: { $0.id == serverId }) {
+                        currentSource = savedSource
+                    } else if PlexManager.shared.servers.isEmpty {
+                        // Servers not loaded yet - defer restoration
+                        pendingSourceRestore = savedSource
+                        currentSource = .local  // Temporary
+                    } else if let firstServer = PlexManager.shared.servers.first {
+                        currentSource = .plex(serverId: firstServer.id)
+                    } else {
+                        currentSource = .local
+                    }
                 } else {
                     currentSource = .local
                 }
@@ -797,6 +807,10 @@ class PlexBrowserView: NSView {
                 // Only restore Subsonic source if server still exists
                 if SubsonicManager.shared.servers.contains(where: { $0.id == serverId }) {
                     currentSource = savedSource
+                } else if SubsonicManager.shared.servers.isEmpty {
+                    // Servers not loaded yet - defer restoration
+                    pendingSourceRestore = savedSource
+                    currentSource = .local  // Temporary
                 } else if let firstServer = SubsonicManager.shared.servers.first {
                     currentSource = .subsonic(serverId: firstServer.id)
                 } else {
@@ -4461,14 +4475,47 @@ class PlexBrowserView: NSView {
     
     @objc private func plexServerDidChange() {
         DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
             if case .connecting = PlexManager.shared.connectionState {
                 NSLog("PlexBrowserView: Server list changed, but still connecting - just updating display")
-                self?.needsDisplay = true
+                self.needsDisplay = true
                 return
             }
+            
+            // Check if we have a pending source to restore now that servers are loaded
+            if let pending = self.pendingSourceRestore {
+                self.pendingSourceRestore = nil
+                
+                switch pending {
+                case .plex(let serverId):
+                    if PlexManager.shared.servers.contains(where: { $0.id == serverId }) {
+                        NSLog("PlexBrowserView: Restoring pending Plex source: %@", serverId)
+                        self.currentSource = pending
+                        return
+                    } else if let firstServer = PlexManager.shared.servers.first {
+                        NSLog("PlexBrowserView: Pending server not found, using first server")
+                        self.currentSource = .plex(serverId: firstServer.id)
+                        return
+                    }
+                case .subsonic(let serverId):
+                    if SubsonicManager.shared.servers.contains(where: { $0.id == serverId }) {
+                        NSLog("PlexBrowserView: Restoring pending Subsonic source: %@", serverId)
+                        self.currentSource = pending
+                        return
+                    } else if let firstServer = SubsonicManager.shared.servers.first {
+                        NSLog("PlexBrowserView: Pending Subsonic server not found, using first server")
+                        self.currentSource = .subsonic(serverId: firstServer.id)
+                        return
+                    }
+                case .local:
+                    break
+                }
+            }
+            
             NSLog("PlexBrowserView: Server changed, clearing cache and reloading")
-            self?.clearAllCachedData()
-            self?.reloadData()
+            self.clearAllCachedData()
+            self.reloadData()
         }
     }
     

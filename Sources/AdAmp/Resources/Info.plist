@@ -50,5 +50,28 @@
     <!-- Privacy descriptions for potential future features -->
     <key>NSMicrophoneUsageDescription</key>
     <string>AdAmp may use the microphone for audio input features.</string>
+    
+    <!-- Document Types - Audio file associations -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Audio File</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.audio</string>
+                <string>public.mp3</string>
+                <string>public.mpeg-4-audio</string>
+                <string>public.aiff-audio</string>
+                <string>com.microsoft.waveform-audio</string>
+                <string>org.xiph.flac</string>
+                <string>org.xiph.ogg-vorbis</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
