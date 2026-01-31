@@ -11,6 +11,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
     /// Whether the app is running in UI testing mode
     private(set) var isUITesting = false
     
+    /// Files to open after app finishes launching (when opened via double-click before app is ready)
+    private var pendingFilesToOpen: [URL] = []
+    
+    /// Whether the app has finished launching and is ready to handle file opens
+    private var isAppReady = false
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Check for UI testing mode
         if CommandLine.arguments.contains("--ui-testing") {
@@ -56,8 +62,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         // Restore settings state first (skin, volume, EQ, windows) so intro plays with correct settings
         AppStateManager.shared.restoreSettingsState()
         
-        // Now play intro sound - playlist state will be restored after intro finishes
-        playIntro()
+        // Mark app as ready for file opens
+        isAppReady = true
+        
+        // If files were passed at launch (double-clicked to open), play them instead of intro
+        if !pendingFilesToOpen.isEmpty {
+            processPendingFiles()
+        } else {
+            // Now play intro sound - playlist state will be restored after intro finishes
+            playIntro()
+        }
     }
     
     // MARK: - UI Testing Mode
@@ -101,6 +115,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         // Set up the application menu
         setupMainMenu()
         
+        // Mark app as ready for file opens
+        isAppReady = true
+        
         // Skip intro sound in test mode for faster test execution
         NSLog("AdAmp: UI testing mode setup complete")
     }
@@ -130,6 +147,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         windowManager.mainWindowController?.window?.makeKeyAndOrderFront(nil)
         return true
+    }
+    
+    // MARK: - File Open Handling
+    
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        let urls = filenames.map { URL(fileURLWithPath: $0) }
+        
+        // Filter to audio files only
+        let audioURLs = urls.filter { url in
+            let ext = url.pathExtension.lowercased()
+            return ["mp3", "m4a", "aac", "wav", "aiff", "aif", "flac", "ogg", "alac"].contains(ext)
+        }
+        
+        guard !audioURLs.isEmpty else {
+            NSApp.reply(toOpenOrPrint: .failure)
+            return
+        }
+        
+        // If app isn't ready yet (called before applicationDidFinishLaunching completes),
+        // store the files to be opened once the app is ready
+        guard isAppReady else {
+            pendingFilesToOpen.append(contentsOf: audioURLs)
+            NSApp.reply(toOpenOrPrint: .success)
+            return
+        }
+        
+        // Load files into the audio engine
+        windowManager.audioEngine.loadFiles(audioURLs)
+        windowManager.audioEngine.play()
+        
+        NSApp.reply(toOpenOrPrint: .success)
+    }
+    
+    /// Process files that were queued before app finished launching
+    private func processPendingFiles() {
+        guard !pendingFilesToOpen.isEmpty else { return }
+        
+        let filesToOpen = pendingFilesToOpen
+        pendingFilesToOpen = []
+        
+        // Load and play the files
+        windowManager.audioEngine.loadFiles(filesToOpen)
+        windowManager.audioEngine.play()
     }
     
     // MARK: - Dock Icon Setup
