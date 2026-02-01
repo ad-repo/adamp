@@ -460,12 +460,15 @@ class CastManager {
         }
     }
     
-    /// Pause local audio playback (called when casting starts)
+    /// Stop local audio playback (called when casting starts)
+    /// Must fully stop (not just pause) streaming playback to release the connection
+    /// This is especially important for Subsonic/Navidrome which limits concurrent streams per user
     private func pauseLocalPlayback() {
         let engine = WindowManager.shared.audioEngine
         if engine.state == .playing && !engine.isCastingActive {
-            // Directly pause local playback without triggering cast commands
-            engine.pauseLocalOnly()
+            // Stop local playback completely to release any streaming connections
+            // This prevents conflicts with Subsonic/Navidrome which limits concurrent streams
+            engine.stopLocalForCasting()
         }
     }
     
@@ -484,14 +487,42 @@ class CastManager {
     
     /// Cast a specific track to a device
     func castTrack(_ track: Track, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
-        // Get castable URL (with token for Plex content)
+        NSLog("CastManager: castTrack called for '%@' - track.url: %@", track.title, track.url.absoluteString)
+        NSLog("CastManager: track.subsonicId=%@, track.plexRatingKey=%@", 
+              track.subsonicId ?? "nil", track.plexRatingKey ?? "nil")
+        
+        // Get castable URL
         let castURL: URL
+        
+        // Check if this is a Subsonic track casting to Sonos - needs proxy due to query string issues
+        let needsSubsonicProxy = track.subsonicId != nil && device.type == .sonos
+        
         if track.url.scheme == "http" || track.url.scheme == "https" {
-            // For Plex/remote URLs, ensure token is included
-            if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
-                castURL = tokenizedURL
+            if needsSubsonicProxy {
+                // Subsonic to Sonos: Use proxy to avoid query string issues
+                // Ensure server is running
+                if !LocalMediaServer.shared.isRunning {
+                    do {
+                        try await LocalMediaServer.shared.start()
+                    } catch {
+                        throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
+                    }
+                }
+                
+                // Rewrite localhost first, then register for proxy
+                let rewrittenURL = rewriteLocalhostForCasting(track.url)
+                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL) else {
+                    throw CastError.localServerError("Could not register stream with local media server")
+                }
+                castURL = proxyURL
+                NSLog("CastManager: Using proxy for Subsonic->Sonos: %@", proxyURL.absoluteString)
             } else {
-                castURL = track.url
+                // For Plex/remote URLs, ensure token is included
+                if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
+                    castURL = rewriteLocalhostForCasting(tokenizedURL)
+                } else {
+                    castURL = rewriteLocalhostForCasting(track.url)
+                }
             }
         } else {
             // Local file - register with HTTP server
@@ -514,7 +545,16 @@ class CastManager {
         var artworkURL: URL?
         if let plexTrack = findPlexTrack(matching: track) {
             artworkURL = PlexManager.shared.artworkURL(thumb: plexTrack.thumb)
+        } else if let coverArtId = track.artworkThumb {
+            // Subsonic/Navidrome tracks have artwork via coverArt ID
+            if let subsonicArtwork = SubsonicManager.shared.coverArtURL(coverArtId: coverArtId) {
+                artworkURL = rewriteLocalhostForCasting(subsonicArtwork)
+            }
         }
+        
+        // Use audio/flac for Subsonic proxy since that's what Navidrome typically serves
+        // For other sources, use audio/mpeg as a safe default
+        let contentType = needsSubsonicProxy ? "audio/flac" : "audio/mpeg"
         
         let metadata = CastMetadata(
             title: track.title,
@@ -522,8 +562,10 @@ class CastManager {
             album: track.album,
             artworkURL: artworkURL,
             duration: track.duration,
-            contentType: "audio/mpeg"
+            contentType: contentType
         )
+        
+        NSLog("CastManager: castTrack URL: %@", castURL.absoluteString)
         
         try await cast(to: device, url: castURL, metadata: metadata, startPosition: startPosition)
     }
@@ -537,14 +579,18 @@ class CastManager {
         // Check if this is a local file (needs loading state due to async registration)
         let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
         
+        // Check if Subsonic track to Sonos - also needs loading state since we use proxy
+        let needsSubsonicProxy = track.subsonicId != nil && session.device.type == .sonos
+        let needsLoadingState = isLocalFile || needsSubsonicProxy
+        
         // Increment generation to invalidate any in-flight cast operations
         // This prevents race conditions when user rapidly clicks through tracks
         // Must be done on MainActor for thread safety
         let myGeneration = await MainActor.run {
             castTrackGeneration += 1
             
-            // Set loading state for local files only (they have async registration)
-            if isLocalFile {
+            // Set loading state for local files and Subsonic->Sonos proxy (they have async registration)
+            if needsLoadingState {
                 isCastingTrackChange = true
                 pendingCastTrack = track
                 NotificationCenter.default.post(name: Self.trackChangeLoadingNotification, object: nil, userInfo: ["isLoading": true, "track": track])
@@ -553,7 +599,7 @@ class CastManager {
             return castTrackGeneration
         }
         
-        NSLog("CastManager: castNewTrack '%@' starting (generation %d, local=%d)", track.title, myGeneration, isLocalFile ? 1 : 0)
+        NSLog("CastManager: castNewTrack '%@' starting (generation %d)", track.title, myGeneration)
         
         // Helper to clear loading state and notify UI
         // Always posts notification to ensure loading overlay is cleared even for non-local failures
@@ -570,13 +616,22 @@ class CastManager {
             }
         }
         
-        // Get castable URL (with token for Plex content)
+        // Get castable URL
         let castURL: URL
         if track.url.scheme == "http" || track.url.scheme == "https" {
-            if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
-                castURL = tokenizedURL
+            if needsSubsonicProxy {
+                // Subsonic to Sonos: Use proxy to avoid query string issues
+                let rewrittenURL = rewriteLocalhostForCasting(track.url)
+                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL) else {
+                    await clearLoadingState()
+                    throw CastError.localServerError("Could not register stream with local media server")
+                }
+                castURL = proxyURL
+                NSLog("CastManager: castNewTrack using proxy for Subsonic->Sonos: %@", proxyURL.absoluteString)
+            } else if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
+                castURL = rewriteLocalhostForCasting(tokenizedURL)
             } else {
-                castURL = track.url
+                castURL = rewriteLocalhostForCasting(track.url)
             }
         } else {
             // Local file - register with HTTP server
@@ -592,9 +647,9 @@ class CastManager {
         guard myGeneration == currentGen1 else {
             NSLog("CastManager: castNewTrack '%@' abandoned - superseded by generation %d", track.title, currentGen1)
             // Only clear loading state if we OWN it (pendingCastTrack still matches our track)
-            // If another local file superseded us, it set its own pendingCastTrack and we shouldn't clear
+            // If another track with loading state superseded us, it set its own pendingCastTrack and we shouldn't clear
             await MainActor.run {
-                if isLocalFile && pendingCastTrack?.id == track.id {
+                if needsLoadingState && pendingCastTrack?.id == track.id {
                     isCastingTrackChange = false
                     pendingCastTrack = nil
                     NotificationCenter.default.post(name: Self.trackChangeLoadingNotification, object: nil, userInfo: ["isLoading": false])
@@ -607,7 +662,15 @@ class CastManager {
         var artworkURL: URL?
         if let plexTrack = findPlexTrack(matching: track) {
             artworkURL = PlexManager.shared.artworkURL(thumb: plexTrack.thumb)
+        } else if let coverArtId = track.artworkThumb {
+            // Subsonic/Navidrome tracks have artwork via coverArt ID
+            if let subsonicArtwork = SubsonicManager.shared.coverArtURL(coverArtId: coverArtId) {
+                artworkURL = rewriteLocalhostForCasting(subsonicArtwork)
+            }
         }
+        
+        // Use audio/flac for Subsonic proxy since that's what Navidrome typically serves
+        let contentType = needsSubsonicProxy ? "audio/flac" : "audio/mpeg"
         
         let metadata = CastMetadata(
             title: track.title,
@@ -615,10 +678,10 @@ class CastManager {
             album: track.album,
             artworkURL: artworkURL,
             duration: track.duration,
-            contentType: "audio/mpeg"
+            contentType: contentType
         )
         
-        NSLog("CastManager: Casting new track '%@' to %@ (generation %d)", track.title, session.device.name, myGeneration)
+        NSLog("CastManager: Casting new track '%@' to %@", track.title, session.device.name)
         
         // Cast to the existing connected device
         // Wrap in do/catch to ensure loading state is cleared on failure
@@ -1100,6 +1163,31 @@ class CastManager {
         }
         components.queryItems?.removeAll { $0.name == "X-Plex-Token" }
         return components.url?.absoluteString ?? "<redacted>"
+    }
+    
+    /// Replace localhost/127.0.0.1 with the Mac's actual network IP for casting
+    /// Cast devices (Sonos, Chromecast) can't reach localhost - they need the real IP
+    private func rewriteLocalhostForCasting(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        
+        // Check if host is localhost or loopback
+        let host = components.host?.lowercased() ?? ""
+        guard host == "localhost" || host == "127.0.0.1" || host == "::1" else {
+            return url  // Not localhost, return unchanged
+        }
+        
+        // Get the Mac's local network IP
+        guard let localIP = LocalMediaServer.shared.localIPAddress else {
+            NSLog("CastManager: WARNING - Cannot rewrite localhost URL, no local IP found")
+            return url
+        }
+        
+        NSLog("CastManager: Rewriting localhost to %@ for casting", localIP)
+        components.host = localIP
+        
+        return components.url ?? url
     }
 }
 

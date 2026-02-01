@@ -33,7 +33,7 @@
 - Album/Cover/Movie art browser with visualizations
 - IMDB integration
 - AirPlay and Casting to Chromecast, Sonos (multi-room), and DLNA devices
-- Cast local files to Sonos via embedded HTTP server
+- Cast local files and Navidrome/Subsonic streams to Sonos via embedded HTTP server
 - macOS Now Playing integration (Control Center, Touch Bar, AirPods controls)
 - [Discord Music Presence](https://github.com/ungive/discord-music-presence) support
 

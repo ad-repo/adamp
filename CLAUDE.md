@@ -167,6 +167,7 @@ Sources/AdAmp/
   - `Snap to Default` centers main window on its current screen (not always the primary display)
 - **Sonos menu**: Uses custom `SonosRoomCheckboxView` to keep menu open during multi-select
 - **Sonos room IDs**: `sonosRooms` returns room UDNs, `sonosDevices` only has group coordinators - match carefully
+- **Subsonic→Sonos casting**: Uses LocalMediaServer proxy because Sonos can't handle URLs with query params (auth tokens). The proxy also handles localhost-bound Navidrome servers. Stream URLs omit `f=json` (only for API responses, not binary streams)
 - **Video casting has TWO paths** - handle both in control logic:
   - **Player path**: Cast button in video player → `VideoPlayerWindowController.isCastingVideo`
   - **Menu path**: Right-click → Cast to... → `CastManager.shared.isVideoCasting` (no video player window!)

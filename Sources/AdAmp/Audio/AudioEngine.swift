@@ -931,6 +931,37 @@ class AudioEngine {
         }
     }
     
+    /// Stop local playback when casting starts
+    /// Fully stops streaming connections (important for Subsonic/Navidrome concurrent stream limits)
+    /// but preserves track metadata and position for casting to use
+    func stopLocalForCasting() {
+        NSLog("AudioEngine: stopLocalForCasting - releasing streaming connection for cast")
+        
+        // Save current position before stopping
+        let currentPosition = currentTime
+        if let startDate = playbackStartDate {
+            _currentTime += Date().timeIntervalSince(startDate)
+        }
+        playbackStartDate = nil
+        
+        // Fully stop streaming player to release the connection
+        // This is critical for Subsonic/Navidrome which limits concurrent streams per user
+        if isStreamingPlayback {
+            streamingPlayer?.stop()
+            NSLog("AudioEngine: Stopped streaming player - connection released")
+        } else {
+            playerNode.stop()
+        }
+        
+        state = .stopped
+        stopTimeUpdates()
+        
+        // Don't report to Plex/Subsonic as "stopped" - casting is taking over playback
+        // Don't clear spectrum or reset track metadata - casting needs it
+        
+        NSLog("AudioEngine: Local playback stopped for casting, position preserved: %.1fs", currentPosition)
+    }
+    
     func previous() {
         // Cancel any in-progress crossfade
         cancelCrossfade()
