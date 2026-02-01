@@ -614,17 +614,21 @@ AdAmp supports Shoutcast and Icecast internet radio streaming with automatic rec
 
 ### Importing from Playlists
 
-You can import multiple stations at once from playlist files:
+You can import multiple stations at once from playlist files using the **+ADD** button:
 
 **From URL:**
-1. Right-click in the station list and select **Import Playlist URL...**
+1. Click **+ADD** > **Import Playlist URL...**
 2. Enter the URL of a .m3u, .m3u8, or .pls playlist file
 3. Click **Import** to fetch and import all streams
 
 **From Local File:**
-1. Right-click in the station list and select **Import Playlist File...**
+1. Click **+ADD** > **Import Playlist File...**
 2. Select one or more .m3u, .m3u8, or .pls files from your computer
 3. All radio streams will be imported
+
+**Drag and Drop:**
+- Simply drag .m3u, .m3u8, or .pls files onto the library browser window
+- Stations will be automatically imported and the view switches to Internet Radio
 
 Supported formats:
 - **M3U/M3U8** - Standard playlist format with optional #EXTINF metadata

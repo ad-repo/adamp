@@ -5683,23 +5683,13 @@ class PlexBrowserView: NSView {
             return
         }
         
-        // Right-click on empty space in radio mode - show add menu
+        // Right-click on empty space in radio mode - show add station option
         if case .radio = currentSource, !isArtOnlyMode {
             let menu = NSMenu()
             
             let addStationItem = NSMenuItem(title: "Add Station...", action: #selector(showAddRadioStationDialog), keyEquivalent: "")
             addStationItem.target = self
             menu.addItem(addStationItem)
-            
-            menu.addItem(NSMenuItem.separator())
-            
-            let addPlaylistItem = NSMenuItem(title: "Import Playlist URL...", action: #selector(showAddRadioPlaylistDialog), keyEquivalent: "")
-            addPlaylistItem.target = self
-            menu.addItem(addPlaylistItem)
-            
-            let importFileItem = NSMenuItem(title: "Import Playlist File...", action: #selector(importRadioPlaylistFile), keyEquivalent: "")
-            importFileItem.target = self
-            menu.addItem(importFileItem)
             
             NSMenu.popUpContextMenu(menu, with: event, for: self)
             return
@@ -6205,8 +6195,8 @@ class PlexBrowserView: NSView {
             let addZoneEnd = addZoneStart + 4 * charWidth + 8  // "+ADD" (4 chars)
             
             if relativeX >= addZoneStart && relativeX <= addZoneEnd {
-                // +ADD button click - directly show add station dialog
-                showAddRadioStationDialog()
+                // +ADD button click - show add menu
+                showRadioAddMenu(at: event)
             } else if relativeX < sourceZoneEnd {
                 // Source area = source dropdown
                 showSourceMenu(at: event)
@@ -6316,6 +6306,28 @@ class PlexBrowserView: NSView {
         let addFolderItem = NSMenuItem(title: "Add Folder...", action: #selector(addWatchFolder), keyEquivalent: "")
         addFolderItem.target = self
         menu.addItem(addFolderItem)
+        
+        let menuLocation = NSPoint(x: event.locationInWindow.x, y: event.locationInWindow.y - 5)
+        menu.popUp(positioning: nil, at: menuLocation, in: window?.contentView)
+    }
+    
+    /// Show the +ADD menu for radio mode
+    private func showRadioAddMenu(at event: NSEvent) {
+        let menu = NSMenu()
+        
+        let addStationItem = NSMenuItem(title: "Add Station...", action: #selector(showAddRadioStationDialog), keyEquivalent: "")
+        addStationItem.target = self
+        menu.addItem(addStationItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        let addPlaylistItem = NSMenuItem(title: "Import Playlist URL...", action: #selector(showAddRadioPlaylistDialog), keyEquivalent: "")
+        addPlaylistItem.target = self
+        menu.addItem(addPlaylistItem)
+        
+        let importFileItem = NSMenuItem(title: "Import Playlist File...", action: #selector(importRadioPlaylistFile), keyEquivalent: "")
+        importFileItem.target = self
+        menu.addItem(importFileItem)
         
         let menuLocation = NSPoint(x: event.locationInWindow.x, y: event.locationInWindow.y - 5)
         menu.popUp(positioning: nil, at: menuLocation, in: window?.contentView)
@@ -6938,10 +6950,29 @@ class PlexBrowserView: NSView {
         }
     }
     
-    // MARK: - Drag and Drop (Local Files)
+    // MARK: - Drag and Drop (Local Files and Playlists)
     
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        return .copy
+        guard let items = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] else {
+            return []
+        }
+        
+        // Check if we have valid files to drop
+        let audioExtensions = ["mp3", "m4a", "aac", "wav", "aiff", "flac", "ogg", "alac"]
+        let playlistExtensions = ["m3u", "m3u8", "pls"]
+        
+        for url in items {
+            let ext = url.pathExtension.lowercased()
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            
+            // Accept audio files, directories, or playlist files
+            if isDirectory.boolValue || audioExtensions.contains(ext) || playlistExtensions.contains(ext) {
+                return .copy
+            }
+        }
+        
+        return []
     }
     
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
@@ -6950,34 +6981,72 @@ class PlexBrowserView: NSView {
         }
         
         var fileURLs: [URL] = []
+        var playlistURLs: [URL] = []
         let audioExtensions = ["mp3", "m4a", "aac", "wav", "aiff", "flac", "ogg", "alac"]
+        let playlistExtensions = ["m3u", "m3u8", "pls"]
         
         for url in items {
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
+                let ext = url.pathExtension.lowercased()
+                
                 if isDirectory.boolValue {
                     // Add folder as watch folder and scan
                     MediaLibrary.shared.addWatchFolder(url)
                     MediaLibrary.shared.scanFolder(url)
-                } else {
-                    // Add individual audio file
-                    if audioExtensions.contains(url.pathExtension.lowercased()) {
-                        fileURLs.append(url)
-                    }
+                } else if playlistExtensions.contains(ext) {
+                    // Playlist file
+                    playlistURLs.append(url)
+                } else if audioExtensions.contains(ext) {
+                    // Audio file
+                    fileURLs.append(url)
                 }
             }
         }
         
+        // Handle playlist files - import as radio stations
+        if !playlistURLs.isEmpty {
+            var totalStations = 0
+            for url in playlistURLs {
+                do {
+                    let content = try String(contentsOf: url, encoding: .utf8)
+                    let stations = parsePlaylistContent(content, sourceURL: url)
+                    
+                    for station in stations {
+                        RadioManager.shared.addStation(station)
+                    }
+                    totalStations += stations.count
+                } catch {
+                    NSLog("Failed to read playlist file %@: %@", url.path, error.localizedDescription)
+                }
+            }
+            
+            if totalStations > 0 {
+                // Switch to radio source to show added stations
+                if case .radio = currentSource {
+                    loadRadioStations()
+                } else {
+                    currentSource = .radio
+                }
+                
+                let alert = NSAlert()
+                alert.messageText = "Playlist Imported"
+                alert.informativeText = "Added \(totalStations) station\(totalStations == 1 ? "" : "s") from the playlist\(playlistURLs.count == 1 ? "" : "s")."
+                alert.runModal()
+            }
+        }
+        
+        // Handle audio files
         if !fileURLs.isEmpty {
             MediaLibrary.shared.addTracks(urls: fileURLs)
+            
+            // Switch to local source to show added content
+            if case .plex = currentSource {
+                currentSource = .local
+            }
         }
         
-        // Switch to local source to show added content
-        if case .plex = currentSource {
-            currentSource = .local
-        }
-        
-        return true
+        return !fileURLs.isEmpty || !playlistURLs.isEmpty
     }
     
     // MARK: - Right-Click Context Menu (for list items)
