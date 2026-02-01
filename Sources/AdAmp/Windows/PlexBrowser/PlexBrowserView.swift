@@ -6971,6 +6971,7 @@ class PlexBrowserView: NSView {
         
         var fileURLs: [URL] = []
         var playlistURLs: [URL] = []
+        var processedDirectories = false
         let audioExtensions = ["mp3", "m4a", "aac", "wav", "aiff", "flac", "ogg", "alac"]
         let playlistExtensions = ["m3u", "m3u8", "pls"]
         
@@ -6983,6 +6984,7 @@ class PlexBrowserView: NSView {
                     // Add folder as watch folder and scan
                     MediaLibrary.shared.addWatchFolder(url)
                     MediaLibrary.shared.scanFolder(url)
+                    processedDirectories = true
                 } else if playlistExtensions.contains(ext) {
                     // Playlist file
                     playlistURLs.append(url)
@@ -7035,7 +7037,7 @@ class PlexBrowserView: NSView {
             }
         }
         
-        return !fileURLs.isEmpty || !playlistURLs.isEmpty
+        return !fileURLs.isEmpty || !playlistURLs.isEmpty || processedDirectories
     }
     
     // MARK: - Right-Click Context Menu (for list items)

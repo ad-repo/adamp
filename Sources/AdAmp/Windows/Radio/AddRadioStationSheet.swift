@@ -144,8 +144,11 @@ class AddRadioStationSheet: NSWindowController, NSWindowDelegate {
     }
     
     @objc private func cancel() {
+        // Save handler before clearing to ensure callback is invoked
+        let handler = completionHandler
         completionHandler = nil
         window?.close()
+        handler?(nil)
     }
     
     @objc private func test() {
