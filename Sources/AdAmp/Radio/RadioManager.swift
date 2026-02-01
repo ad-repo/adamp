@@ -410,10 +410,6 @@ class RadioManager {
     
     /// Internal playback start (used by play and reconnect)
     private func startPlayback(station: RadioStation) {
-        // Check if casting is active - loadTracks handles casting, so we skip play()
-        // Calling play() while casting triggers resume() which interferes with the cast
-        let isCasting = CastManager.shared.isCasting
-        
         // Check if URL is a playlist file that needs resolving
         let ext = station.url.pathExtension.lowercased()
         if ext == "pls" || ext == "m3u" || ext == "m3u8" {
@@ -441,7 +437,9 @@ class RadioManager {
                     let track = resolvedStation.toTrack()
                     WindowManager.shared.audioEngine.loadTracks([track])
                     // Only call play() for local playback - casting is handled by loadTracks
-                    if !isCasting {
+                    // Check casting state fresh here, not captured before async resolution,
+                    // since user may have started casting during the network request
+                    if !CastManager.shared.isCasting {
                         WindowManager.shared.audioEngine.play()
                     }
                 } else {
@@ -454,7 +452,7 @@ class RadioManager {
             let track = station.toTrack()
             WindowManager.shared.audioEngine.loadTracks([track])
             // Only call play() for local playback - casting is handled by loadTracks
-            if !isCasting {
+            if !CastManager.shared.isCasting {
                 WindowManager.shared.audioEngine.play()
             }
         }
