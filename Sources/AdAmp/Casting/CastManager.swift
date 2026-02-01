@@ -635,6 +635,16 @@ class CastManager {
         if track.url.scheme == "http" || track.url.scheme == "https" {
             if needsSubsonicProxy {
                 // Subsonic to Sonos: Use proxy to avoid query string issues
+                // Ensure server is running before registering
+                if !LocalMediaServer.shared.isRunning {
+                    do {
+                        try await LocalMediaServer.shared.start()
+                    } catch {
+                        await clearLoadingState()
+                        throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
+                    }
+                }
+                
                 let rewrittenURL = rewriteLocalhostForCasting(track.url)
                 guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL) else {
                     await clearLoadingState()
@@ -649,6 +659,16 @@ class CastManager {
             }
         } else {
             // Local file - register with HTTP server
+            // Ensure server is running before registering
+            if !LocalMediaServer.shared.isRunning {
+                do {
+                    try await LocalMediaServer.shared.start()
+                } catch {
+                    await clearLoadingState()
+                    throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
+                }
+            }
+            
             guard let serverURL = LocalMediaServer.shared.registerFile(track.url) else {
                 await clearLoadingState()
                 throw CastError.localServerError("Could not register file with local media server")

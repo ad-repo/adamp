@@ -118,6 +118,7 @@ class LocalMediaServer {
     
     /// Register a local file for serving.
     /// Returns the HTTP URL that cast devices can use.
+    /// Note: Prefer calling start() explicitly before this method in async contexts.
     func registerFile(_ url: URL) -> URL? {
         guard url.isFileURL else {
             NSLog("LocalMediaServer: Cannot register non-file URL: %@", url.absoluteString)
@@ -126,15 +127,26 @@ class LocalMediaServer {
         
         // Ensure server is running
         if !isRunning {
+            let semaphore = DispatchSemaphore(value: 0)
             Task {
                 do {
                     try await start()
                 } catch {
                     NSLog("LocalMediaServer: Failed to start server: %@", error.localizedDescription)
                 }
+                semaphore.signal()
             }
-            // Wait a bit for server to start
-            Thread.sleep(forTimeInterval: 0.2)
+            // Wait for server startup with timeout
+            let result = semaphore.wait(timeout: .now() + 2.0)
+            if result == .timedOut {
+                NSLog("LocalMediaServer: Server startup timed out")
+            }
+            
+            // Verify server actually started
+            if !isRunning {
+                NSLog("LocalMediaServer: Server failed to start, cannot register file")
+                return nil
+            }
         }
         
         guard let ip = localIPAddress else {
@@ -183,18 +195,30 @@ class LocalMediaServer {
     /// Register a remote stream URL for proxying (e.g., Subsonic streams).
     /// Returns an HTTP URL that cast devices can use.
     /// The proxy fetches from the original URL and serves to the cast device.
+    /// Note: Prefer calling start() explicitly before this method in async contexts.
     func registerStreamURL(_ url: URL) -> URL? {
         // Ensure server is running
         if !isRunning {
+            let semaphore = DispatchSemaphore(value: 0)
             Task {
                 do {
                     try await start()
                 } catch {
                     NSLog("LocalMediaServer: Failed to start server: %@", error.localizedDescription)
                 }
+                semaphore.signal()
             }
-            // Wait a bit for server to start
-            Thread.sleep(forTimeInterval: 0.2)
+            // Wait for server startup with timeout
+            let result = semaphore.wait(timeout: .now() + 2.0)
+            if result == .timedOut {
+                NSLog("LocalMediaServer: Server startup timed out")
+            }
+            
+            // Verify server actually started
+            if !isRunning {
+                NSLog("LocalMediaServer: Server failed to start, cannot register stream")
+                return nil
+            }
         }
         
         guard let ip = localIPAddress else {
