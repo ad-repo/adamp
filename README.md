@@ -1,6 +1,9 @@
 # AdAmp
 
-### A loaded recreation of Winamp 2.x for macOS
+### A free, open-source recreation inspired by Winamp 2.x for macOS, featuring modern Plex and Sonos integration.
+
+**If you enjoy AdAmp, please ⭐ star ⭐ the project on GitHub!**
+
 
  <img width="1455" height="451" alt="Screenshot 2026-01-31 at 10 06 49 PM" src="https://github.com/user-attachments/assets/ff8a5762-b84e-4681-88c1-0283943f2cbf" />
 <img width="1481" height="711" alt="Screenshot 2026-01-31 at 10 10 35 PM" src="https://github.com/user-attachments/assets/7758838c-7dc1-477f-b32f-3fd598c9debf" />
@@ -40,7 +43,6 @@ Download the latest DMG from [Releases](https://github.com/ad-repo/adamp/release
 
 Follow [r/AdAmp](https://www.reddit.com/r/AdAmp/) for release notifications. Report bugs on [GitHub Issues](https://github.com/ad-repo/adamp/issues) or the subreddit.
 
-**If you enjoy AdAmp, please star the project on GitHub!**
 
 ### Fixing "App is damaged" Error
 
