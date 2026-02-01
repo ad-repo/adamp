@@ -593,20 +593,35 @@ AdAmp supports Shoutcast and Icecast internet radio streaming with automatic rec
 ### Adding Radio Stations
 
 1. Open the **Library Browser** (click the logo or use context menu)
-2. Click the source dropdown and select **Internet Radio > Browse Stations**
-3. Right-click anywhere and select **Add Station...**, or use **Internet Radio > Add Station...** from the source menu
-4. Enter station details:
+2. Click the source dropdown and select **Internet Radio**
+3. Click the **+ADD** button in the source bar to show add options:
+   - **Add Station...** - Add a single radio stream URL
+   - **Add Playlist URL...** - Import stations from a .m3u or .pls playlist URL
+4. For adding a station, enter:
    - **Name**: Display name for the station
    - **URL**: Stream URL (e.g., `https://ice2.somafm.com/groovesalad-128-mp3`)
    - **Genre**: Optional genre tag
 5. Click **Test** to verify the stream works (optional)
 6. Click **Save** to add the station
 
+**Tip**: Right-click anywhere in the station list to access the same add options.
+
 ### Playing Radio Stations
 
 - **Double-click** a station to start playback
 - **Right-click** for context menu options (Play, Edit, Delete)
 - The track marquee displays the current song from ICY metadata
+
+### Adding from Playlists
+
+You can import multiple stations at once from a playlist URL:
+1. Click **+ADD** > **Add Playlist URL...**
+2. Enter the URL of a .m3u, .m3u8, or .pls playlist file
+3. Click **Add** to fetch and import all streams from the playlist
+
+Supported formats:
+- **M3U/M3U8** - Standard playlist format with optional #EXTINF metadata
+- **PLS** - INI-style playlist format with File/Title entries
 
 ### Default Stations
 

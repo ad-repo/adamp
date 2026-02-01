@@ -5680,13 +5680,9 @@ class PlexBrowserView: NSView {
             return
         }
         
-        // Right-click on empty space in radio mode - show "Add Station" option
+        // Right-click on empty space in radio mode - show add menu
         if case .radio = currentSource, !isArtOnlyMode {
-            let menu = NSMenu()
-            let addItem = NSMenuItem(title: "Add Station...", action: #selector(showAddRadioStationDialog), keyEquivalent: "")
-            addItem.target = self
-            menu.addItem(addItem)
-            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            showAddRadioMenu(at: event)
             return
         }
         
@@ -6188,8 +6184,8 @@ class PlexBrowserView: NSView {
             let addZoneEnd = addZoneStart + 4 * charWidth + 8  // "+ADD" (4 chars)
             
             if relativeX >= addZoneStart && relativeX <= addZoneEnd {
-                // +ADD button click - show add radio station dialog
-                showAddRadioStationDialog()
+                // +ADD button click - show add radio menu
+                showAddRadioMenu(at: event)
             } else if relativeX < sourceZoneEnd {
                 // Source area = source dropdown
                 showSourceMenu(at: event)
@@ -6234,24 +6230,12 @@ class PlexBrowserView: NSView {
         }
         menu.addItem(localItem)
         
-        // Internet Radio submenu
-        let radioMenu = NSMenu()
-        let radioItem = NSMenuItem(title: "Internet Radio", action: nil, keyEquivalent: "")
-        radioItem.submenu = radioMenu
-        
-        let selectRadioItem = NSMenuItem(title: "Browse Stations", action: #selector(selectRadioSource), keyEquivalent: "")
-        selectRadioItem.target = self
+        // Internet Radio option
+        let radioItem = NSMenuItem(title: "Internet Radio", action: #selector(selectRadioSource), keyEquivalent: "")
+        radioItem.target = self
         if case .radio = currentSource {
-            selectRadioItem.state = .on
+            radioItem.state = .on
         }
-        radioMenu.addItem(selectRadioItem)
-        
-        radioMenu.addItem(NSMenuItem.separator())
-        
-        let addStationItem = NSMenuItem(title: "Add Station...", action: #selector(showAddRadioStationDialog), keyEquivalent: "")
-        addStationItem.target = self
-        radioMenu.addItem(addStationItem)
-        
         menu.addItem(radioItem)
         
         // Separator
@@ -6314,6 +6298,163 @@ class PlexBrowserView: NSView {
         
         let menuLocation = NSPoint(x: event.locationInWindow.x, y: event.locationInWindow.y - 5)
         menu.popUp(positioning: nil, at: menuLocation, in: window?.contentView)
+    }
+    
+    /// Show the add radio station/playlist menu
+    private func showAddRadioMenu(at event: NSEvent) {
+        let menu = NSMenu()
+        
+        let addStationItem = NSMenuItem(title: "Add Station...", action: #selector(showAddRadioStationDialog), keyEquivalent: "")
+        addStationItem.target = self
+        menu.addItem(addStationItem)
+        
+        let addPlaylistItem = NSMenuItem(title: "Add Playlist URL...", action: #selector(showAddRadioPlaylistDialog), keyEquivalent: "")
+        addPlaylistItem.target = self
+        menu.addItem(addPlaylistItem)
+        
+        let menuLocation = NSPoint(x: event.locationInWindow.x, y: event.locationInWindow.y - 5)
+        menu.popUp(positioning: nil, at: menuLocation, in: window?.contentView)
+    }
+    
+    @objc private func showAddRadioPlaylistDialog() {
+        // Show a simple dialog to enter a playlist URL (.m3u, .pls)
+        let alert = NSAlert()
+        alert.messageText = "Add Playlist URL"
+        alert.informativeText = "Enter the URL of a .m3u or .pls playlist file containing radio streams:"
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+        
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        textField.placeholderString = "https://example.com/playlist.m3u"
+        alert.accessoryView = textField
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let urlString = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !urlString.isEmpty, let url = URL(string: urlString) else {
+                let errorAlert = NSAlert()
+                errorAlert.messageText = "Invalid URL"
+                errorAlert.informativeText = "Please enter a valid URL."
+                errorAlert.runModal()
+                return
+            }
+            
+            // Fetch and parse the playlist
+            fetchAndParsePlaylist(from: url)
+        }
+    }
+    
+    private func fetchAndParsePlaylist(from url: URL) {
+        Task { @MainActor in
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                guard let content = String(data: data, encoding: .utf8) else {
+                    showPlaylistError("Could not read playlist content")
+                    return
+                }
+                
+                let stations = parsePlaylistContent(content, sourceURL: url)
+                if stations.isEmpty {
+                    showPlaylistError("No valid streams found in playlist")
+                    return
+                }
+                
+                // Add all stations
+                for station in stations {
+                    RadioManager.shared.addStation(station)
+                }
+                
+                // Reload and show success
+                loadRadioStations()
+                
+                let successAlert = NSAlert()
+                successAlert.messageText = "Playlist Added"
+                successAlert.informativeText = "Added \(stations.count) station\(stations.count == 1 ? "" : "s") from the playlist."
+                successAlert.runModal()
+            } catch {
+                showPlaylistError("Failed to fetch playlist: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    private func parsePlaylistContent(_ content: String, sourceURL: URL) -> [RadioStation] {
+        var stations: [RadioStation] = []
+        let lines = content.components(separatedBy: .newlines)
+        
+        // Detect format
+        let isM3U = content.hasPrefix("#EXTM3U") || sourceURL.pathExtension.lowercased() == "m3u" || sourceURL.pathExtension.lowercased() == "m3u8"
+        let isPLS = content.lowercased().contains("[playlist]") || sourceURL.pathExtension.lowercased() == "pls"
+        
+        if isM3U {
+            // Parse M3U format
+            var currentTitle: String?
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("#EXTINF:") {
+                    // Extract title from #EXTINF:-1,Station Name
+                    if let commaIndex = trimmed.firstIndex(of: ",") {
+                        currentTitle = String(trimmed[trimmed.index(after: commaIndex)...])
+                    }
+                } else if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+                    if let streamURL = URL(string: trimmed) {
+                        let name = currentTitle ?? streamURL.lastPathComponent
+                        stations.append(RadioStation(name: name, url: streamURL))
+                    }
+                    currentTitle = nil
+                }
+            }
+        } else if isPLS {
+            // Parse PLS format
+            var files: [Int: String] = [:]
+            var titles: [Int: String] = [:]
+            
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.lowercased().hasPrefix("file") {
+                    // File1=http://...
+                    if let equalIndex = trimmed.firstIndex(of: "=") {
+                        let numPart = trimmed[trimmed.index(trimmed.startIndex, offsetBy: 4)..<equalIndex]
+                        if let num = Int(numPart) {
+                            files[num] = String(trimmed[trimmed.index(after: equalIndex)...])
+                        }
+                    }
+                } else if trimmed.lowercased().hasPrefix("title") {
+                    // Title1=Station Name
+                    if let equalIndex = trimmed.firstIndex(of: "=") {
+                        let numPart = trimmed[trimmed.index(trimmed.startIndex, offsetBy: 5)..<equalIndex]
+                        if let num = Int(numPart) {
+                            titles[num] = String(trimmed[trimmed.index(after: equalIndex)...])
+                        }
+                    }
+                }
+            }
+            
+            for (num, urlString) in files {
+                if let url = URL(string: urlString) {
+                    let name = titles[num] ?? url.lastPathComponent
+                    stations.append(RadioStation(name: name, url: url))
+                }
+            }
+        } else {
+            // Try to extract any http URLs
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+                    if let url = URL(string: trimmed) {
+                        stations.append(RadioStation(name: url.lastPathComponent, url: url))
+                    }
+                }
+            }
+        }
+        
+        return stations
+    }
+    
+    private func showPlaylistError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Playlist Error"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.runModal()
     }
     
     @objc private func addFiles() {
