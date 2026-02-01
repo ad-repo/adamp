@@ -872,6 +872,11 @@ class AudioEngine {
         // Cancel any in-progress crossfade
         cancelCrossfade()
         
+        // If playing radio, notify RadioManager of manual stop (prevents auto-reconnect)
+        if RadioManager.shared.isActive {
+            RadioManager.shared.stop()
+        }
+        
         // If casting is active, handle stop based on device type
         if isCastingActive {
             Task {
@@ -3003,6 +3008,11 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
             self.state = .playing
             playbackStartDate = Date()
             isSeekingStreaming = false  // Clear seeking flag on successful playback
+            
+            // Notify RadioManager that stream connected successfully
+            if RadioManager.shared.isActive {
+                RadioManager.shared.streamDidConnect()
+            }
         case .paused:
             self.state = .paused
         case .stopped:
@@ -3039,6 +3049,14 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
             NSLog("AudioEngine: Ignoring EOF during track switch")
             return
         }
+        
+        // For radio streams, don't advance - let RadioManager handle reconnection
+        if RadioManager.shared.isActive {
+            NSLog("AudioEngine: Radio stream ended - delegating to RadioManager for reconnect")
+            RadioManager.shared.streamDidDisconnect(error: nil)
+            return
+        }
+        
         NSLog("AudioEngine: Streaming track finished, advancing playlist")
         trackDidFinish()
     }
@@ -3121,6 +3139,13 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
         // so we handle recovery here
         NSLog("AudioEngine: Streaming error - %@", String(describing: error))
         
+        // Check if this is a radio stream - let RadioManager handle reconnection
+        if RadioManager.shared.isActive {
+            NSLog("AudioEngine: Radio stream error - delegating to RadioManager for reconnect")
+            RadioManager.shared.streamDidDisconnect(error: error)
+            return
+        }
+        
         // Check if this is the M4A packet table error (non-optimized M4A file)
         let errorDescription = String(describing: error)
         let isPacketTableError = errorDescription.contains("packet table") || 
@@ -3148,6 +3173,13 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
                     self.next()
                 }
             }
+        }
+    }
+    
+    func streamingPlayerDidReceiveMetadata(_ metadata: [String: String]) {
+        // Forward ICY metadata to RadioManager for radio streams
+        if RadioManager.shared.isActive {
+            RadioManager.shared.streamDidReceiveMetadata(metadata)
         }
     }
 }

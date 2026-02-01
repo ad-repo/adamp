@@ -15,6 +15,7 @@ A faithful recreation of Winamp 2.x for macOS with Plex Media Server integration
 - [Video Player](#video-player)
 - [Plex Integration](#plex-integration)
 - [Navidrome/Subsonic Integration](#navidromesubsonic-integration)
+- [Internet Radio](#internet-radio)
 - [Output Devices & Casting](#output-devices--casting)
 - [Skins](#skins)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
@@ -582,6 +583,50 @@ This follows standard scrobbling rules used by Last.fm and other services.
 ### Favorites
 
 Right-click tracks, albums, or artists to add them to your favorites (starred items) on the server.
+
+---
+
+## Internet Radio
+
+AdAmp supports Shoutcast and Icecast internet radio streaming with automatic reconnection and live metadata.
+
+### Adding Radio Stations
+
+1. Open the **Library Browser** (click the logo or use context menu)
+2. Click the source dropdown and select **Internet Radio > Browse Stations**
+3. Right-click anywhere and select **Add Station...**, or use **Internet Radio > Add Station...** from the source menu
+4. Enter station details:
+   - **Name**: Display name for the station
+   - **URL**: Stream URL (e.g., `https://ice2.somafm.com/groovesalad-128-mp3`)
+   - **Genre**: Optional genre tag
+5. Click **Test** to verify the stream works (optional)
+6. Click **Save** to add the station
+
+### Playing Radio Stations
+
+- **Double-click** a station to start playback
+- **Right-click** for context menu options (Play, Edit, Delete)
+- The track marquee displays the current song from ICY metadata
+
+### Default Stations
+
+New installations include a few sample stations from SomaFM to get started. You can remove or edit these as needed.
+
+### Auto-Reconnect
+
+When a radio stream disconnects (network issues, server restart, etc.):
+- AdAmp automatically attempts to reconnect
+- The marquee shows "Reconnecting... (attempt X/5)"
+- Exponential backoff (2s, 4s, 8s, 16s, 32s between attempts)
+- After 5 failed attempts, shows "Connection failed"
+
+**Note**: Manual stop (pressing Stop or switching tracks) does not trigger auto-reconnect.
+
+### Live Metadata (ICY)
+
+Many internet radio streams include real-time metadata (artist/song info). When available:
+- The track marquee updates with the current song
+- Format: "Artist - Song Title" (depends on station)
 
 ---
 

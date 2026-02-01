@@ -107,6 +107,7 @@ Sources/AdAmp/
 ├── App/              # AppDelegate, WindowManager, menus
 ├── Audio/            # AudioEngine, StreamingAudioPlayer, EQ
 ├── Casting/          # Chromecast, Sonos, DLNA casting
+├── Radio/            # Internet radio (Shoutcast/Icecast) support
 ├── Skin/             # Winamp skin loading and rendering
 ├── Windows/          # All window views (MainWindow, Playlist, EQ, etc.)
 ├── Plex/             # Plex server integration
@@ -125,6 +126,7 @@ Sources/AdAmp/
 | Visualization | `Windows/Milkdrop/`, `Windows/PlexBrowser/PlexBrowserView.swift`, `Visualization/ProjectMWrapper.swift` |
 | Plex | `Plex/PlexManager.swift`, `Plex/PlexServerClient.swift` |
 | Subsonic | `Subsonic/SubsonicManager.swift`, `Subsonic/SubsonicServerClient.swift`, `Subsonic/SubsonicModels.swift` |
+| Radio | `Radio/RadioManager.swift`, `Data/Models/RadioStation.swift`, `Windows/Radio/AddRadioStationSheet.swift` |
 | Casting | `Casting/CastManager.swift`, `Casting/CastProtocol.swift`, `Casting/ChromecastManager.swift`, `Casting/UPnPManager.swift`, `Casting/LocalMediaServer.swift` |
 | App | `App/WindowManager.swift`, `App/ContextMenuBuilder.swift` |
 
