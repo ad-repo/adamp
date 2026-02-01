@@ -410,6 +410,10 @@ class RadioManager {
     
     /// Internal playback start (used by play and reconnect)
     private func startPlayback(station: RadioStation) {
+        // Check if casting is active - loadTracks handles casting, so we skip play()
+        // Calling play() while casting triggers resume() which interferes with the cast
+        let isCasting = CastManager.shared.isCasting
+        
         // Check if URL is a playlist file that needs resolving
         let ext = station.url.pathExtension.lowercased()
         if ext == "pls" || ext == "m3u" || ext == "m3u8" {
@@ -433,7 +437,10 @@ class RadioManager {
                     )
                     let track = resolvedStation.toTrack()
                     WindowManager.shared.audioEngine.loadTracks([track])
-                    WindowManager.shared.audioEngine.play()
+                    // Only call play() for local playback - casting is handled by loadTracks
+                    if !isCasting {
+                        WindowManager.shared.audioEngine.play()
+                    }
                 } else {
                     NSLog("RadioManager: Failed to resolve playlist URL")
                     self.connectionState = .failed(message: "Could not resolve playlist URL")
@@ -443,7 +450,10 @@ class RadioManager {
             // Direct stream URL - play immediately
             let track = station.toTrack()
             WindowManager.shared.audioEngine.loadTracks([track])
-            WindowManager.shared.audioEngine.play()
+            // Only call play() for local playback - casting is handled by loadTracks
+            if !isCasting {
+                WindowManager.shared.audioEngine.play()
+            }
         }
     }
     
@@ -534,6 +544,15 @@ class RadioManager {
         connectionState = .connected
         reconnectAttempts = 0
         NSLog("RadioManager: Stream connected")
+    }
+    
+    /// Called when radio is being cast to an external device (Sonos, Chromecast, etc.)
+    /// Updates the connection state since local playback won't trigger streamDidConnect
+    func castDidConnect() {
+        guard currentStation != nil else { return }
+        connectionState = .connected
+        reconnectAttempts = 0
+        NSLog("RadioManager: Cast connected")
     }
     
     /// Called when stream metadata is received (ICY)

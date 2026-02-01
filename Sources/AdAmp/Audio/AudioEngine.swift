@@ -1719,6 +1719,19 @@ class AudioEngine {
         
         NSLog("loadTracks: %d valid tracks (%d skipped)", validTracks.count, missingCount)
         
+        // Stop RadioManager if we're loading non-radio content
+        // Radio content is identified by matching the current station's URL
+        if RadioManager.shared.isActive {
+            let isRadioContent = validTracks.first.map { track in
+                RadioManager.shared.currentStation?.url == track.url
+            } ?? false
+            
+            if !isRadioContent {
+                NSLog("loadTracks: stopping RadioManager (loading non-radio content)")
+                RadioManager.shared.stop()
+            }
+        }
+        
         // Check if we're currently casting - we want to keep the cast session active
         let wasCasting = isCastingActive
         

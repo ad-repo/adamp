@@ -507,15 +507,21 @@ A track is "scrobbled" when:
 
 ### Plex Radio
 
-Generate dynamic playlists from the radio icon in the library browser toolbar. Each station type has two variants:
+Access Plex Radio stations from the **RADIO** tab in the Library Browser when connected to a Plex music library. Each station type has two variants:
 - **Standard**: Random tracks matching the criteria
 - **Sonic**: Tracks sonically similar to the current/seed track
+
+**To access Plex Radio:**
+1. Connect to a Plex server with a music library
+2. Click the **RADIO** tab in the Library Browser
+3. Double-click any station to start playback
 
 | Radio Station | Description |
 |---------------|-------------|
 | **Library Radio** | Random tracks from your entire library |
 | **Only the Hits** | Popular tracks (1M+ Last.fm scrobbles) |
 | **Deep Cuts** | Lesser-known tracks (under 1k scrobbles) |
+| **My Ratings** | Tracks based on your star ratings (5★, 4+★, 3+★, etc.) |
 | **Genre Stations** | Tracks from specific genres (dynamically loaded from your library) |
 | **Decade Stations** | Tracks from specific decades (1920s-2020s) |
 
@@ -531,6 +537,7 @@ Generate dynamic playlists from the radio icon in the library browser toolbar. E
 - Artist variety: Max 2 tracks per artist (1 for Sonic), spread apart to avoid back-to-back
 - Genres fetched dynamically from your Plex library
 - Sonic stations use currently playing track as seed, or random if nothing playing
+- Stations sorted by category for easy browsing
 
 **Requirements**: Plex Pass with sonic analysis enabled on the server for Sonic variants.
 
@@ -654,6 +661,16 @@ Many internet radio streams include real-time metadata (artist/song info). When 
 - The track marquee updates with the current song
 - Format: "Artist - Song Title" (depends on station)
 
+### Casting Radio to Sonos
+
+Internet radio stations can be cast to Sonos speakers:
+
+1. Start playing a radio station locally
+2. Right-click → **Output Devices → Sonos**
+3. Select rooms and click **🟢 Start Casting**
+
+**Note:** Radio streams are live and don't support seeking. When you cast a playing radio station, Sonos starts from the live stream (time resets to 0:00).
+
 ---
 
 ## Output Devices & Casting
@@ -690,7 +707,7 @@ Sonos                          ▸
 
 #### How to Cast to Sonos
 
-1. **Load music** - Play or load a track (Plex, Subsonic, or local files)
+1. **Load music** - Play or load a track (Plex, Subsonic, local files, or internet radio)
 2. **Open Sonos menu** - Right-click → Output Devices → Sonos
 3. **Select rooms** - Check one or more room checkboxes (menu stays open!)
 4. **Start casting** - Click **🟢 Start Casting**
@@ -727,7 +744,7 @@ The room checkboxes use a special view that **keeps the menu open** when clicked
 
 - **UPnP must be enabled** in the Sonos app (Account → Privacy & Security → Connection Security)
 - Sonos speakers must be on the same network as your Mac
-- Works with Plex/Subsonic streaming and local files
+- Works with Plex/Subsonic streaming, local files, and internet radio
 - Local file casting requires firewall to allow port 8765
 
 ### Chromecast & DLNA

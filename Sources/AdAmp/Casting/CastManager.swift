@@ -408,7 +408,8 @@ class CastManager {
         }
         
         // If we have a start position, seek to it after playback starts
-        if startPosition > 1.0 {
+        // Skip seeking for radio streams (no duration) since they don't support seeking
+        if startPosition > 1.0 && metadata.duration != nil {
             // Small delay to let playback start before seeking
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5 seconds
             try? await seek(to: startPosition)
@@ -446,13 +447,22 @@ class CastManager {
                 NSLog("CastManager: Video cast state initialized - title='%@', duration=%.1f, startPosition=%.1f, hasReceivedStatus=%d", metadata.title, self.videoCastDuration, startPosition, self.videoCastHasReceivedStatus ? 1 : 0)
             } else {
                 // Audio casting - use different tracking based on device type
+                
+                // Notify RadioManager if this was a radio cast (local playback never starts for cast)
+                if RadioManager.shared.isActive {
+                    RadioManager.shared.castDidConnect()
+                }
+                
+                // For radio streams (no duration), always start time from 0 since they're live
+                let trackingPosition = metadata.duration != nil ? startPosition : 0
+                
                 if device.type == .chromecast {
                     // Chromecast provides status updates - wait for PLAYING status to start timer
                     // This prevents clock sync issues when buffering on slow networks
-                    WindowManager.shared.audioEngine.initializeCastPlayback(from: startPosition)
+                    WindowManager.shared.audioEngine.initializeCastPlayback(from: trackingPosition)
                 } else {
                     // Sonos/DLNA don't provide status updates - start timer immediately
-                    WindowManager.shared.audioEngine.startCastPlayback(from: startPosition)
+                    WindowManager.shared.audioEngine.startCastPlayback(from: trackingPosition)
                 }
             }
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
@@ -581,7 +591,11 @@ class CastManager {
         
         // Check if Subsonic track to Sonos - also needs loading state since we use proxy
         let needsSubsonicProxy = track.subsonicId != nil && session.device.type == .sonos
-        let needsLoadingState = isLocalFile || needsSubsonicProxy
+        
+        // Check if this is a radio station to Sonos - needs loading state for click guarding
+        let isRadioToSonos = RadioManager.shared.isActive && session.device.type == .sonos
+        
+        let needsLoadingState = isLocalFile || needsSubsonicProxy || isRadioToSonos
         
         // Increment generation to invalidate any in-flight cast operations
         // This prevents race conditions when user rapidly clicks through tracks
@@ -704,9 +718,9 @@ class CastManager {
         guard myGeneration == currentGen2 else {
             NSLog("CastManager: castNewTrack '%@' post-cast abandoned - superseded by generation %d", track.title, currentGen2)
             // Only clear loading state if we OWN it (pendingCastTrack still matches our track)
-            // If another local file superseded us, it set its own pendingCastTrack and we shouldn't clear
+            // If another track with loading state superseded us, it set its own pendingCastTrack and we shouldn't clear
             await MainActor.run {
-                if isLocalFile && pendingCastTrack?.id == track.id {
+                if needsLoadingState && pendingCastTrack?.id == track.id {
                     isCastingTrackChange = false
                     pendingCastTrack = nil
                     NotificationCenter.default.post(name: Self.trackChangeLoadingNotification, object: nil, userInfo: ["isLoading": false])
@@ -721,8 +735,8 @@ class CastManager {
             guard myGeneration == self.castTrackGeneration else {
                 NSLog("CastManager: castNewTrack '%@' UI update abandoned - superseded", track.title)
                 // Only clear loading state if we OWN it (pendingCastTrack still matches our track)
-                // If another local file superseded us, it set its own pendingCastTrack and we shouldn't clear
-                if isLocalFile && self.pendingCastTrack?.id == track.id {
+                // If another track with loading state superseded us, it set its own pendingCastTrack and we shouldn't clear
+                if needsLoadingState && self.pendingCastTrack?.id == track.id {
                     self.isCastingTrackChange = false
                     self.pendingCastTrack = nil
                     NotificationCenter.default.post(name: Self.trackChangeLoadingNotification, object: nil, userInfo: ["isLoading": false])
@@ -734,6 +748,11 @@ class CastManager {
             isCastingTrackChange = false
             pendingCastTrack = nil
             NotificationCenter.default.post(name: Self.trackChangeLoadingNotification, object: nil, userInfo: ["isLoading": false])
+            
+            // Notify RadioManager if this was a radio cast (local playback never starts for cast)
+            if RadioManager.shared.isActive {
+                RadioManager.shared.castDidConnect()
+            }
             
             if session.device.type == .chromecast {
                 // Chromecast provides status updates - wait for PLAYING status to start timer

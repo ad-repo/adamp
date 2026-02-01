@@ -121,7 +121,7 @@ The room checkboxes use a custom view that **keeps the menu open** when clicked.
 
 ### Starting a Cast
 
-1. **Load music** - Play or load a track from Plex, Subsonic, or local files
+1. **Load music** - Play or load a track from Plex, Subsonic, local files, or internet radio
 2. **Open Sonos menu** - Right-click → Output Devices → Sonos
 3. **Select rooms** - Check one or more room checkboxes
 4. **Start casting** - Click "🟢 Start Casting"
@@ -130,6 +130,8 @@ The app will:
 - Cast to the first selected room
 - Join additional rooms to that group
 - Update checkboxes to show which rooms are receiving audio
+
+**Internet Radio Note:** Radio streams are live and don't support seeking. When you cast a radio station that's already playing locally, playback on Sonos starts fresh from the live stream (time resets to 0:00).
 
 ### Managing Rooms While Casting
 
@@ -329,6 +331,7 @@ Local files are supported via an embedded HTTP server (LocalMediaServer):
 - ✅ Plex streaming (with token in URL)
 - ✅ Subsonic/Navidrome streaming (via proxy)
 - ✅ Local files (via embedded HTTP server)
+- ✅ Internet radio (Shoutcast/Icecast streams)
 
 **Subsonic/Navidrome Casting:**
 Subsonic streams are proxied through LocalMediaServer for Sonos casting. This is necessary because:
