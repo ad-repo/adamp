@@ -9,14 +9,44 @@ enum BundleHelper {
     
     // MARK: - App Version
     
+    /// Cached Info.plist dictionary (loaded once from source file for debug builds)
+    private static let sourceInfoPlist: [String: Any]? = {
+        #if DEBUG
+        // In debug builds, Bundle.main.infoDictionary is empty because we run as a bare executable.
+        // Load Info.plist from the source Resources directory via Bundle.module.
+        if let url = Bundle.module.url(forResource: "Info", withExtension: "plist"),
+           let data = try? Data(contentsOf: url),
+           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            return plist
+        }
+        #endif
+        return nil
+    }()
+    
     /// The app's marketing version (e.g., "1.0") from Info.plist CFBundleShortVersionString
     static var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        // Try main bundle first (works in app bundle)
+        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            return version
+        }
+        // Fall back to source Info.plist (debug builds)
+        if let version = sourceInfoPlist?["CFBundleShortVersionString"] as? String {
+            return version
+        }
+        return "1.0"
     }
     
     /// The app's build number (e.g., "1") from Info.plist CFBundleVersion
     static var buildNumber: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        // Try main bundle first (works in app bundle)
+        if let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
+            return build
+        }
+        // Fall back to source Info.plist (debug builds)
+        if let build = sourceInfoPlist?["CFBundleVersion"] as? String {
+            return build
+        }
+        return "1"
     }
     
     /// Full version string combining version and build (e.g., "1.0.1")
