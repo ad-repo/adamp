@@ -1,6 +1,10 @@
 # AdAmp
 
-A loaded recreation of Winamp 2.x for macOS
+### A loaded recreation of Winamp 2.x for macOS
+
+ <img width="1455" height="451" alt="Screenshot 2026-01-31 at 10 06 49 PM" src="https://github.com/user-attachments/assets/ff8a5762-b84e-4681-88c1-0283943f2cbf" />
+<img width="1481" height="711" alt="Screenshot 2026-01-31 at 10 10 35 PM" src="https://github.com/user-attachments/assets/7758838c-7dc1-477f-b32f-3fd598c9debf" />
+
 
 ## Features
 
@@ -118,6 +122,9 @@ See [AGENTS.md](AGENTS.md) for documentation links and key source files.
 ## Skins
 
 AdAmp supports classic Winamp 2.x skins (.wsz files). Download skins from [Winamp Skin Museum](https://skins.webamp.org/).
+
+
+<img width="375" height="456" alt="Screenshot 2026-01-31 at 10 02 59 PM" src="https://github.com/user-attachments/assets/67a5d8ed-7c43-4222-ad0e-28c8443207e8" />
 
 ## License
 
