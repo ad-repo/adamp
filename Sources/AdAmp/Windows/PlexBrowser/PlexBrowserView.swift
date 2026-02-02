@@ -4593,20 +4593,17 @@ class PlexBrowserView: NSView {
         artworkLoadTask = nil
         
         guard let track = track else {
-            // Clear artwork when no track
-            currentArtwork = nil
+            // No track playing - keep selection artwork (if any), just clear track ID
+            // This allows Plex Radio selection artwork to persist when nothing is playing
             artworkTrackId = nil
-            needsDisplay = true
             return
         }
         
         // Skip if same track
         guard track.id != artworkTrackId else { return }
         
-        // Clear immediately to prevent showing stale artwork during load
-        currentArtwork = nil
-        artworkTrackId = nil
-        needsDisplay = true
+        // Don't clear artwork immediately - wait until new image is ready
+        // This prevents the "flash and disappear" when switching from selection artwork to track artwork
         
         artworkLoadTask = Task { [weak self] in
             guard let self = self else { return }
@@ -5160,7 +5157,8 @@ class PlexBrowserView: NSView {
                     image = await self.loadPlexArtworkByThumb(thumb: thumb, cacheKey: "plex:playlist:\(playlist.id)")
                 }
                 
-            default:
+            case .plexRadioStation, .radioStation, .header:
+                // Radio stations load artwork when playing, not on selection
                 break
             }
             
@@ -6739,6 +6737,9 @@ class PlexBrowserView: NSView {
                 playTrack(item)
             case .localTrack(let track):
                 playLocalTrack(track)
+            case .plexRadioStation, .radioStation:
+                // Radio stations don't load artwork on single-click - only on play (double-click)
+                break
             default:
                 // For non-playable items and video items, just load artwork
                 loadArtworkForSelection()
@@ -7490,6 +7491,13 @@ class PlexBrowserView: NSView {
             playItem.representedObject = item
             menu.addItem(playItem)
             
+            menu.addItem(NSMenuItem.separator())
+            
+            let viewArtItem = NSMenuItem(title: "View Art", action: #selector(contextMenuViewPlexRadioArt(_:)), keyEquivalent: "")
+            viewArtItem.target = self
+            viewArtItem.representedObject = item
+            menu.addItem(viewArtItem)
+            
         case .header:
             return
         }
@@ -7646,6 +7654,13 @@ class PlexBrowserView: NSView {
         guard let item = sender.representedObject as? PlexDisplayItem,
               case .plexRadioStation(let radioType) = item.type else { return }
         playPlexRadioStation(radioType)
+    }
+    
+    @objc private func contextMenuViewPlexRadioArt(_ sender: NSMenuItem) {
+        // Enter art-only mode - will display the currently playing track's artwork
+        if currentArtwork != nil {
+            isArtOnlyMode = true
+        }
     }
     
     @objc private func contextMenuDeleteLocalArtist(_ sender: NSMenuItem) {
