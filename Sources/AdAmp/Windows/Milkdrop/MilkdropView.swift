@@ -513,6 +513,9 @@ class MilkdropView: NSView {
         case 3: // F key - toggle fullscreen
             controller?.toggleFullscreen()
             
+        case 35: // P key - toggle quality mode (30fps/60fps)
+            togglePerformanceMode(nil)
+            
         case 124: // Right arrow - next preset
             if hasShift {
                 // Hard cut (instant switch)

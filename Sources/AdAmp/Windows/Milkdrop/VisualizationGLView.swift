@@ -119,6 +119,11 @@ class VisualizationGLView: NSOpenGLView {
            let type = VisualizationType(rawValue: savedType) {
             currentEngineType = type
         }
+        
+        // Load saved performance mode preference (defaults to low power / 30fps)
+        if UserDefaults.standard.object(forKey: "milkdropLowPowerMode") != nil {
+            isLowPowerMode = UserDefaults.standard.bool(forKey: "milkdropLowPowerMode")
+        }
 
         setupOpenGL()
         setupEngine()
