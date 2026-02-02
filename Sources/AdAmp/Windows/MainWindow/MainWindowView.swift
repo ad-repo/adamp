@@ -679,6 +679,7 @@ class MainWindowView: NSView {
     
     // MARK: - Marquee Timer Management
     
+    /// Start the marquee timer for text scrolling (15Hz - reduced from 20Hz for CPU efficiency)
     private func startMarquee() {
         guard marqueeTimer == nil else { return }
         // Reduced from 20Hz (0.05s) to 15Hz (0.067s) for CPU efficiency
@@ -687,11 +688,13 @@ class MainWindowView: NSView {
         }
     }
     
+    /// Stop the marquee timer to save CPU when window is not visible
     private func stopMarquee() {
         marqueeTimer?.invalidate()
         marqueeTimer = nil
     }
     
+    /// Handle marquee timer tick - only update when window is visible and text overflows
     private func handleMarqueeTimerTick() {
         // Skip updates if window is not visible or occluded
         guard let window = window,
@@ -759,6 +762,7 @@ class MainWindowView: NSView {
         loadingAnimationTimer = nil
     }
     
+    /// Restart timers when window is restored from minimized state
     @objc private func windowDidDeminiaturize(_ notification: Notification) {
         guard notification.object as? NSWindow == window else { return }
         startMarquee()
@@ -768,6 +772,7 @@ class MainWindowView: NSView {
         }
     }
     
+    /// Handle window occlusion state changes to pause/resume timers for CPU efficiency
     @objc private func windowDidChangeOcclusionState(_ notification: Notification) {
         guard notification.object as? NSWindow == window else { return }
         if window?.occlusionState.contains(.visible) == true {
@@ -782,6 +787,7 @@ class MainWindowView: NSView {
         }
     }
     
+    /// Start the loading animation for cast loading state (10Hz)
     private func startLoadingAnimation() {
         guard loadingAnimationTimer == nil else { return }
         loadingAnimationPhase = 0

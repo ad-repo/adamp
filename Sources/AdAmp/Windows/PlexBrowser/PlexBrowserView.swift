@@ -995,6 +995,7 @@ class PlexBrowserView: NSView {
         setNeedsDisplay(contentRect)
     }
     
+    /// Stop timers when Plex browser window is minimized to save CPU
     @objc private func plexWindowDidMiniaturize(_ notification: Notification) {
         guard notification.object as? NSWindow == window else { return }
         // Stop timers when minimized to save CPU
@@ -1005,6 +1006,7 @@ class PlexBrowserView: NSView {
         }
     }
     
+    /// Restart timers when Plex browser window is restored from minimized state
     @objc private func plexWindowDidDeminiaturize(_ notification: Notification) {
         guard notification.object as? NSWindow == window else { return }
         // Restart timers when restored
@@ -1015,6 +1017,7 @@ class PlexBrowserView: NSView {
         visualizerWasActiveBeforeHide = false
     }
     
+    /// Handle window occlusion state changes to pause/resume timers for CPU efficiency
     @objc private func plexWindowDidChangeOcclusionState(_ notification: Notification) {
         guard notification.object as? NSWindow == window else { return }
         if window?.occlusionState.contains(.visible) == true {

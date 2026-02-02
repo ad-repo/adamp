@@ -150,16 +150,19 @@ class PlaylistView: NSView {
         }
     }
     
+    /// Stop display timer when window is minimized to save CPU
     @objc private func windowDidMiniaturize(_ notification: Notification) {
         guard notification.object as? NSWindow == window else { return }
         stopDisplayTimer()
     }
     
+    /// Restart display timer when window is restored from minimized state
     @objc private func windowDidDeminiaturize(_ notification: Notification) {
         guard notification.object as? NSWindow == window else { return }
         startDisplayTimer()
     }
     
+    /// Handle window occlusion state changes to pause/resume display timer
     @objc private func windowDidChangeOcclusionState(_ notification: Notification) {
         guard notification.object as? NSWindow == window else { return }
         if window?.occlusionState.contains(.visible) == true {
