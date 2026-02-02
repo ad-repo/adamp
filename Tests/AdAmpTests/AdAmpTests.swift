@@ -2435,6 +2435,10 @@ final class AdAmpTests: XCTestCase {
     // MARK: - AppStateManager.AppState Tests
     
     func testAppStateCodable() throws {
+        let savedTracks = [
+            AppStateManager.SavedTrack(localURL: "file:///music/song1.mp3", title: "Song 1"),
+            AppStateManager.SavedTrack(localURL: "file:///music/song2.mp3", title: "Song 2")
+        ]
         let state = AppStateManager.AppState(
             isPlaylistVisible: true,
             isEqualizerVisible: false,
@@ -2454,9 +2458,10 @@ final class AdAmpTests: XCTestCase {
             sweetFadeEnabled: true,
             sweetFadeDuration: 3.0,
             eqEnabled: true,
+            eqAutoEnabled: false,
             eqPreamp: 2.5,
             eqBands: [0, 1, 2, 3, 4, 5, 4, 3, 2, 1],
-            playlistURLs: ["file:///music/song1.mp3", "file:///music/song2.mp3"],
+            playlistTracks: savedTracks,
             currentTrackIndex: 1,
             playbackPosition: 45.5,
             wasPlaying: true,
@@ -2483,7 +2488,7 @@ final class AdAmpTests: XCTestCase {
         XCTAssertEqual(decoded.eqEnabled, true)
         XCTAssertEqual(decoded.eqPreamp, 2.5)
         XCTAssertEqual(decoded.eqBands.count, 10)
-        XCTAssertEqual(decoded.playlistURLs.count, 2)
+        XCTAssertEqual(decoded.playlistTracks.count, 2)
         XCTAssertEqual(decoded.currentTrackIndex, 1)
         XCTAssertEqual(decoded.playbackPosition, 45.5)
         XCTAssertEqual(decoded.wasPlaying, true)
@@ -2547,9 +2552,10 @@ final class AdAmpTests: XCTestCase {
             sweetFadeEnabled: false,
             sweetFadeDuration: 5.0,
             eqEnabled: false,
+            eqAutoEnabled: false,
             eqPreamp: 0.0,
             eqBands: Array(repeating: Float(0), count: 10),
-            playlistURLs: [],
+            playlistTracks: [],
             currentTrackIndex: -1,
             playbackPosition: 0.0,
             wasPlaying: false,
