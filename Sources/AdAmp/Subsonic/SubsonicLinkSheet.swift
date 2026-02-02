@@ -14,7 +14,12 @@ class SubsonicLinkSheet: NSWindowController, NSWindowDelegate {
     private var editingServer: SubsonicServer?
     var completionHandler: ((SubsonicServer?) -> Void)?
     
-    convenience init(server: SubsonicServer? = nil) {
+    /// No-argument convenience init - required to override inherited NSWindowController.init()
+    convenience init() {
+        self.init(server: nil)
+    }
+    
+    convenience init(server: SubsonicServer?) {
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 240),
             styleMask: [.titled, .closable],
