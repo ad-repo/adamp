@@ -604,9 +604,13 @@ class RadioManager {
         let delay = pow(2.0, Double(reconnectAttempts))
         NSLog("RadioManager: Reconnecting in %.0fs (attempt %d/%d)", delay, reconnectAttempts, maxReconnectAttempts)
         
-        reconnectTimer?.invalidate()
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            self?.attemptReconnect(station: station)
+        // Must dispatch to main queue - streamDidDisconnect is called from AudioStreaming
+        // background threads, and Timer.scheduledTimer requires an active run loop
+        DispatchQueue.main.async { [weak self] in
+            self?.reconnectTimer?.invalidate()
+            self?.reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                self?.attemptReconnect(station: station)
+            }
         }
     }
     
