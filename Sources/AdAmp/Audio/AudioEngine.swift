@@ -711,11 +711,11 @@ class AudioEngine {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             for i in 0..<bandCount {
-                // Fast attack, snappy decay for tight beat following
+                // Fast attack, smooth decay for visual appeal
                 if newSpectrum[i] > self.spectrumData[i] {
                     self.spectrumData[i] = newSpectrum[i]
                 } else {
-                    self.spectrumData[i] = self.spectrumData[i] * 0.55 + newSpectrum[i] * 0.45
+                    self.spectrumData[i] = self.spectrumData[i] * 0.90 + newSpectrum[i] * 0.10
                 }
             }
             self.delegate?.audioEngineDidUpdateSpectrum(self.spectrumData)
