@@ -913,9 +913,9 @@ struct SkinElements {
         /// Minimum window size
         static let minSize = NSSize(width: 275, height: 150)
         
-        /// Default window size - matches Plex Browser (height = 3 stacked main windows)
+        /// Default window size - matches Plex Browser (height = 4 stacked main windows)
         static var defaultSize: NSSize {
-            let height = Skin.mainWindowSize.height * 3
+            let height = Skin.mainWindowSize.height * 4
             return NSSize(width: 550, height: height)
         }
         
