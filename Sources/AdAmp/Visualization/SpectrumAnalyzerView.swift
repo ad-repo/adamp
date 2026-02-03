@@ -139,6 +139,9 @@ class SpectrumAnalyzerView: NSView {
     private var displayLink: CVDisplayLink?
     private var isRendering = false
     
+    // Frame pacing semaphore - limits in-flight command buffers to prevent memory buildup
+    private let inFlightSemaphore = DispatchSemaphore(value: 2)
+    
     // MARK: - Thread-Safe Spectrum Data
     // Note: These properties are accessed from both the main thread and the CVDisplayLink callback thread.
     // They are protected by dataLock and marked nonisolated(unsafe) to allow cross-thread access.
@@ -358,6 +361,10 @@ class SpectrumAnalyzerView: NSView {
             CVDisplayLinkStop(displayLink)
             self.displayLink = nil
         }
+        
+        // Note: In-flight command buffers will complete asynchronously and signal
+        // the semaphore via their completion handlers. The weak reference to self
+        // in the handler ensures no retain cycle during deallocation.
     }
     
     // MARK: - Rendering
@@ -367,11 +374,20 @@ class SpectrumAnalyzerView: NSView {
     func render() {
         guard isRendering, let metalLayer = metalLayer else { return }
         
-        // Update display spectrum with decay
+        // Wait for an available slot in the frame queue (prevents memory buildup)
+        // Use timeout to avoid blocking forever if view is being deallocated
+        guard inFlightSemaphore.wait(timeout: .now() + .milliseconds(16)) == .success else {
+            return  // Skip frame if we're backed up
+        }
+        
+        // Update display spectrum with decay (thread-safe via dataLock)
         updateDisplaySpectrum()
         
-        // Get drawable
-        guard let drawable = metalLayer.nextDrawable() else { return }
+        // Get drawable - this must succeed for us to render
+        guard let drawable = metalLayer.nextDrawable() else {
+            inFlightSemaphore.signal()  // Release slot since we won't use it
+            return
+        }
         
         // Select pipeline based on quality mode (use render-safe copy)
         var currentMode: SpectrumQualityMode = .winamp
@@ -382,7 +398,7 @@ class SpectrumAnalyzerView: NSView {
         
         guard let pipeline = activePipeline,
               let commandBuffer = commandQueue?.makeCommandBuffer() else {
-            NSLog("SpectrumAnalyzerView: Metal pipeline not ready")
+            inFlightSemaphore.signal()  // Release slot since we won't render
             return
         }
         
@@ -394,6 +410,7 @@ class SpectrumAnalyzerView: NSView {
         renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         
         guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+            inFlightSemaphore.signal()  // Release slot since we won't render
             return
         }
         
@@ -446,6 +463,11 @@ class SpectrumAnalyzerView: NSView {
         }
         
         encoder.endEncoding()
+        
+        // Signal semaphore when GPU is done with this frame
+        commandBuffer.addCompletedHandler { [weak self] _ in
+            self?.inFlightSemaphore.signal()
+        }
         
         commandBuffer.present(drawable)
         commandBuffer.commit()
