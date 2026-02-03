@@ -352,9 +352,12 @@ class WindowManager {
                 // Use restored frame from state restoration
                 window.setFrame(frame, display: true)
             } else {
-                // Position to the right of the vertical stack, matching its height
+                // Position to the right of the vertical stack
+                // Only match stack height if there's more than just the main window
                 let stackBounds = verticalStackBounds()
-                if stackBounds != .zero {
+                let stackHasMultipleWindows = stackBounds.height > Skin.mainWindowSize.height + 1
+                if stackBounds != .zero && stackHasMultipleWindows {
+                    // Match stack height when multiple windows are stacked
                     let newFrame = NSRect(
                         x: stackBounds.maxX,
                         y: stackBounds.minY,
@@ -363,13 +366,13 @@ class WindowManager {
                     )
                     window.setFrame(newFrame, display: true)
                 } else if let mainWindow = mainWindowController?.window {
-                    // Fallback: position relative to main window
+                    // Use default height (4× main) when only main window is visible
                     let mainFrame = mainWindow.frame
                     let newFrame = NSRect(
                         x: mainFrame.maxX,
                         y: mainFrame.maxY - window.frame.height,
                         width: window.frame.width,
-                        height: window.frame.height
+                        height: window.frame.height  // Keep default 4× height
                     )
                     window.setFrame(newFrame, display: true)
                 }
@@ -798,9 +801,12 @@ class WindowManager {
                 // Use restored frame from state restoration
                 window.setFrame(frame, display: true)
             } else {
-                // Position to the left of the vertical stack, matching its height
+                // Position to the left of the vertical stack
+                // Only match stack height if there's more than just the main window
                 let stackBounds = verticalStackBounds()
-                if stackBounds != .zero {
+                let stackHasMultipleWindows = stackBounds.height > Skin.mainWindowSize.height + 1
+                if stackBounds != .zero && stackHasMultipleWindows {
+                    // Match stack height when multiple windows are stacked
                     let newFrame = NSRect(
                         x: stackBounds.minX - window.frame.width,
                         y: stackBounds.minY,
@@ -809,13 +815,13 @@ class WindowManager {
                     )
                     window.setFrame(newFrame, display: true)
                 } else if let mainWindow = mainWindowController?.window {
-                    // Fallback: position relative to main window
+                    // Use default height (4× main) when only main window is visible
                     let mainFrame = mainWindow.frame
                     let newFrame = NSRect(
                         x: mainFrame.minX - window.frame.width,
                         y: mainFrame.maxY - window.frame.height,
                         width: window.frame.width,
-                        height: window.frame.height
+                        height: window.frame.height  // Keep default 4× height
                     )
                     window.setFrame(newFrame, display: true)
                 }
