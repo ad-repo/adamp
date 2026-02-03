@@ -198,11 +198,13 @@ class SpectrumView: NSView {
     }
     
     func stopRendering() {
-        // SpectrumAnalyzerView handles its own display link
+        // Explicitly stop the Metal display link when window is hidden
+        spectrumAnalyzerView?.stopDisplayLink()
     }
     
     func startRendering() {
-        // SpectrumAnalyzerView handles its own display link
+        // Restart the Metal display link when window becomes visible
+        spectrumAnalyzerView?.startDisplayLink()
     }
     
     // MARK: - Hit Testing

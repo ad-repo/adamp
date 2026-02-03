@@ -334,6 +334,11 @@ class SpectrumAnalyzerView: NSView {
         guard !isRendering else { return }
         isRendering = true
         
+        // Reset idle tracking state
+        idleFrameCount = 0
+        hasClearedAfterIdle = false
+        stoppedDueToIdle = false
+        
         // Create display link
         var link: CVDisplayLink?
         CVDisplayLinkCreateWithActiveCGDisplays(&link)
@@ -369,6 +374,21 @@ class SpectrumAnalyzerView: NSView {
     
     // MARK: - Rendering
     
+    /// Track if we have any visible spectrum data (for idle optimization)
+    nonisolated(unsafe) private var hasVisibleData: Bool = false
+    
+    /// Track if we've cleared the display after data stopped (only need to clear once)
+    nonisolated(unsafe) private var hasClearedAfterIdle: Bool = false
+    
+    /// Count consecutive frames with no data - used to stop display link when idle
+    nonisolated(unsafe) private var idleFrameCount: Int = 0
+    
+    /// Frames to wait before stopping display link when idle (~1 second at 60fps)
+    private let idleFrameThreshold: Int = 60
+    
+    /// Track if we stopped rendering due to idle (vs window hidden)
+    nonisolated(unsafe) private var stoppedDueToIdle: Bool = false
+    
     /// Called by display link at 60Hz
     /// Note: This is internal (not private) so the display link callback can access it
     func render() {
@@ -381,7 +401,36 @@ class SpectrumAnalyzerView: NSView {
         }
         
         // Update display spectrum with decay (thread-safe via dataLock)
-        updateDisplaySpectrum()
+        let hadData = updateDisplaySpectrum()
+        
+        // Optimization: Skip full render when there's no visible data
+        // Only need to render once to clear the display, then skip until new data arrives
+        if !hadData {
+            idleFrameCount += 1
+            
+            // After threshold frames of idle, stop the display link entirely
+            // This saves significant CPU vs just skipping the GPU work
+            if idleFrameCount >= idleFrameThreshold {
+                inFlightSemaphore.signal()
+                stoppedDueToIdle = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.stopRendering()
+                }
+                return
+            }
+            
+            if hasClearedAfterIdle {
+                // Already cleared, skip this frame entirely
+                inFlightSemaphore.signal()
+                return
+            }
+            // First frame after data stopped - render once to clear, then mark as cleared
+            hasClearedAfterIdle = true
+        } else {
+            // Have data - reset the idle tracking
+            idleFrameCount = 0
+            hasClearedAfterIdle = false
+        }
         
         // Get drawable - this must succeed for us to render
         guard let drawable = metalLayer.nextDrawable() else {
@@ -473,7 +522,12 @@ class SpectrumAnalyzerView: NSView {
         commandBuffer.commit()
     }
     
-    private func updateDisplaySpectrum() {
+    /// Update display spectrum with decay and return whether there's visible data
+    /// - Returns: true if any bar has visible data (> 0.01), false if all bars are essentially zero
+    @discardableResult
+    private func updateDisplaySpectrum() -> Bool {
+        var hasData = false
+        
         dataLock.withLock {
             let decay = renderDecayFactor
             let outputCount = renderBarCount
@@ -485,6 +539,8 @@ class SpectrumAnalyzerView: NSView {
                     displaySpectrum[i] *= decay
                     if displaySpectrum[i] < 0.01 {
                         displaySpectrum[i] = 0
+                    } else {
+                        hasData = true
                     }
                 }
             } else {
@@ -518,6 +574,10 @@ class SpectrumAnalyzerView: NSView {
                         } else {
                             displaySpectrum[barIndex] = displaySpectrum[barIndex] * decay + newValue * (1 - decay)
                         }
+                        
+                        if displaySpectrum[barIndex] > 0.01 {
+                            hasData = true
+                        }
                     }
                 } else {
                     // Interpolate when fewer input bands than display bars
@@ -534,6 +594,10 @@ class SpectrumAnalyzerView: NSView {
                         } else {
                             displaySpectrum[barIndex] = displaySpectrum[barIndex] * decay + newValue * (1 - decay)
                         }
+                        
+                        if displaySpectrum[barIndex] > 0.01 {
+                            hasData = true
+                        }
                     }
                 }
             }
@@ -542,7 +606,11 @@ class SpectrumAnalyzerView: NSView {
             if renderQualityMode == .enhanced {
                 updateLEDMatrixState()
             }
+            
+            hasVisibleData = hasData
         }
+        
+        return hasData
     }
     
     /// Updates peak hold positions and per-cell brightness for LED matrix mode
@@ -678,8 +746,21 @@ class SpectrumAnalyzerView: NSView {
     
     /// Update spectrum data from audio engine (called from audio thread)
     func updateSpectrum(_ levels: [Float]) {
+        // Check if we have any non-zero data
+        let hasData = levels.contains { $0 > 0.01 }
+        
         dataLock.withLock {
             rawSpectrum = levels
+        }
+        
+        // If display link was stopped due to idle and we now have data, restart it
+        if hasData && stoppedDueToIdle {
+            stoppedDueToIdle = false
+            idleFrameCount = 0
+            hasClearedAfterIdle = false
+            DispatchQueue.main.async { [weak self] in
+                self?.startRendering()
+            }
         }
     }
     
@@ -712,6 +793,16 @@ class SpectrumAnalyzerView: NSView {
     /// Notify that skin changed
     func skinDidChange() {
         updateColorsFromSkin()
+    }
+    
+    /// Stop the display link (for when window is hidden but not closed)
+    func stopDisplayLink() {
+        stopRendering()
+    }
+    
+    /// Start the display link (for when window becomes visible)
+    func startDisplayLink() {
+        startRendering()
     }
     
     // MARK: - Layout

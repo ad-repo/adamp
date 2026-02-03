@@ -100,6 +100,10 @@ class MainWindowView: NSView {
         // Enable layer-backed rendering for better performance
         layer?.backgroundColor = NSColor.clear.cgColor
         
+        // Only redraw when explicitly requested via setNeedsDisplay
+        // This allows macOS to cache the layer contents between updates
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        
         // Register for drag and drop
         registerForDraggedTypes([.fileURL])
         
@@ -361,17 +365,20 @@ class MainWindowView: NSView {
         // Show error message in marquee - persists until user loads something else
         errorMessage = "[Error] \(message)"
         marqueeOffset = 0  // Reset scroll to show error from start
+        startMarquee()  // Restart marquee in case error message needs scrolling
         needsDisplay = true
     }
     
     @objc private func radioMetadataDidChange() {
         // Update marquee when radio stream metadata changes
         marqueeOffset = 0  // Reset scroll to show new title from start
+        startMarquee()  // Restart marquee in case new title needs scrolling
         needsDisplay = true
     }
     
     @objc private func radioConnectionStateDidChange() {
         // Update marquee when radio connection state changes
+        startMarquee()  // Restart marquee in case new status needs scrolling
         needsDisplay = true
     }
     
@@ -652,6 +659,7 @@ class MainWindowView: NSView {
         self.currentVideoTitle = nil  // Clear video title when audio track changes
         self.errorMessage = nil  // Clear any error message when track loads successfully
         marqueeOffset = 0  // Reset scroll position
+        startMarquee()  // Restart marquee in case new title needs scrolling
         bitrateScrollOffset = 0  // Reset bitrate scroll
         needsDisplay = true
     }
@@ -659,6 +667,7 @@ class MainWindowView: NSView {
     func updateVideoTrackInfo(title: String) {
         self.currentVideoTitle = title
         marqueeOffset = 0  // Reset scroll position
+        startMarquee()  // Restart marquee in case new title needs scrolling
         needsDisplay = true
     }
     
@@ -679,11 +688,12 @@ class MainWindowView: NSView {
     
     // MARK: - Marquee Timer Management
     
-    /// Start the marquee timer for text scrolling (15Hz - reduced from 20Hz for CPU efficiency)
+    /// Start the marquee timer for text scrolling (8Hz - reduced for CPU efficiency)
     private func startMarquee() {
         guard marqueeTimer == nil else { return }
-        // Reduced from 20Hz (0.05s) to 15Hz (0.067s) for CPU efficiency
-        marqueeTimer = Timer.scheduledTimer(withTimeInterval: 0.067, repeats: true) { [weak self] _ in
+        // Reduced to 8Hz (0.125s) for CPU efficiency
+        // Scroll speed adjusted to maintain visual speed
+        marqueeTimer = Timer.scheduledTimer(withTimeInterval: 0.125, repeats: true) { [weak self] _ in
             self?.handleMarqueeTimerTick()
         }
     }
@@ -716,17 +726,21 @@ class MainWindowView: NSView {
         let textWidth = CGFloat(title.count) * charWidth
         let marqueeWidth = SkinElements.TextFont.Positions.marqueeArea.width
         
+        var needsScrolling = false
+        
         if textWidth > marqueeWidth {
             // Circular scroll: separator is "  -  " (5 chars)
             let separatorWidth = charWidth * 5
             let totalCycleWidth = textWidth + separatorWidth
             
-            marqueeOffset += 1
+            // Scroll 3 pixels per tick (adjusted for 8Hz timer)
+            marqueeOffset += 3
             // Reset when one full cycle completes (seamless wrap)
             if marqueeOffset >= totalCycleWidth {
                 marqueeOffset = 0
             }
             setNeedsDisplay(SkinElements.TextFont.Positions.marqueeArea)
+            needsScrolling = true
         } else {
             // Text fits - no scrolling needed, reset offset
             if marqueeOffset != 0 {
@@ -749,9 +763,16 @@ class MainWindowView: NSView {
                     bitrateScrollOffset = 0  // Wrap around seamlessly
                 }
                 setNeedsDisplay(SkinElements.InfoDisplay.Positions.bitrate)
+                needsScrolling = true
             }
         } else {
             bitrateScrollOffset = 0
+        }
+        
+        // CPU optimization: Stop the timer when nothing needs scrolling
+        // It will restart when track changes or new content arrives
+        if !needsScrolling {
+            stopMarquee()
         }
     }
     

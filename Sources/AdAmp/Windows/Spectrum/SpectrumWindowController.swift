@@ -68,6 +68,12 @@ class SpectrumWindowController: NSWindowController {
         spectrumView.startRendering()
     }
     
+    /// Stop rendering when window is hidden via orderOut() (not close)
+    /// This saves CPU since orderOut() doesn't trigger windowWillClose
+    func stopRenderingForHide() {
+        spectrumView.stopRendering()
+    }
+    
     // MARK: - Public Methods
     
     func skinDidChange() {

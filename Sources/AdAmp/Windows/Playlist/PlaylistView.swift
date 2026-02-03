@@ -77,6 +77,10 @@ class PlaylistView: NSView {
     private func setupView() {
         wantsLayer = true
         
+        // Only redraw when explicitly requested via setNeedsDisplay
+        // This allows macOS to cache the layer contents between updates
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        
         // Register for drag and drop
         registerForDraggedTypes([.fileURL])
         
@@ -93,14 +97,29 @@ class PlaylistView: NSView {
                                                name: NSWindow.didDeminiaturizeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidChangeOcclusionState),
                                                name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        
+        // Observe playback state changes to restart timer when needed
+        NotificationCenter.default.addObserver(self, selector: #selector(playbackStateDidChange),
+                                               name: .audioPlaybackStateChanged, object: nil)
+    }
+    
+    /// Restart timer when playback starts or track changes
+    @objc private func playbackStateDidChange(_ notification: Notification) {
+        // Restart the timer when playback starts - it may need to show time updates or scroll marquee
+        if WindowManager.shared.audioEngine.state == .playing {
+            startDisplayTimer()
+            marqueeOffset = 0  // Reset marquee when track changes
+            needsDisplay = true
+        }
     }
     
     // MARK: - Display Timer Management
     
-    /// Start the display timer for marquee scrolling (15Hz - reduced from 30Hz for CPU efficiency)
+    /// Start the display timer for marquee scrolling (8Hz - reduced for CPU efficiency)
     private func startDisplayTimer() {
         guard displayTimer == nil else { return }
-        displayTimer = Timer.scheduledTimer(withTimeInterval: 0.067, repeats: true) { [weak self] _ in
+        // Reduced to 8Hz (0.125s) for CPU efficiency
+        displayTimer = Timer.scheduledTimer(withTimeInterval: 0.125, repeats: true) { [weak self] _ in
             self?.handleDisplayTimerTick()
         }
     }
@@ -124,9 +143,9 @@ class PlaylistView: NSView {
         let engine = WindowManager.shared.audioEngine
         let currentIndex = engine.currentIndex
         guard currentIndex >= 0 && currentIndex < engine.playlist.count else {
-            // No current track - just redraw for time updates if playing
-            if engine.state == .playing {
-                needsDisplay = true
+            // No current track and not playing - stop the timer to save CPU
+            if engine.state != .playing {
+                stopDisplayTimer()
             }
             return
         }
@@ -141,12 +160,15 @@ class PlaylistView: NSView {
         let textWidth = CGFloat(titleText.count) * charWidth
         
         if textWidth > listWidth {
-            // Text overflows - scroll marquee
-            marqueeOffset += 1
+            // Text overflows - scroll marquee (3 pixels per tick for 8Hz timer)
+            marqueeOffset += 3
             needsDisplay = true
         } else if engine.state == .playing {
             // No overflow but playing - redraw for time updates (at lower frequency)
             needsDisplay = true
+        } else {
+            // Not playing and no scrolling needed - stop timer to save CPU
+            stopDisplayTimer()
         }
     }
     
