@@ -428,10 +428,12 @@ NotificationCenter.default.post(
 A dedicated spectrum analyzer window is available (Visualizations menu → Spectrum Analyzer) with:
 
 - **Metal-based rendering** - GPU-accelerated visualization at 60Hz via CVDisplayLink
+  - Uses runtime shader compilation for SPM compatibility (`device.makeLibrary(source:)`)
+  - Separate pipeline states for Winamp and Enhanced modes
 - **55 bars** (vs 19 in main window) - Higher resolution frequency display
 - **Quality modes:**
   - **Winamp** - Discrete color palette from skin's `viscolor.txt`, pixel-art aesthetic
-  - **Enhanced** - Smooth gradients with subtle glow effect
+  - **Enhanced** - Rainbow LED matrix with floating peaks and per-cell fade trails
 - **Decay modes** controlling bar responsiveness:
   - **Instant** - No smoothing, immediate response
   - **Snappy** - 25% retention, fast and punchy (default)
@@ -442,7 +444,7 @@ The window respects the current skin's visualization colors and docks with other
 
 **Key files:**
 - `Visualization/SpectrumAnalyzerView.swift` - Metal-based spectrum view component
-- `Visualization/SpectrumShaders.metal` - GPU shaders for bar rendering
+- `Visualization/SpectrumShaders.metal` - GPU shaders (LED matrix + bar modes)
 - `Windows/Spectrum/SpectrumWindowController.swift` - Window controller
 - `Windows/Spectrum/SpectrumView.swift` - Container view with skin chrome
 

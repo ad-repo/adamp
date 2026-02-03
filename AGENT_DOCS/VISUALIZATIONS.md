@@ -226,8 +226,8 @@ A dedicated Metal-based spectrum analyzer visualization that provides a larger, 
 
 | Mode | Description |
 |------|-------------|
-| **Winamp** | Discrete color palette, pixel-art aesthetic (default) |
-| **Enhanced** | Smooth gradient interpolation with subtle glow effect |
+| **Winamp** | Discrete color bands from skin's 24-color palette, classic pixel-art aesthetic (default) |
+| **Enhanced** | Rainbow LED matrix with floating peaks, per-cell fade trails, and rounded corners |
 
 ### Responsiveness Modes
 
@@ -249,10 +249,13 @@ Right-click on the window for:
 
 ### Technical Details
 
-- **Rendering**: Metal shaders via CAMetalLayer
-- **Frame Rate**: 60 FPS via CVDisplayLink
+- **Rendering**: Metal shaders via CAMetalLayer with runtime shader compilation
+- **Shader Modes**: Separate pipeline states for Winamp (bar) and Enhanced (LED matrix) modes
+- **Frame Rate**: 60 FPS via CVDisplayLink (auto-stops when window closes)
 - **Audio Input**: 75-band spectrum data from AudioEngine
 - **Thread Safety**: OSAllocatedUnfairLock for spectrum data updates
+- **LED Matrix**: 55 columns × 16 rows = 880 cells in Enhanced mode
+- **Peak Hold**: Floating peak indicators with slow decay in Enhanced mode
 
 ---
 

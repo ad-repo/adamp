@@ -42,18 +42,20 @@ enum SpectrumDecayMode: String, CaseIterable {
     }
 }
 
-// MARK: - Spectrum Parameters (for Metal shader)
+// MARK: - LED Parameters (for Metal shader)
 
-/// Parameters passed to the Metal shader
-struct SpectrumParams {
-    var viewportSize: SIMD2<Float>  // Width, height in pixels
-    var barCount: Int32             // Number of bars to render
-    var barWidth: Float             // Width of each bar in pixels
-    var barSpacing: Float           // Space between bars
-    var maxHeight: Float            // Maximum bar height
-    var qualityMode: Int32          // 0 = winamp, 1 = enhanced
-    var glowIntensity: Float        // Glow effect intensity (enhanced mode)
-    var padding: Float = 0          // Alignment padding
+/// Parameters passed to the Metal shader (must match Metal struct exactly)
+/// Total size: 40 bytes, 8-byte aligned
+struct LEDParams {
+    var viewportSize: SIMD2<Float>  // 8 bytes (offset 0)
+    var columnCount: Int32          // 4 bytes (offset 8)
+    var rowCount: Int32             // 4 bytes (offset 12)
+    var cellWidth: Float            // 4 bytes (offset 16)
+    var cellHeight: Float           // 4 bytes (offset 20)
+    var cellSpacing: Float          // 4 bytes (offset 24)
+    var qualityMode: Int32          // 4 bytes (offset 28)
+    var maxHeight: Float            // 4 bytes (offset 32)
+    var padding: Float = 0          // 4 bytes (offset 36) - alignment to 40
 }
 
 // MARK: - Spectrum Analyzer View
@@ -67,6 +69,10 @@ class SpectrumAnalyzerView: NSView {
     var qualityMode: SpectrumQualityMode = .winamp {
         didSet {
             UserDefaults.standard.set(qualityMode.rawValue, forKey: "spectrumQualityMode")
+            let mode = qualityMode
+            dataLock.withLock {
+                renderQualityMode = mode
+            }
         }
     }
     
@@ -114,11 +120,19 @@ class SpectrumAnalyzerView: NSView {
     private var commandQueue: MTLCommandQueue!
     private var pipelineState: MTLRenderPipelineState?
     
+    // Pipeline states for both modes
+    private var ledPipelineState: MTLRenderPipelineState?
+    private var barPipelineState: MTLRenderPipelineState?
+    
     // Buffers
     private var vertexBuffer: MTLBuffer?
     private var colorBuffer: MTLBuffer?
     private var heightBuffer: MTLBuffer?
     private var paramsBuffer: MTLBuffer?
+    
+    // LED Matrix buffers
+    private var cellBrightnessBuffer: MTLBuffer?
+    private var peakPositionsBuffer: MTLBuffer?
     
     // MARK: - Display Sync
     
@@ -136,6 +150,7 @@ class SpectrumAnalyzerView: NSView {
     nonisolated(unsafe) private var renderDecayFactor: Float = 0.25 // Decay factor for rendering
     nonisolated(unsafe) private var renderColorPalette: [SIMD4<Float>] = [] // Colors for rendering
     nonisolated(unsafe) private var renderBarWidth: CGFloat = 3.0   // Bar width for rendering
+    nonisolated(unsafe) private var renderQualityMode: SpectrumQualityMode = .winamp // Quality mode for rendering
     
     // LED Matrix state tracking (for Enhanced mode)
     nonisolated(unsafe) private var peakHoldPositions: [Float] = []  // Peak hold position per column (0-1)
@@ -178,6 +193,7 @@ class SpectrumAnalyzerView: NSView {
         renderBarCount = barCount
         renderDecayFactor = decayMode.decayFactor
         renderBarWidth = barWidth
+        renderQualityMode = qualityMode
         
         // Set up Metal
         setupMetal()
@@ -229,65 +245,84 @@ class SpectrumAnalyzerView: NSView {
     private func setupPipeline() {
         guard let device = device else { return }
         
-        // Try to load the shader library from the bundle
-        // First try the default library (built into app), then try loading from file
-        var library: MTLLibrary?
-        
-        // Try loading from default library first
-        library = device.makeDefaultLibrary()
-        
-        if library == nil {
-            // Try loading from the bundle
-            if let libraryURL = BundleHelper.url(forResource: "default", withExtension: "metallib") {
-                library = try? device.makeLibrary(URL: libraryURL)
-            }
-        }
-        
-        guard let library = library else {
-            NSLog("SpectrumAnalyzerView: Failed to load Metal shader library - will use fallback rendering")
+        // Load shader source from file (runtime compilation for SPM compatibility)
+        // This is required because makeDefaultLibrary() returns nil in SPM executables
+        guard let shaderURL = BundleHelper.url(forResource: "SpectrumShaders", withExtension: "metal"),
+              let shaderSource = try? String(contentsOf: shaderURL, encoding: .utf8) else {
+            NSLog("SpectrumAnalyzerView: Failed to load shader source file")
             return
         }
-        
-        guard let vertexFunction = library.makeFunction(name: "spectrum_vertex"),
-              let fragmentFunction = library.makeFunction(name: "spectrum_fragment") else {
-            NSLog("SpectrumAnalyzerView: Failed to find shader functions")
-            return
-        }
-        
-        // Create pipeline descriptor
-        let pipelineDescriptor = MTLRenderPipelineDescriptor()
-        pipelineDescriptor.label = "Spectrum Pipeline"
-        pipelineDescriptor.vertexFunction = vertexFunction
-        pipelineDescriptor.fragmentFunction = fragmentFunction
-        pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-        
-        // Enable blending for glow effect
-        pipelineDescriptor.colorAttachments[0].isBlendingEnabled = true
-        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
-        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
-        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
         
         do {
-            pipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
+            let library = try device.makeLibrary(source: shaderSource, options: nil)
+            
+            // Create LED matrix pipeline (Enhanced mode)
+            if let vertexFunc = library.makeFunction(name: "led_matrix_vertex"),
+               let fragmentFunc = library.makeFunction(name: "led_matrix_fragment") {
+                let descriptor = MTLRenderPipelineDescriptor()
+                descriptor.label = "LED Matrix Pipeline"
+                descriptor.vertexFunction = vertexFunc
+                descriptor.fragmentFunction = fragmentFunc
+                descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+                ledPipelineState = try device.makeRenderPipelineState(descriptor: descriptor)
+            }
+            
+            // Create bar pipeline (Winamp mode)
+            if let vertexFunc = library.makeFunction(name: "spectrum_vertex"),
+               let fragmentFunc = library.makeFunction(name: "spectrum_fragment") {
+                let descriptor = MTLRenderPipelineDescriptor()
+                descriptor.label = "Spectrum Bar Pipeline"
+                descriptor.vertexFunction = vertexFunc
+                descriptor.fragmentFunction = fragmentFunc
+                descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+                barPipelineState = try device.makeRenderPipelineState(descriptor: descriptor)
+            }
+            
+            // Keep pipelineState for backward compatibility (points to current mode)
+            pipelineState = qualityMode == .enhanced ? ledPipelineState : barPipelineState
+            
+            NSLog("SpectrumAnalyzerView: Metal pipelines created successfully")
         } catch {
-            NSLog("SpectrumAnalyzerView: Failed to create pipeline state: \(error)")
+            NSLog("SpectrumAnalyzerView: Failed to compile shaders: \(error)")
         }
     }
     
     private func setupBuffers() {
         guard let device = device else { return }
         
-        // Heights buffer (updated each frame)
-        let maxBars = 64  // Support up to 64 bars
-        heightBuffer = device.makeBuffer(length: maxBars * MemoryLayout<Float>.stride, options: .storageModeShared)
+        let maxColumns = 64
+        let maxRows = 16
+        let maxCells = maxColumns * maxRows
+        
+        // Cell brightness buffer (one float per cell) - for LED matrix mode
+        cellBrightnessBuffer = device.makeBuffer(
+            length: maxCells * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        
+        // Peak positions buffer (one float per column) - for LED matrix mode
+        peakPositionsBuffer = device.makeBuffer(
+            length: maxColumns * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        
+        // Heights buffer (for Winamp bar mode, reused from existing)
+        heightBuffer = device.makeBuffer(
+            length: maxColumns * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
         
         // Colors buffer (24 colors for Winamp palette)
-        let maxColors = 24
-        colorBuffer = device.makeBuffer(length: maxColors * MemoryLayout<SIMD4<Float>>.stride, options: .storageModeShared)
+        colorBuffer = device.makeBuffer(
+            length: 24 * MemoryLayout<SIMD4<Float>>.stride,
+            options: .storageModeShared
+        )
         
-        // Params buffer
-        paramsBuffer = device.makeBuffer(length: MemoryLayout<SpectrumParams>.stride, options: .storageModeShared)
+        // Params buffer (shared between both modes)
+        paramsBuffer = device.makeBuffer(
+            length: MemoryLayout<LEDParams>.stride,
+            options: .storageModeShared
+        )
     }
     
     // MARK: - Display Link
@@ -338,13 +373,16 @@ class SpectrumAnalyzerView: NSView {
         // Get drawable
         guard let drawable = metalLayer.nextDrawable() else { return }
         
-        // If Metal pipeline isn't ready, use fallback
-        guard let pipelineState = pipelineState,
+        // Select pipeline based on quality mode (use render-safe copy)
+        var currentMode: SpectrumQualityMode = .winamp
+        dataLock.withLock {
+            currentMode = renderQualityMode
+        }
+        let activePipeline = currentMode == .enhanced ? ledPipelineState : barPipelineState
+        
+        guard let pipeline = activePipeline,
               let commandBuffer = commandQueue?.makeCommandBuffer() else {
-            // Fallback to Core Graphics rendering
-            DispatchQueue.main.async { [weak self] in
-                self?.needsDisplay = true
-            }
+            NSLog("SpectrumAnalyzerView: Metal pipeline not ready")
             return
         }
         
@@ -359,34 +397,53 @@ class SpectrumAnalyzerView: NSView {
             return
         }
         
-        // Update buffers
+        // Update buffers with current data
         updateBuffers()
         
         // Set pipeline state
-        encoder.setRenderPipelineState(pipelineState)
+        encoder.setRenderPipelineState(pipeline)
         
-        // Set buffers
-        if let heightBuffer = heightBuffer {
-            encoder.setVertexBuffer(heightBuffer, offset: 0, index: 0)
-        }
-        if let paramsBuffer = paramsBuffer {
-            encoder.setVertexBuffer(paramsBuffer, offset: 0, index: 1)
-        }
-        if let colorBuffer = colorBuffer {
-            encoder.setFragmentBuffer(colorBuffer, offset: 0, index: 0)
-        }
-        if let paramsBuffer = paramsBuffer {
-            encoder.setFragmentBuffer(paramsBuffer, offset: 0, index: 1)
-        }
-        
-        // Draw bars (6 vertices per bar - 2 triangles)
-        // Use render-safe bar count
+        // Get bar count for vertex calculation
         var localBarCount: Int = 0
         dataLock.withLock {
             localBarCount = renderBarCount
         }
-        let vertexCount = localBarCount * 6
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+        
+        if currentMode == .enhanced {
+            // LED Matrix mode - bind LED buffers
+            if let buffer = cellBrightnessBuffer {
+                encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+            }
+            if let buffer = peakPositionsBuffer {
+                encoder.setVertexBuffer(buffer, offset: 0, index: 1)
+            }
+            if let buffer = paramsBuffer {
+                encoder.setVertexBuffer(buffer, offset: 0, index: 2)
+                encoder.setFragmentBuffer(buffer, offset: 0, index: 1)
+            }
+            
+            // Each cell is 6 vertices, total cells = columns * rows
+            let vertexCount = localBarCount * ledRowCount * 6
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+        } else {
+            // Winamp bar mode - bind bar buffers
+            if let buffer = heightBuffer {
+                encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+            }
+            if let buffer = paramsBuffer {
+                encoder.setVertexBuffer(buffer, offset: 0, index: 2)
+            }
+            if let buffer = colorBuffer {
+                encoder.setFragmentBuffer(buffer, offset: 0, index: 0)
+            }
+            if let buffer = paramsBuffer {
+                encoder.setFragmentBuffer(buffer, offset: 0, index: 1)
+            }
+            
+            // 6 vertices per bar
+            let vertexCount = localBarCount * 6
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+        }
         
         encoder.endEncoding()
         
@@ -459,12 +516,15 @@ class SpectrumAnalyzerView: NSView {
                 }
             }
             
-            // Update LED matrix state (for Enhanced mode)
-            updateLEDMatrixState()
+            // Update LED matrix state only when in Enhanced mode
+            if renderQualityMode == .enhanced {
+                updateLEDMatrixState()
+            }
         }
     }
     
     /// Updates peak hold positions and per-cell brightness for LED matrix mode
+    /// Note: Only called when qualityMode == .enhanced
     private func updateLEDMatrixState() {
         let colCount = renderBarCount
         
@@ -512,44 +572,83 @@ class SpectrumAnalyzerView: NSView {
         var localBarWidth: CGFloat = 0
         var localColors: [SIMD4<Float>] = []
         var localSpectrum: [Float] = []
+        var localPeakPositions: [Float] = []
+        var localCellBrightness: [[Float]] = []
+        var localQualityMode: SpectrumQualityMode = .winamp
         
         dataLock.withLock {
             localBarCount = renderBarCount
             localBarWidth = renderBarWidth
             localColors = renderColorPalette
             localSpectrum = displaySpectrum
+            localPeakPositions = peakHoldPositions
+            localCellBrightness = cellBrightness
+            localQualityMode = renderQualityMode
         }
         
-        // Update heights buffer
-        if let heightBuffer = heightBuffer {
-            let heights = heightBuffer.contents().bindMemory(to: Float.self, capacity: localBarCount)
-            for i in 0..<min(localBarCount, localSpectrum.count) {
-                heights[i] = localSpectrum[i]
-            }
-        }
+        let scale = metalLayer?.contentsScale ?? 1.0
+        let scaledWidth = Float(bounds.width * scale)
+        let scaledHeight = Float(bounds.height * scale)
         
-        // Update colors buffer
-        if let colorBuffer = colorBuffer {
-            let colors = colorBuffer.contents().bindMemory(to: SIMD4<Float>.self, capacity: 24)
-            for (i, color) in localColors.prefix(24).enumerated() {
-                colors[i] = color
-            }
-        }
+        // Calculate cell dimensions
+        let cellSpacing: Float = 2.0 * Float(scale)
+        let cellHeight = (scaledHeight - Float(ledRowCount - 1) * cellSpacing) / Float(ledRowCount)
+        let cellWidth = Float(localBarWidth * scale) - 1.0
         
-        // Update params buffer (these view properties are accessed from render thread - but since
-        // CVDisplayLink runs on the main thread in macOS, this is safe)
-        if let paramsBuffer = paramsBuffer {
-            let params = paramsBuffer.contents().bindMemory(to: SpectrumParams.self, capacity: 1)
-            let scale = metalLayer?.contentsScale ?? 1.0
-            params.pointee = SpectrumParams(
-                viewportSize: SIMD2<Float>(Float(bounds.width * scale), Float(bounds.height * scale)),
-                barCount: Int32(localBarCount),
-                barWidth: Float(localBarWidth * scale),
-                barSpacing: Float(barSpacing * scale),
-                maxHeight: Float(bounds.height * scale),
-                qualityMode: qualityMode == .winamp ? 0 : 1,
-                glowIntensity: glowIntensity
+        // Update params buffer
+        if let buffer = paramsBuffer {
+            let ptr = buffer.contents().bindMemory(to: LEDParams.self, capacity: 1)
+            ptr.pointee = LEDParams(
+                viewportSize: SIMD2<Float>(scaledWidth, scaledHeight),
+                columnCount: Int32(localBarCount),
+                rowCount: Int32(ledRowCount),
+                cellWidth: cellWidth,
+                cellHeight: cellHeight,
+                cellSpacing: cellSpacing,
+                qualityMode: localQualityMode == .winamp ? 0 : 1,
+                maxHeight: scaledHeight
             )
+        }
+        
+        if localQualityMode == .enhanced {
+            // Update cell brightness buffer (LED matrix mode)
+            if let buffer = cellBrightnessBuffer {
+                let ptr = buffer.contents().bindMemory(to: Float.self, capacity: localBarCount * ledRowCount)
+                for col in 0..<localBarCount {
+                    for row in 0..<ledRowCount {
+                        let index = col * ledRowCount + row
+                        if col < localCellBrightness.count && row < localCellBrightness[col].count {
+                            ptr[index] = localCellBrightness[col][row]
+                        } else {
+                            ptr[index] = 0
+                        }
+                    }
+                }
+            }
+            
+            // Update peak positions buffer
+            if let buffer = peakPositionsBuffer {
+                let ptr = buffer.contents().bindMemory(to: Float.self, capacity: localBarCount)
+                for col in 0..<localBarCount {
+                    ptr[col] = col < localPeakPositions.count ? localPeakPositions[col] : 0
+                }
+            }
+        } else {
+            // Update heights buffer (Winamp bar mode)
+            if let buffer = heightBuffer {
+                let ptr = buffer.contents().bindMemory(to: Float.self, capacity: localBarCount)
+                for i in 0..<min(localBarCount, localSpectrum.count) {
+                    ptr[i] = localSpectrum[i]
+                }
+            }
+            
+            // Update colors buffer
+            if let buffer = colorBuffer {
+                let ptr = buffer.contents().bindMemory(to: SIMD4<Float>.self, capacity: 24)
+                for (i, color) in localColors.prefix(24).enumerated() {
+                    ptr[i] = color
+                }
+            }
         }
     }
     
@@ -605,188 +704,13 @@ class SpectrumAnalyzerView: NSView {
         super.viewDidMoveToWindow()
         if window != nil {
             metalLayer?.contentsScale = window?.backingScaleFactor ?? 2.0
-        }
-    }
-    
-    // MARK: - Fallback Drawing (Core Graphics)
-    
-    override func draw(_ dirtyRect: NSRect) {
-        guard pipelineState == nil else { return }  // Only use fallback if Metal isn't available
-        
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        
-        // Clear background
-        context.clear(bounds)
-        
-        // Get render-safe values (all in one lock to avoid deadlock)
-        var localBarCount: Int = 0
-        var localBarWidth: CGFloat = 0
-        var localColors: [SIMD4<Float>] = []
-        var localSpectrum: [Float] = []
-        var localPeakPositions: [Float] = []
-        var localCellBrightness: [[Float]] = []
-        
-        dataLock.withLock {
-            localBarCount = renderBarCount
-            localBarWidth = renderBarWidth
-            localColors = renderColorPalette
-            localSpectrum = displaySpectrum
-            localPeakPositions = peakHoldPositions
-            localCellBrightness = cellBrightness
-        }
-        
-        let maxHeight = bounds.height
-        let totalBarWidth = localBarWidth + barSpacing
-        
-        if qualityMode == .winamp {
-            // === WINAMP MODE: Classic discrete pixel-art aesthetic ===
-            // Draw in color bands (more efficient than pixel-by-pixel)
-            let bandCount = min(24, localColors.count)
-            let bandHeight = maxHeight / CGFloat(bandCount)
-            
-            for (i, level) in localSpectrum.prefix(localBarCount).enumerated() {
-                let barX = CGFloat(i) * totalBarWidth
-                let barHeight = CGFloat(level) * maxHeight
-                
-                guard barHeight > 0 else { continue }
-                
-                // Draw color bands from bottom to top
-                for band in 0..<bandCount {
-                    let bandY = CGFloat(band) * bandHeight
-                    let bandTop = bandY + bandHeight
-                    
-                    // Skip bands above the bar height
-                    if bandY >= barHeight { break }
-                    
-                    // Clip band to bar height
-                    let clippedHeight = min(bandHeight, barHeight - bandY)
-                    
-                    let colorIndex = min(localColors.count - 1, band)
-                    let color = localColors[colorIndex]
-                    context.setFillColor(CGColor(red: CGFloat(color.x), green: CGFloat(color.y), blue: CGFloat(color.z), alpha: CGFloat(color.w)))
-                    
-                    let bandRect = CGRect(x: barX, y: bandY, width: localBarWidth, height: clippedHeight)
-                    context.fill(bandRect)
-                }
-            }
+            startRendering()
         } else {
-            // === ENHANCED MODE: LED Matrix with floating peaks and per-cell fade ===
-            
-            // LED matrix configuration
-            let cellSpacing: CGFloat = 2.0  // Gap between cells
-            let cellCornerRadius: CGFloat = 2.0
-            let rowCount = ledRowCount
-            let cellHeight = (maxHeight - CGFloat(rowCount - 1) * cellSpacing) / CGFloat(rowCount)
-            let cellWidth = localBarWidth - 1  // Slightly narrower than bar spacing
-            
-            // localPeakPositions and localCellBrightness already fetched above
-            
-            // Rainbow color palette for columns (hue varies by column position)
-            func rainbowColor(forColumn col: Int, totalColumns: Int) -> (r: CGFloat, g: CGFloat, b: CGFloat) {
-                let hue = CGFloat(col) / CGFloat(totalColumns)
-                
-                // HSV to RGB conversion (full saturation, full value)
-                let h = hue * 6.0
-                let sector = Int(h)
-                let f = h - CGFloat(sector)
-                let q = 1.0 - f
-                let t = f
-                
-                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
-                switch sector % 6 {
-                case 0: r = 1; g = t; b = 0      // Red -> Yellow
-                case 1: r = q; g = 1; b = 0      // Yellow -> Green
-                case 2: r = 0; g = 1; b = t      // Green -> Cyan
-                case 3: r = 0; g = q; b = 1      // Cyan -> Blue
-                case 4: r = t; g = 0; b = 1      // Blue -> Magenta
-                case 5: r = 1; g = 0; b = q      // Magenta -> Red
-                default: break
-                }
-                
-                return (r, g, b)
-            }
-            
-            // Draw each column
-            for col in 0..<localBarCount {
-                let colX = CGFloat(col) * totalBarWidth
-                
-                // Get column color from rainbow
-                let baseColor = rainbowColor(forColumn: col, totalColumns: localBarCount)
-                
-                // Get current bar level and peak position
-                let currentLevel = col < localSpectrum.count ? localSpectrum[col] : 0
-                let currentBarRow = Int(CGFloat(currentLevel) * CGFloat(rowCount))
-                
-                let peakPosition = col < localPeakPositions.count ? localPeakPositions[col] : 0
-                let peakRow = min(rowCount - 1, Int(peakPosition * Float(rowCount)))
-                
-                // Draw all lit cells in this column
-                for row in 0..<rowCount {
-                    let cellY = CGFloat(row) * (cellHeight + cellSpacing)
-                    let cellRect = CGRect(x: colX, y: cellY, width: cellWidth, height: cellHeight)
-                    
-                    // Get cell brightness from state (each cell fades independently)
-                    var brightness: Float = 0
-                    if col < localCellBrightness.count && row < localCellBrightness[col].count {
-                        brightness = localCellBrightness[col][row]
-                    }
-                    
-                    // Check if this is the peak row (always draw peak)
-                    let isPeakCell = (row == peakRow) && peakRow > 0
-                    
-                    if brightness > 0.01 || isPeakCell {
-                        // For peak cell, use full brightness
-                        let displayBrightness: CGFloat = isPeakCell ? 1.0 : CGFloat(brightness)
-                        
-                        var r = baseColor.r * displayBrightness
-                        var g = baseColor.g * displayBrightness
-                        var b = baseColor.b * displayBrightness
-                        
-                        // Peak cells are extra bright with white tint
-                        if isPeakCell {
-                            r = min(1.0, baseColor.r + 0.4)
-                            g = min(1.0, baseColor.g + 0.4)
-                            b = min(1.0, baseColor.b + 0.4)
-                        }
-                        
-                        // Draw LED cell
-                        context.saveGState()
-                        
-                        // Main cell body with rounded corners
-                        let cellPath = CGPath(roundedRect: cellRect, cornerWidth: cellCornerRadius, cornerHeight: cellCornerRadius, transform: nil)
-                        context.addPath(cellPath)
-                        context.setFillColor(CGColor(red: r, green: g, blue: b, alpha: 1.0))
-                        context.fillPath()
-                        
-                        // 3D highlight on upper portion
-                        let highlightRect = CGRect(x: colX + 1, y: cellY + cellHeight * 0.5, width: cellWidth - 2, height: cellHeight * 0.45)
-                        let hlAlpha: CGFloat = isPeakCell ? 0.7 : 0.4 * displayBrightness
-                        
-                        let hlR = min(1.0, r * 1.3 + 0.2)
-                        let hlG = min(1.0, g * 1.3 + 0.2)
-                        let hlB = min(1.0, b * 1.3 + 0.2)
-                        context.setFillColor(CGColor(red: hlR, green: hlG, blue: hlB, alpha: hlAlpha))
-                        context.fill(highlightRect)
-                        
-                        // White shine spot (more prominent on peak)
-                        let shineAlpha: CGFloat = isPeakCell ? 0.5 : 0.25 * displayBrightness
-                        let shineRect = CGRect(x: colX + 1.5, y: cellY + cellHeight * 0.6, width: cellWidth * 0.35, height: cellHeight * 0.3)
-                        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: shineAlpha))
-                        context.fillEllipse(in: shineRect)
-                        
-                        // Bottom shadow for depth
-                        if displayBrightness > 0.3 {
-                            let shadowRect = CGRect(x: colX + 1, y: cellY + 1, width: cellWidth - 2, height: cellHeight * 0.2)
-                            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.2))
-                            context.fill(shadowRect)
-                        }
-                        
-                        context.restoreGState()
-                    }
-                }
-            }
+            // Window closed - stop the display link to release CPU
+            stopRendering()
         }
     }
+    
 }
 
 // MARK: - Display Link Callback

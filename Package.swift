@@ -56,7 +56,8 @@ let package = Package(
             ],
             path: "Sources/AdAmp",
             resources: [
-                .copy("Resources")
+                .copy("Resources"),
+                .copy("Visualization/SpectrumShaders.metal")
             ],
             linkerSettings: [
                 .unsafeFlags(["-L", "Frameworks", "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
