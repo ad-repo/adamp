@@ -313,7 +313,11 @@ class WindowManager {
         NSLog("positionSubWindow: Positioning below %@ (anchorMinY=%.0f), newFrame=%@", 
               anchorName, anchorFrame.minY, NSStringFromRect(newFrame))
         
+        // Disable snapping during programmatic frame changes to prevent docking logic
+        // from moving the entire window stack
+        isSnappingWindow = true
         window.setFrame(newFrame, display: true)
+        isSnappingWindow = false
     }
     
     /// Show local media library (redirects to unified browser in local mode)

@@ -210,7 +210,7 @@ A dedicated Metal-based spectrum analyzer visualization that provides a larger, 
 
 ### Accessing the Visualizer
 
-1. **Double-click** the spectrum analyzer display in the main window
+1. **Click** the spectrum analyzer display in the main window
 2. **Context Menu** → Spectrum Analyzer
 3. Or via the Window menu
 

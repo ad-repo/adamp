@@ -55,7 +55,7 @@ AdAmp consists of several windows that can be shown/hidden:
 | **Main Window** | Primary player with transport controls | Always visible |
 | **Playlist Editor** | Track list and playlist management | PL button or context menu |
 | **Equalizer** | 10-band graphic EQ with presets | EQ button or context menu |
-| **Spectrum Analyzer** | Large spectrum visualization | Double-click spectrum display or context menu |
+| **Spectrum Analyzer** | Large spectrum visualization | Click spectrum display or context menu |
 | **Library Browser** | Browse Plex and local media | Logo button or context menu |
 | **Milkdrop** | Real-time audio visualizations | Menu button or context menu |
 
@@ -1099,7 +1099,7 @@ The main window displays real-time frequency analysis:
 - 75 frequency bands (20Hz - 20kHz, logarithmic)
 - 512-point FFT (~11.6ms latency at 44.1kHz)
 - Fast attack, slow decay smoothing
-- **Double-click** the spectrum display to open the full Spectrum Analyzer window
+- **Click** the spectrum display to open the full Spectrum Analyzer window
 
 The standalone Spectrum Analyzer window provides a larger, more detailed view with configurable quality modes (Winamp classic or Enhanced LED matrix) and decay speeds.
 

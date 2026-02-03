@@ -64,41 +64,8 @@ class SpectrumWindowController: NSWindowController {
     
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
-        positionWindow()
+        // Note: Positioning is handled by WindowManager.positionSubWindow() before showWindow is called
         spectrumView.startRendering()
-    }
-    
-    /// Position the window relative to the main window
-    private func positionWindow() {
-        guard let window = window else { return }
-        guard let mainWindow = WindowManager.shared.mainWindowController?.window else {
-            window.center()
-            return
-        }
-        
-        let mainFrame = mainWindow.frame
-        let mainScreen = mainWindow.screen ?? NSScreen.main
-        
-        // Position below the main window by default
-        var newX = mainFrame.minX
-        var newY = mainFrame.minY - window.frame.height
-        
-        // Screen bounds check - don't go off bottom edge
-        if let screen = mainScreen {
-            if newY < screen.visibleFrame.minY {
-                // Try positioning to the left of main window instead
-                newX = mainFrame.minX - window.frame.width
-                newY = mainFrame.maxY - window.frame.height  // Top-aligned
-                
-                // If still doesn't fit, center on screen
-                if newX < screen.visibleFrame.minX {
-                    window.center()
-                    return
-                }
-            }
-        }
-        
-        window.setFrameOrigin(NSPoint(x: newX, y: newY))
     }
     
     // MARK: - Public Methods

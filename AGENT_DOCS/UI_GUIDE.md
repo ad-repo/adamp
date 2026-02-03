@@ -376,7 +376,7 @@ A standalone Metal-based spectrum analyzer visualization window that provides a 
 
 ### Opening the Window
 
-- **Double-click** the spectrum analyzer display in the main window
+- **Click** the spectrum analyzer display in the main window
 - Context Menu → Spectrum Analyzer
 - Window menu → Spectrum Analyzer
 
