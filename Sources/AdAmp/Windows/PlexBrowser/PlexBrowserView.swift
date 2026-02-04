@@ -5494,11 +5494,11 @@ class PlexBrowserView: NSView {
         let tabY = Layout.titleBarHeight + Layout.serverBarHeight
         guard winampPoint.y >= tabY && winampPoint.y < tabY + Layout.tabBarHeight else { return false }
         
-        // Calculate sort indicator width
+        // Calculate sort indicator width (must match drawTabBar and hitTestTabBar)
         let charWidth = SkinElements.TextFont.charWidth
         let textScale: CGFloat = 1.5
         let scaledCharWidth = charWidth * textScale
-        let sortText = "Sort:\(currentSort.shortName)"
+        let sortText = "Sort"
         let sortWidth = CGFloat(sortText.count) * scaledCharWidth + 8
         
         let sortX = originalWindowSize.width - Layout.rightBorder - sortWidth

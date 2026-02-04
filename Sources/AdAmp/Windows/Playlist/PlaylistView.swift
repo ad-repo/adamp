@@ -49,8 +49,21 @@ class PlaylistView: NSView {
     /// Display update timer for playback time
     private var displayTimer: Timer?
     
-    /// Marquee scroll offset for current track
+    /// Marquee offset for scrolling current track title (in pixels)
     private var marqueeOffset: CGFloat = 0
+    
+    /// Width of current track title text (for marquee wrapping)
+    private var currentTrackTextWidth: CGFloat = 0
+    
+    /// Separator width for marquee (5 spaces)
+    private let marqueeSeparatorWidth: CGFloat = 5 * SkinElements.TextFont.charWidth
+    
+    /// Last known current track index (for detecting track changes)
+    private var lastCurrentIndex: Int = -1
+    
+    /// Cached CGImage of TEXT.BMP to avoid calling cgImage() during draw cycle
+    /// This prevents cross-window interference from NSImage.cgImage() affecting graphics state
+    private var cachedTextBitmapCGImage: CGImage?
     
     // MARK: - Layout Constants
     
@@ -77,30 +90,63 @@ class PlaylistView: NSView {
     private func setupView() {
         wantsLayer = true
         
+        // Only redraw when explicitly requested via setNeedsDisplay
+        // This allows macOS to cache the layer contents between updates
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        
         // Register for drag and drop
         registerForDraggedTypes([.fileURL])
         
-        // Start display timer for playback time updates and marquee scrolling
+        // Start display timer for marquee scrolling and playback time updates
         startDisplayTimer()
         
         // Set up accessibility identifiers for UI testing
         setupAccessibility()
         
-        // Observe window visibility changes to pause/resume timer
+        // Observe window visibility changes to pause/resume timer and marquee
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidMiniaturize),
                                                name: NSWindow.didMiniaturizeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidDeminiaturize),
                                                name: NSWindow.didDeminiaturizeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidChangeOcclusionState),
                                                name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        
+        // Observe playback state changes to restart timer when needed
+        NotificationCenter.default.addObserver(self, selector: #selector(playbackStateDidChange),
+                                               name: .audioPlaybackStateChanged, object: nil)
+    }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Pre-cache TEXT.BMP CGImage when view is added to window
+        cacheTextBitmapCGImage()
+        updateCurrentTrackTextWidth()
+        
+        // Auto-select the currently playing track when playlist opens
+        let engine = WindowManager.shared.audioEngine
+        if selectedIndices.isEmpty && engine.currentIndex >= 0 {
+            selectedIndices = [engine.currentIndex]
+            selectionAnchor = engine.currentIndex
+        }
+    }
+    
+    /// Restart timer when playback starts or track changes
+    @objc private func playbackStateDidChange(_ notification: Notification) {
+        if WindowManager.shared.audioEngine.state == .playing {
+            startDisplayTimer()
+            marqueeOffset = 0
+            updateCurrentTrackTextWidth()
+            needsDisplay = true
+        }
     }
     
     // MARK: - Display Timer Management
     
-    /// Start the display timer for marquee scrolling (15Hz - reduced from 30Hz for CPU efficiency)
+    /// Start the display timer for marquee scrolling (8Hz - reduced for CPU efficiency)
     private func startDisplayTimer() {
         guard displayTimer == nil else { return }
-        displayTimer = Timer.scheduledTimer(withTimeInterval: 0.067, repeats: true) { [weak self] _ in
+        // Reduced to 8Hz (0.125s) for CPU efficiency
+        displayTimer = Timer.scheduledTimer(withTimeInterval: 0.125, repeats: true) { [weak self] _ in
             self?.handleDisplayTimerTick()
         }
     }
@@ -120,33 +166,33 @@ class PlaylistView: NSView {
             return
         }
         
-        // Only scroll and redraw if marquee is needed (current track text overflows)
         let engine = WindowManager.shared.audioEngine
         let currentIndex = engine.currentIndex
-        guard currentIndex >= 0 && currentIndex < engine.playlist.count else {
-            // No current track - just redraw for time updates if playing
-            if engine.state == .playing {
-                needsDisplay = true
-            }
-            return
+        
+        // Check if current track changed - reset marquee if so
+        if currentIndex != lastCurrentIndex {
+            lastCurrentIndex = currentIndex
+            marqueeOffset = 0
+            updateCurrentTrackTextWidth()
         }
         
-        let track = engine.playlist[currentIndex]
-        let titleText = "\(currentIndex + 1). \(track.displayTitle)"
-        
-        // Calculate if text overflows (rough estimate)
-        let effectiveSize = effectiveWindowSize
-        let listWidth = effectiveSize.width - Layout.leftBorder - Layout.rightBorder - 60 // Approx duration width
-        let charWidth: CGFloat = 6 // Approximate character width
-        let textWidth = CGFloat(titleText.count) * charWidth
-        
-        if textWidth > listWidth {
-            // Text overflows - scroll marquee
-            marqueeOffset += 1
+        // Advance marquee offset if text needs scrolling
+        // Scroll speed: ~24 pixels per second at 8Hz = 3 pixels per tick
+        let cycleWidth = currentTrackTextWidth + marqueeSeparatorWidth
+        if currentTrackTextWidth > 0 && cycleWidth > 0 {
+            marqueeOffset += 3
+            if marqueeOffset >= cycleWidth {
+                marqueeOffset = 0
+            }
             needsDisplay = true
-        } else if engine.state == .playing {
-            // No overflow but playing - redraw for time updates (at lower frequency)
+        }
+        
+        // Redraw for time updates if playing, otherwise stop timer to save CPU
+        if engine.state == .playing || WindowManager.shared.isVideoActivePlayback {
             needsDisplay = true
+        } else if currentIndex < 0 || currentIndex >= engine.playlist.count {
+            // No current track and not playing - stop the timer to save CPU
+            stopDisplayTimer()
         }
     }
     
@@ -170,6 +216,32 @@ class PlaylistView: NSView {
         } else {
             stopDisplayTimer()
         }
+    }
+    
+    // MARK: - Marquee Layer Management
+    
+    /// Calculate current track text width for marquee scrolling
+    private func updateCurrentTrackTextWidth() {
+        let engine = WindowManager.shared.audioEngine
+        let currentIndex = engine.currentIndex
+        
+        guard currentIndex >= 0 && currentIndex < engine.playlist.count else {
+            currentTrackTextWidth = 0
+            return
+        }
+        
+        let track = engine.playlist[currentIndex]
+        let videoPrefix = track.mediaType == .video ? "[V] " : ""
+        let titleText = "\(currentIndex + 1). \(videoPrefix)\(track.displayTitle)"
+        
+        // Calculate text width in Winamp coordinates
+        let charWidth = SkinElements.TextFont.charWidth
+        currentTrackTextWidth = CGFloat(titleText.count) * charWidth
+    }
+    
+    /// No longer needed - marquee handled in draw cycle
+    private func updateMarqueeLayerFrame() {
+        // Marquee now handled in draw cycle with bitmap font
     }
     
     // MARK: - Accessibility
@@ -350,83 +422,183 @@ class PlaylistView: NSView {
             // Draw track info
             let track = tracks[index]
             let isCurrentTrack = index == currentIndex
+            let isSelected = selectedIndices.contains(index)
             let textColor = isCurrentTrack ? colors.currentText : colors.normalText
             
             // Draw track text with clipping and marquee for current track
-            drawTrackText(in: context, track: track, index: index, rect: itemRect, color: textColor, font: colors.font, isCurrentTrack: isCurrentTrack)
+            drawTrackText(in: context, track: track, index: index, rect: itemRect, color: textColor, font: colors.font, isCurrentTrack: isCurrentTrack, isSelected: isSelected)
         }
         
         context.restoreGState()
     }
     
-    /// Draw track text (handles coordinate flip for proper text rendering)
-    private func drawTrackText(in context: CGContext, track: Track, index: Int, rect: NSRect, color: NSColor, font: NSFont, isCurrentTrack: Bool = false) {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: color,
-            .font: font
-        ]
+    /// Draw track text using bitmap font (TEXT.BMP) - same font as main window
+    /// Current track uses marquee scrolling for long titles
+    /// Selected tracks are drawn in white
+    private func drawTrackText(in context: CGContext, track: Track, index: Int, rect: NSRect, color: NSColor, font: NSFont, isCurrentTrack: Bool = false, isSelected: Bool = false) {
+        let skin = WindowManager.shared.currentSkin
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
         
         // Calculate dimensions
-        let centerY = rect.midY
         let duration = track.duration ?? 0
         let durationStr = String(format: "%d:%02d", Int(duration) / 60, Int(duration) % 60)
-        let durationSize = durationStr.size(withAttributes: attrs)
-        let durationX = rect.maxX - durationSize.width - 4
+        let durationWidth = CGFloat(durationStr.count) * charWidth
+        let durationX = rect.maxX - durationWidth - 4
         let titleX = rect.minX + 2
         let titleMaxWidth = durationX - titleX - 6
         
         // Prepend [V] indicator for video tracks
         let videoPrefix = track.mediaType == .video ? "[V] " : ""
         let titleText = "\(index + 1). \(videoPrefix)\(track.displayTitle)"
-        let textWidth = titleText.size(withAttributes: attrs).width
         
-        // Draw duration (right-aligned)
-        context.saveGState()
-        context.translateBy(x: 0, y: centerY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -centerY)
-        durationStr.draw(at: NSPoint(x: durationX, y: rect.minY + 1), withAttributes: attrs)
-        context.restoreGState()
+        // Vertical centering
+        let textY = rect.minY + (rect.height - charHeight) / 2
         
-        // Draw title with clipping
+        // Draw duration (right-aligned) using bitmap font
+        drawBitmapText(durationStr, at: NSPoint(x: durationX, y: textY), in: context, skin: skin, isSelected: isSelected)
+        
+        // Draw title (clipped to available width)
         context.saveGState()
         context.clip(to: NSRect(x: titleX, y: rect.minY, width: titleMaxWidth, height: rect.height))
-        context.translateBy(x: 0, y: centerY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -centerY)
         
-        // Marquee scroll for current track if text is too long
-        if isCurrentTrack && textWidth > titleMaxWidth {
-            let separator = "     "  // Simple spacing between repeats
-            let fullText = titleText + separator
-            let cycleWidth = fullText.size(withAttributes: attrs).width
-            let offset = marqueeOffset.truncatingRemainder(dividingBy: cycleWidth)
+        let titleWidth = CGFloat(titleText.count) * charWidth
+        
+        if isCurrentTrack && titleWidth > titleMaxWidth {
+            // Current track with long title - draw with marquee scrolling
+            let cycleWidth = titleWidth + marqueeSeparatorWidth
             
-            fullText.draw(at: NSPoint(x: titleX - offset, y: rect.minY + 1), withAttributes: attrs)
-            fullText.draw(at: NSPoint(x: titleX - offset + cycleWidth, y: rect.minY + 1), withAttributes: attrs)
+            // Draw first copy
+            let xOffset1 = titleX - marqueeOffset
+            drawBitmapText(titleText, at: NSPoint(x: xOffset1, y: textY), in: context, skin: skin, isSelected: isSelected)
+            
+            // Draw second copy for seamless loop
+            let xOffset2 = xOffset1 + cycleWidth
+            if xOffset2 < titleX + titleMaxWidth {
+                drawBitmapText(titleText, at: NSPoint(x: xOffset2, y: textY), in: context, skin: skin, isSelected: isSelected)
+            }
         } else {
-            titleText.draw(at: NSPoint(x: titleX, y: rect.minY + 1), withAttributes: attrs)
+            // Non-current track or short title - draw normally
+            drawBitmapText(titleText, at: NSPoint(x: titleX, y: textY), in: context, skin: skin, isSelected: isSelected)
         }
+        
         context.restoreGState()
     }
     
+    /// Draw text using bitmap font from skin's TEXT.BMP
+    /// Context is already flipped to Winamp coordinates (Y=0 at top)
+    /// Pre-cache the CGImage for TEXT.BMP when skin changes
+    /// MUST be called outside of draw cycle to avoid graphics state interference
+    private func cacheTextBitmapCGImage() {
+        cachedTextBitmapCGImage = nil
+        
+        guard let skin = WindowManager.shared.currentSkin,
+              let textImage = skin.text else { return }
+        
+        // Get CGImage from NSImage - this is safe to call outside of draw cycle
+        guard let sourceImage = textImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        
+        // Cache it
+        cachedTextBitmapCGImage = sourceImage
+    }
+    
+    private func drawBitmapText(_ text: String, at position: NSPoint, in context: CGContext, skin: Skin?, isSelected: Bool = false) {
+        // Use pre-cached CGImage - NEVER call cgImage() during draw cycle
+        guard let cgImage = cachedTextBitmapCGImage else { return }
+        
+        let charWidth = Int(SkinElements.TextFont.charWidth)
+        let charHeight = Int(SkinElements.TextFont.charHeight)
+        var xPos = position.x
+        
+        for char in text.uppercased() {
+            // Get source rect - SkinElements returns Winamp coords (Y=0 at top)
+            // CGImage also uses Y=0 at top, so no flip needed for cropping
+            let charRect = SkinElements.TextFont.character(char)
+            let cropRect = CGRect(x: charRect.origin.x, y: charRect.origin.y,
+                                  width: charRect.width, height: charRect.height)
+            
+            if let cropped = cgImage.cropping(to: cropRect) {
+                // For selected tracks, convert green to white using pixel manipulation
+                let imageToDraw: CGImage
+                if isSelected {
+                    imageToDraw = convertToWhite(cropped, charWidth: charWidth, charHeight: charHeight) ?? cropped
+                } else {
+                    imageToDraw = cropped
+                }
+                
+                // Draw with flip - context is in Winamp coords, need to flip sprite
+                context.saveGState()
+                context.translateBy(x: xPos, y: position.y + CGFloat(charHeight))
+                context.scaleBy(x: 1, y: -1)
+                context.interpolationQuality = .none
+                context.draw(imageToDraw, in: CGRect(x: 0, y: 0, width: charWidth, height: charHeight))
+                context.restoreGState()
+            }
+            
+            xPos += CGFloat(charWidth)
+        }
+    }
+    
+    /// Convert green text to white using pixel manipulation (same approach as SkinRenderer.drawSkinTextWhite)
+    private func convertToWhite(_ charImage: CGImage, charWidth: Int, charHeight: Int) -> CGImage? {
+        // Create offscreen buffer and draw character
+        guard let offscreenContext = CGContext(
+            data: nil,
+            width: charWidth,
+            height: charHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: charWidth * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        
+        offscreenContext.draw(charImage, in: CGRect(x: 0, y: 0, width: charWidth, height: charHeight))
+        
+        // Direct pixel conversion: green (0, G, 0) -> white (G, G, G)
+        guard let data = offscreenContext.data else { return nil }
+        
+        let pixels = data.bindMemory(to: UInt8.self, capacity: charWidth * charHeight * 4)
+        for i in 0..<(charWidth * charHeight) {
+            let offset = i * 4
+            let r = pixels[offset]
+            let g = pixels[offset + 1]
+            let b = pixels[offset + 2]
+            let a = pixels[offset + 3]
+            
+            // Skip fully transparent pixels
+            if a == 0 { continue }
+            
+            // Check if it's magenta background (skip those)
+            let isMagenta = r > 200 && g < 50 && b > 200
+            if isMagenta {
+                // Make magenta transparent
+                pixels[offset + 3] = 0
+            } else {
+                // Convert green to white: use green value for all channels
+                let brightness = g
+                pixels[offset] = brightness     // R
+                pixels[offset + 1] = brightness // G
+                pixels[offset + 2] = brightness // B
+            }
+        }
+        
+        return offscreenContext.makeImage()
+    }
+    
     /// Draw time/info display at the bottom of the track list area (just above the bottom bar)
+    /// Uses bitmap font to avoid cross-window font interference
     private func drawTimeDisplay(in context: CGContext, drawBounds: NSRect) {
         let engine = WindowManager.shared.audioEngine
         let tracks = engine.playlist
         let currentTime = engine.currentTime
         let duration = engine.duration
+        let skin = WindowManager.shared.currentSkin
+        
+        let charWidth = SkinElements.TextFont.charWidth
+        let charHeight = SkinElements.TextFont.charHeight
         
         // Position just above the bottom bar, in the track list area
         let infoY = drawBounds.height - Layout.bottomBarHeight - 14
-        
-        context.saveGState()
-        
-        // Flip for text rendering
-        let centerY = infoY + 6
-        context.translateBy(x: 0, y: centerY)
-        context.scaleBy(x: 1, y: -1)
-        context.translateBy(x: 0, y: -centerY)
         
         // Calculate total playlist duration
         var totalSeconds = 0
@@ -444,26 +616,19 @@ class PlaylistView: NSView {
             totalTimeStr = String(format: "%d:%02d", totalMinutes, totalSeconds % 60)
         }
         
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor.green,
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .regular)
-        ]
-        
-        // Show track count and total time on the right side
-        let infoStr = "\(tracks.count) tracks / \(totalTimeStr)"
-        let infoSize = infoStr.size(withAttributes: attrs)
-        let infoX = drawBounds.width - Layout.rightBorder - infoSize.width - 4
-        infoStr.draw(at: NSPoint(x: infoX, y: infoY), withAttributes: attrs)
+        // Show track count and total time on the right side using bitmap font
+        let infoStr = "\(tracks.count) TRACKS / \(totalTimeStr)"
+        let infoWidth = CGFloat(infoStr.count) * charWidth
+        let infoX = drawBounds.width - Layout.rightBorder - infoWidth - 4
+        drawBitmapText(infoStr, at: NSPoint(x: infoX, y: infoY), in: context, skin: skin)
         
         // Show current playback time on the left side if playing
         if engine.state == .playing || currentTime > 0 {
             let playTimeStr = String(format: "%d:%02d / %d:%02d",
                                     Int(currentTime) / 60, Int(currentTime) % 60,
                                     Int(duration) / 60, Int(duration) % 60)
-            playTimeStr.draw(at: NSPoint(x: Layout.leftBorder + 4, y: infoY), withAttributes: attrs)
+            drawBitmapText(playTimeStr, at: NSPoint(x: Layout.leftBorder + 4, y: infoY), in: context, skin: skin)
         }
-        
-        context.restoreGState()
     }
     
     /// Draw track count and total time info in bottom bar using skin font
@@ -595,10 +760,16 @@ class PlaylistView: NSView {
         selectedIndices.removeAll()
         selectionAnchor = nil
         scrollOffset = 0
+        lastCurrentIndex = -1
+        marqueeOffset = 0
+        updateCurrentTrackTextWidth()
         needsDisplay = true
     }
     
     func skinDidChange() {
+        // Pre-cache the TEXT.BMP CGImage for the new skin
+        // This MUST happen outside of the draw cycle
+        cacheTextBitmapCGImage()
         needsDisplay = true
     }
     
@@ -650,40 +821,18 @@ class PlaylistView: NSView {
         let relativeY = winampPoint.y - bottomY
         let x = winampPoint.x
         
-        // DEBUG: Log click position in bottom bar
-        NSLog("PlaylistView: Bottom bar click x=%.0f, relativeY=%.0f", x, relativeY)
-        
         // Mini transport buttons - 6 buttons: prev, play, pause, stop, next, open
         // Based on edge clicks: Previous=134, Open=181, range=47px, spacing=9.4px
         // Buttons are in the lower portion of the bottom bar (y >= 12)
         if relativeY >= 12 && relativeY <= 38 && x >= 125 && x < 195 {
-            NSLog("PlaylistView: Transport area click at x=%.0f", x)
             // 6 buttons equally spaced from x=134 to x=181
             // Each button ~9.4px apart, using ~8px wide hit areas centered on each
-            if x >= 130 && x < 139 {  // center=134
-                NSLog("PlaylistView: HIT miniPrevious")
-                return .miniPrevious 
-            }
-            if x >= 139 && x < 148 {  // center=143.4
-                NSLog("PlaylistView: HIT miniPlay")
-                return .miniPlay 
-            }
-            if x >= 148 && x < 158 {  // center=152.8
-                NSLog("PlaylistView: HIT miniPause")
-                return .miniPause 
-            }
-            if x >= 158 && x < 167 {  // center=162.2
-                NSLog("PlaylistView: HIT miniStop")
-                return .miniStop 
-            }
-            if x >= 167 && x < 177 {  // center=171.6
-                NSLog("PlaylistView: HIT miniNext")
-                return .miniNext 
-            }
-            if x >= 177 && x < 195 {  // center=181
-                NSLog("PlaylistView: HIT miniOpen")
-                return .miniOpen 
-            }
+            if x >= 130 && x < 139 { return .miniPrevious }
+            if x >= 139 && x < 148 { return .miniPlay }
+            if x >= 148 && x < 158 { return .miniPause }
+            if x >= 158 && x < 167 { return .miniStop }
+            if x >= 167 && x < 177 { return .miniNext }
+            if x >= 177 && x < 195 { return .miniOpen }
         }
         
         // ADD/REM/SEL buttons in the upper-left area of the bottom bar (y=0-15)
@@ -868,7 +1017,6 @@ class PlaylistView: NSView {
         
         // Double-click plays track
         if event.clickCount == 2 {
-            NSLog("PlaylistView: Double-click on track %d, calling playTrack", index)
             WindowManager.shared.audioEngine.playTrack(at: index)
         }
         
@@ -892,6 +1040,7 @@ class PlaylistView: NSView {
                 let trackRange = listHeight - 18  // Thumb height
                 let scrollDelta = (deltaY / trackRange) * scrollRange
                 scrollOffset = max(0, min(scrollRange, scrollbarDragStartOffset + scrollDelta))
+                updateMarqueeLayerFrame()  // Update marquee position after scroll
                 needsDisplay = true
             }
             return
@@ -1001,19 +1150,14 @@ class PlaylistView: NSView {
         let engine = WindowManager.shared.audioEngine
         let isVideoActive = WindowManager.shared.isVideoActivePlayback
         
-        NSLog("PlaylistView: performMiniTransportAction called for \(button), isVideoActive=\(isVideoActive)")
-        
         switch button {
         case .miniPrevious:
-            NSLog("PlaylistView: Executing PREVIOUS")
             if isVideoActive {
                 WindowManager.shared.skipVideoBackward(10)
             } else {
                 engine.previous()
             }
         case .miniPlay:
-            NSLog("PlaylistView: Executing PLAY/TOGGLE, state=%@, playlist count=%d, currentTrack=%@", 
-                  "\(engine.state)", engine.playlist.count, engine.currentTrack?.title ?? "nil")
             if isVideoActive {
                 WindowManager.shared.toggleVideoPlayPause()
             } else {
@@ -1025,31 +1169,25 @@ class PlaylistView: NSView {
                 }
             }
         case .miniPause:
-            NSLog("PlaylistView: Executing PAUSE")
             if isVideoActive {
                 WindowManager.shared.toggleVideoPlayPause()
             } else {
                 engine.pause()
             }
         case .miniStop:
-            print(">>> STOP BUTTON PRESSED <<<")
-            NSLog("PlaylistView: Executing STOP")
             if isVideoActive {
                 WindowManager.shared.stopVideo()
             } else {
-                print(">>> Calling engine.stop() <<<")
                 engine.stop()
             }
         case .miniNext:
-            NSLog("PlaylistView: Executing NEXT")
             if isVideoActive {
                 WindowManager.shared.skipVideoForward(10)
             } else {
                 engine.next()
             }
         case .miniOpen:
-            NSLog("PlaylistView: Executing OPEN")
-            // Open file dialog to add files - same as addFiles action
+            // Open file dialog to add files
             let panel = NSOpenPanel()
             panel.canChooseFiles = true
             panel.canChooseDirectories = false
@@ -1102,6 +1240,7 @@ class PlaylistView: NSView {
         
         if totalHeight > listHeight {
             scrollOffset = max(0, min(totalHeight - listHeight, scrollOffset - event.deltaY * 3))
+            updateMarqueeLayerFrame()  // Update marquee position after scroll
             needsDisplay = true
         }
     }

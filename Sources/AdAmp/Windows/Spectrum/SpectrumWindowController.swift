@@ -16,13 +16,16 @@ class SpectrumWindowController: NSWindowController {
     // MARK: - Initialization
     
     convenience init() {
-        // Create borderless window with manual resize handling
+        // Create borderless window with manual resize handling and fullscreen support
         let window = ResizableWindow(
             contentRect: NSRect(origin: .zero, size: SkinElements.SpectrumWindow.windowSize),
             styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
         )
+        
+        // Enable fullscreen support
+        window.collectionBehavior = [.fullScreenPrimary, .managed]
         
         self.init(window: window)
         
@@ -66,6 +69,12 @@ class SpectrumWindowController: NSWindowController {
         super.showWindow(sender)
         // Note: Positioning is handled by WindowManager.positionSubWindow() before showWindow is called
         spectrumView.startRendering()
+    }
+    
+    /// Stop rendering when window is hidden via orderOut() (not close)
+    /// This saves CPU since orderOut() doesn't trigger windowWillClose
+    func stopRenderingForHide() {
+        spectrumView.stopRendering()
     }
     
     // MARK: - Public Methods

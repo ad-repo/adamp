@@ -1101,7 +1101,11 @@ The main window displays real-time frequency analysis:
 - Fast attack, slow decay smoothing
 - **Click** the spectrum display to open the full Spectrum Analyzer window
 
-The standalone Spectrum Analyzer window provides a larger, more detailed view with configurable quality modes (Winamp classic or Enhanced LED matrix) and decay speeds.
+The standalone Spectrum Analyzer window provides a larger, more detailed view with:
+- **Quality modes**: Winamp (skin colors with 3D shading), Enhanced (rainbow LED matrix), Ultra (maximum effects)
+- **Decay modes**: Instant, Snappy (default), Balanced, Smooth
+- **Fullscreen**: Press F or use context menu (Escape to exit)
+- **84 bars** for high-resolution frequency display
 
 ### Remember State on Quit
 

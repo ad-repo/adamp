@@ -64,8 +64,14 @@ class MilkdropWindowController: NSWindowController {
         super.showWindow(sender)
         // Position after window is shown to ensure correct frame dimensions
         positionWindow()
-        // Restart rendering (may have been stopped by windowWillClose)
+        // Restart rendering (may have been stopped by windowWillClose or hide)
         milkdropView.startRendering()
+    }
+    
+    /// Stop rendering when window is hidden via orderOut() (not close)
+    /// This saves CPU since orderOut() doesn't trigger windowWillClose
+    func stopRenderingForHide() {
+        milkdropView.stopRendering()
     }
     
     /// Position the window to the LEFT of the main window

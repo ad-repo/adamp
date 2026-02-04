@@ -1017,7 +1017,7 @@ struct SkinElements {
         )
         
         /// Bar count for standalone window (more bars than main window, sized for clear visibility)
-        static let barCount = 42
+        static let barCount = 84
         
         /// Layout constants (scaled)
         struct Layout {

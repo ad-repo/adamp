@@ -850,6 +850,8 @@ class WindowManager {
     
     func toggleMilkdrop() {
         if let controller = milkdropWindowController, controller.window?.isVisible == true {
+            // Stop rendering before hiding to save CPU (orderOut doesn't trigger windowWillClose)
+            controller.stopRenderingForHide()
             controller.window?.orderOut(nil)
         } else {
             showMilkdrop()
@@ -889,6 +891,8 @@ class WindowManager {
     
     func toggleSpectrum() {
         if let controller = spectrumWindowController, controller.window?.isVisible == true {
+            // Stop rendering before hiding to save CPU (orderOut doesn't trigger windowWillClose)
+            controller.stopRenderingForHide()
             controller.window?.orderOut(nil)
         } else {
             showSpectrum()

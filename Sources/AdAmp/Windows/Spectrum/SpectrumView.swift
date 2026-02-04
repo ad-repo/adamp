@@ -77,13 +77,12 @@ class SpectrumView: NSView {
             let spacing: CGFloat = 1.0
             
             // Calculate bar width to fit exactly in content area
-            // totalWidth = barCount * barWidth + (barCount - 1) * spacing
-            // barWidth = (totalWidth - (barCount - 1) * spacing) / barCount
+            // Use floor() for crisp pixel-aligned bars (fractional widths cause jagged rendering)
             let availableWidth = contentArea.width
             let barWidth = (availableWidth - CGFloat(barCount - 1) * spacing) / CGFloat(barCount)
             
             view.barCount = barCount
-            view.barWidth = max(2.0, floor(barWidth))  // At least 2px, use whole pixels
+            view.barWidth = max(2.0, floor(barWidth))
             view.barSpacing = spacing
             view.autoresizingMask = []  // Manual frame updates
             addSubview(view)
@@ -193,16 +192,18 @@ class SpectrumView: NSView {
             let spacing = view.barSpacing
             let availableWidth = contentArea.width
             let barWidth = (availableWidth - CGFloat(barCount - 1) * spacing) / CGFloat(barCount)
-            view.barWidth = max(2.0, floor(barWidth))
+            view.barWidth = max(2.0, floor(barWidth))  // Floor for crisp pixel-aligned bars
         }
     }
     
     func stopRendering() {
-        // SpectrumAnalyzerView handles its own display link
+        // Explicitly stop the Metal display link when window is hidden
+        spectrumAnalyzerView?.stopDisplayLink()
     }
     
     func startRendering() {
-        // SpectrumAnalyzerView handles its own display link
+        // Restart the Metal display link when window becomes visible
+        spectrumAnalyzerView?.startDisplayLink()
     }
     
     // MARK: - Hit Testing
@@ -354,8 +355,14 @@ class SpectrumView: NSView {
     
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 53: // Escape - close window
-            window?.close()
+        case 53: // Escape - close window or exit fullscreen
+            if window?.styleMask.contains(.fullScreen) == true {
+                window?.toggleFullScreen(nil)
+            } else {
+                window?.close()
+            }
+        case 3: // F key - toggle fullscreen
+            window?.toggleFullScreen(nil)
         default:
             super.keyDown(with: event)
         }
@@ -394,12 +401,28 @@ class SpectrumView: NSView {
         
         menu.addItem(NSMenuItem.separator())
         
+        // Fullscreen toggle
+        let isFullscreen = window?.styleMask.contains(.fullScreen) ?? false
+        let fullscreenItem = NSMenuItem(
+            title: isFullscreen ? "Exit Full Screen" : "Enter Full Screen",
+            action: #selector(toggleFullScreen(_:)),
+            keyEquivalent: "f"
+        )
+        fullscreenItem.target = self
+        menu.addItem(fullscreenItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
         // Close
         let closeItem = NSMenuItem(title: "Close", action: #selector(closeWindow(_:)), keyEquivalent: "")
         closeItem.target = self
         menu.addItem(closeItem)
         
         return menu
+    }
+    
+    @objc private func toggleFullScreen(_ sender: Any?) {
+        window?.toggleFullScreen(sender)
     }
     
     @objc private func setQualityMode(_ sender: NSMenuItem) {
