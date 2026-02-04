@@ -322,6 +322,17 @@ class StreamingAudioPlayer {
             }
         }
         
+        // Compensate for volume so visualization is volume-independent
+        // The frameFiltering tap captures audio after volume is applied, so we divide by volume
+        // to recover the original signal level for visualization purposes
+        let effectiveVolume = max(0.05, volume)  // Min 5% to avoid extreme amplification
+        let volumeCompensation = min(20.0, 1.0 / effectiveVolume)  // Cap at 20x
+        if volumeCompensation > 1.0 {
+            // Apply compensation using Accelerate for efficiency
+            var compensation = volumeCompensation
+            vDSP_vsmul(samples, 1, &compensation, &samples, 1, vDSP_Length(fftSize))
+        }
+        
         // Forward PCM data for projectM visualization
         // Downsample to 512 samples for efficient visualization and lowest latency
         let pcmSize = min(512, samples.count)

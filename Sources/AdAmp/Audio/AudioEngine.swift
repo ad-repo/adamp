@@ -335,7 +335,7 @@ class AudioEngine {
     
     deinit {
         timeUpdateTimer?.invalidate()
-        playerNode.removeTap(onBus: 0)
+        mixerNode.removeTap(onBus: 0)  // Changed from playerNode - tap is now on mixerNode
         engine.stop()
         // FFT setup is automatically released when set to nil
         fftSetup = nil
@@ -370,9 +370,13 @@ class AudioEngine {
         // Configure limiter for transparent anti-clipping
         configureLimiter()
         
-        // Set initial volume (didSet doesn't fire for default value)
-        playerNode.volume = volume
-        crossfadePlayerNode.volume = 0  // Start silent
+        // Player nodes stay at unity gain (1.0) - volume applied at mainMixerNode
+        // This ensures the spectrum tap captures volume-independent audio
+        playerNode.volume = 1.0
+        crossfadePlayerNode.volume = 0  // Still starts silent for crossfade
+        
+        // Apply initial volume to mainMixerNode (after EQ/limiter, before output)
+        engine.mainMixerNode.outputVolume = volume
         
         // EQ is disabled (bypassed) by default - user must enable it
         eqNode.bypass = true
@@ -562,10 +566,12 @@ class AudioEngine {
     /// Install or reinstall the spectrum analyzer tap with the given format
     private func installSpectrumTap(format: AVAudioFormat?) {
         // Remove existing tap if any
-        playerNode.removeTap(onBus: 0)
+        // Tap on mixerNode (not playerNode) to capture BOTH players during crossfade
+        mixerNode.removeTap(onBus: 0)
         
-        // Install new tap - use nil format to let AVAudioEngine auto-detect the correct format
-        playerNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftSize), format: nil) { [weak self] buffer, _ in
+        // Install new tap on mixerNode - captures combined audio from both player nodes
+        // This ensures visualization works during crossfade and regardless of which player is active
+        mixerNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftSize), format: nil) { [weak self] buffer, _ in
             self?.processAudioBuffer(buffer)
         }
     }
@@ -864,7 +870,7 @@ class AudioEngine {
             playerNode.pause()
             // Remove spectrum tap when paused to save CPU (FFT is expensive)
             // Tap will be reinstalled when playback resumes
-            playerNode.removeTap(onBus: 0)
+            mixerNode.removeTap(onBus: 0)  // Changed from playerNode - tap is now on mixerNode
         }
         state = .paused
         stopTimeUpdates()
@@ -2476,7 +2482,8 @@ class AudioEngine {
         let startTime = Date()
         let fadeDuration = sweetFadeDuration
         let interval: TimeInterval = 0.05  // 50ms updates for smooth fading
-        let targetVolume = volume
+        // Note: Crossfade ramps between 0 and 1.0 (unity) for relative mixing
+        // Actual output volume is controlled by mainMixerNode.outputVolume
         
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] timer in
             guard let self = self else {
@@ -2489,9 +2496,10 @@ class AudioEngine {
             
             // Equal-power crossfade curve for perceptually smooth transition
             // outVol = cos(progress * π/2), inVol = sin(progress * π/2)
+            // Ramp between 0 and 1.0 (not 0 to volume) - mainMixerNode handles output volume
             let angle = progress * .pi / 2
-            let outVol = Float(cos(angle)) * targetVolume
-            let inVol = Float(sin(angle)) * targetVolume
+            let outVol = Float(cos(angle))  // 1.0 → 0.0
+            let inVol = Float(sin(angle))   // 0.0 → 1.0
             
             outgoingVolume(outVol)
             incomingVolume(inVol)
@@ -2517,6 +2525,11 @@ class AudioEngine {
         
         // Swap which player is active
         crossfadePlayerIsActive.toggle()
+        
+        // Ensure the now-active player is at unity volume
+        // (mainMixerNode.outputVolume controls actual output level)
+        let activePlayer = crossfadePlayerIsActive ? crossfadePlayerNode : playerNode
+        activePlayer.volume = 1.0
         
         // Update state
         audioFile = nextFile
@@ -2618,9 +2631,9 @@ class AudioEngine {
             incomingPlayer.stop()
             incomingPlayer.volume = 0
             
-            // Restore outgoing player volume
+            // Restore outgoing player volume to unity (mainMixerNode controls actual volume)
             let outgoingPlayer = crossfadePlayerIsActive ? crossfadePlayerNode : playerNode
-            outgoingPlayer.volume = volume
+            outgoingPlayer.volume = 1.0
         }
         
         isCrossfading = false
@@ -2722,18 +2735,12 @@ class AudioEngine {
     
     /// Apply the current normalization gain to the player
     private func applyNormalizationGain() {
-        // Apply normalization by adjusting the EQ's global gain
-        // This preserves the user's volume setting while normalizing
-        let baseVolume = volume
-        let normalizedVolume = baseVolume * normalizationGain
+        // Apply combined volume + normalization to mainMixerNode
+        // This is AFTER the visualization tap, so spectrum is volume-independent
+        let finalVolume = max(0, min(1, volume * normalizationGain))
+        engine.mainMixerNode.outputVolume = finalVolume
         
-        // Clamp to valid range
-        let finalVolume = max(0, min(1, normalizedVolume))
-        
-        // Apply to the currently active player (may be crossfade player after a crossfade)
-        let activePlayer = crossfadePlayerIsActive ? crossfadePlayerNode : playerNode
-        activePlayer.volume = finalVolume
-        
+        // Note: playerNode stays at unity (1.0) for volume-independent visualization
         // Note: For streaming, normalization is not applied (would require re-analysis)
     }
     

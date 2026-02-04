@@ -423,6 +423,32 @@ NotificationCenter.default.post(
 )
 ```
 
+### Volume-Independent Visualizations
+
+Spectrum analyzer and MilkDrop visualizations display audio levels independently of the user's volume setting. This ensures visualizations show consistent audio levels whether volume is at 10% or 100%.
+
+**Local Playback Implementation:**
+- Audio tap installed on `mixerNode` at bus 0 (captures combined audio from both player nodes)
+- Both `playerNode` and `crossfadePlayerNode` stay at 1.0 (unity gain)
+- Output volume controlled via `engine.mainMixerNode.outputVolume`
+- The tap captures unity-gain audio regardless of volume setting
+- During crossfade, player volumes ramp between 0 and 1.0 for relative mixing
+- Tap on mixerNode ensures visualization works during crossfade and after player swap
+
+**Streaming Playback Implementation:**
+- AudioStreaming's `frameFiltering` captures audio after volume is applied
+- `processAudioBuffer()` compensates by dividing samples by current volume
+- Compensation capped at 20x (volume 5%) to avoid amplifying noise at very low volumes
+
+**Signal Flow (Local):**
+```
+playerNode (unity) ──────┐
+                         ├──► mixerNode ──► eqNode ──► limiterNode ──► mainMixerNode ──► output
+crossfadePlayer (unity) ─┘        │                                        (volume here)
+                                  │
+                                  └── tap captures COMBINED audio (volume-independent)
+```
+
 ### Standalone Spectrum Analyzer Window
 
 A dedicated spectrum analyzer window is available (Visualizations menu → Spectrum Analyzer) with:
