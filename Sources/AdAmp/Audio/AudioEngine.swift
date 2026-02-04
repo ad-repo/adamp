@@ -2585,12 +2585,16 @@ class AudioEngine {
             let elapsed = Date().timeIntervalSince(startTime)
             let progress = min(1.0, elapsed / fadeDuration)
             
-            // Equal-power crossfade curve for perceptually smooth transition
-            // outVol = cos(progress * π/2), inVol = sin(progress * π/2)
-            // Ramp between 0 and 1.0 (not 0 to volume) - mainMixerNode handles output volume
+            // Normalized equal-power crossfade to prevent volume peaks
+            // Standard equal-power: cos(angle) + sin(angle) peaks at 1.414 at midpoint
+            // We normalize so the sum is always 1.0, preventing clipping while
+            // maintaining the smooth perceptual balance of equal-power curves
             let angle = progress * .pi / 2
-            let outVol = Float(cos(angle))  // 1.0 → 0.0
-            let inVol = Float(sin(angle))   // 0.0 → 1.0
+            let rawOut = Float(cos(angle))
+            let rawIn = Float(sin(angle))
+            let sum = rawOut + rawIn  // Ranges from 1.0 to ~1.414 back to 1.0
+            let outVol = rawOut / sum  // Normalized: sum always = 1.0
+            let inVol = rawIn / sum
             
             outgoingVolume(outVol)
             incomingVolume(inVol)
