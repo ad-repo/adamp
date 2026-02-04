@@ -432,10 +432,12 @@ class SpectrumAnalyzerView: NSView {
         guard !isRendering else { return }
         isRendering = true
         
-        // Reset idle tracking state
-        idleFrameCount = 0
-        hasClearedAfterIdle = false
-        stoppedDueToIdle = false
+        // Reset idle tracking state (protected by dataLock)
+        dataLock.withLock {
+            idleFrameCount = 0
+            hasClearedAfterIdle = false
+            stoppedDueToIdle = false
+        }
         
         // Create display link
         var link: CVDisplayLink?
@@ -473,19 +475,23 @@ class SpectrumAnalyzerView: NSView {
     // MARK: - Rendering
     
     /// Track if we have any visible spectrum data (for idle optimization)
-    nonisolated(unsafe) private var hasVisibleData: Bool = false
+    /// Protected by dataLock for thread-safe access from render and updateSpectrum
+    private var hasVisibleData: Bool = false
     
     /// Track if we've cleared the display after data stopped (only need to clear once)
-    nonisolated(unsafe) private var hasClearedAfterIdle: Bool = false
+    /// Protected by dataLock for thread-safe access from render and updateSpectrum
+    private var hasClearedAfterIdle: Bool = false
     
     /// Count consecutive frames with no data - used to stop display link when idle
-    nonisolated(unsafe) private var idleFrameCount: Int = 0
+    /// Protected by dataLock for thread-safe access from render and updateSpectrum
+    private var idleFrameCount: Int = 0
     
     /// Frames to wait before stopping display link when idle (~1 second at 60fps)
     private let idleFrameThreshold: Int = 60
     
     /// Track if we stopped rendering due to idle (vs window hidden)
-    nonisolated(unsafe) private var stoppedDueToIdle: Bool = false
+    /// Protected by dataLock for thread-safe access from render and updateSpectrum
+    private var stoppedDueToIdle: Bool = false
     
     /// Called by display link at 60Hz
     /// Note: This is internal (not private) so the display link callback can access it
@@ -503,31 +509,43 @@ class SpectrumAnalyzerView: NSView {
         
         // Optimization: Skip full render when there's no visible data
         // Only need to render once to clear the display, then skip until new data arrives
-        if !hadData {
-            idleFrameCount += 1
-            
-            // After threshold frames of idle, stop the display link entirely
-            // This saves significant CPU vs just skipping the GPU work
-            if idleFrameCount >= idleFrameThreshold {
-                inFlightSemaphore.signal()
-                stoppedDueToIdle = true
-                DispatchQueue.main.async { [weak self] in
-                    self?.stopRendering()
+        // All idle tracking state is protected by dataLock
+        let (shouldStopDueToIdle, shouldSkipFrame) = dataLock.withLock { () -> (Bool, Bool) in
+            if !hadData {
+                idleFrameCount += 1
+                
+                // After threshold frames of idle, stop the display link entirely
+                // This saves significant CPU vs just skipping the GPU work
+                if idleFrameCount >= idleFrameThreshold {
+                    stoppedDueToIdle = true
+                    return (true, false)  // Stop rendering
                 }
-                return
+                
+                if hasClearedAfterIdle {
+                    // Already cleared, skip this frame entirely
+                    return (false, true)  // Skip frame
+                }
+                // First frame after data stopped - render once to clear, then mark as cleared
+                hasClearedAfterIdle = true
+            } else {
+                // Have data - reset the idle tracking
+                idleFrameCount = 0
+                hasClearedAfterIdle = false
             }
-            
-            if hasClearedAfterIdle {
-                // Already cleared, skip this frame entirely
-                inFlightSemaphore.signal()
-                return
+            return (false, false)  // Continue rendering
+        }
+        
+        if shouldStopDueToIdle {
+            inFlightSemaphore.signal()
+            DispatchQueue.main.async { [weak self] in
+                self?.stopRendering()
             }
-            // First frame after data stopped - render once to clear, then mark as cleared
-            hasClearedAfterIdle = true
-        } else {
-            // Have data - reset the idle tracking
-            idleFrameCount = 0
-            hasClearedAfterIdle = false
+            return
+        }
+        
+        if shouldSkipFrame {
+            inFlightSemaphore.signal()
+            return
         }
         
         // Get drawable - this must succeed for us to render
@@ -1045,15 +1063,21 @@ class SpectrumAnalyzerView: NSView {
         // Check if we have any non-zero data
         let hasData = levels.contains { $0 > 0.01 }
         
-        dataLock.withLock {
+        // Update raw spectrum and check/reset idle state atomically
+        let shouldRestart = dataLock.withLock { () -> Bool in
             rawSpectrum = levels
+            
+            // If display link was stopped due to idle and we now have data, restart it
+            if hasData && stoppedDueToIdle {
+                stoppedDueToIdle = false
+                idleFrameCount = 0
+                hasClearedAfterIdle = false
+                return true
+            }
+            return false
         }
         
-        // If display link was stopped due to idle and we now have data, restart it
-        if hasData && stoppedDueToIdle {
-            stoppedDueToIdle = false
-            idleFrameCount = 0
-            hasClearedAfterIdle = false
+        if shouldRestart {
             DispatchQueue.main.async { [weak self] in
                 self?.startRendering()
             }

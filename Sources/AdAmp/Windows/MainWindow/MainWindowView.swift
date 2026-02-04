@@ -241,15 +241,12 @@ class MainWindowView: NSView {
         
         // Apply scale transform so the layer renders at scaled size on screen
         marqueeLayer?.transform = CATransform3DMakeScale(scale, scale, 1)
-        
-        NSLog("MainWindowView: marqueeArea=\(marqueeArea), scale=\(scale), position=\(marqueeLayer?.position ?? .zero), bounds=\(marqueeLayer?.bounds ?? .zero), frame=\(marqueeLayer?.frame ?? .zero)")
     }
     
     private func updateMarqueeContent() {
         guard !isShadeMode else { return }  // Shade mode uses timer-based rendering
         
         let text = getMarqueeDisplayText()
-        NSLog("MainWindowView.updateMarqueeContent: text='\(text.prefix(30))...', marqueeLayer.frame=\(marqueeLayer?.frame ?? .zero), marqueeLayer.bounds=\(marqueeLayer?.bounds ?? .zero)")
         marqueeLayer?.text = text
         marqueeLayer?.skinTextImage = WindowManager.shared.currentSkin?.text
     }

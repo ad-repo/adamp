@@ -133,8 +133,6 @@ class MarqueeLayer: CALayer {
         // Available scroll width = full marquee width minus small edge padding
         let availableWidth = bounds.width - (edgePadding * 2)
         
-        // Debug output
-        NSLog("MarqueeLayer: text='\(text.prefix(30))...', bounds=\(bounds), textWidth=\(textWidth), availableWidth=\(availableWidth), needsScroll=\(textWidth > availableWidth)")
         
         // Capture values for async rendering
         let currentText = text
@@ -169,7 +167,6 @@ class MarqueeLayer: CALayer {
                                               width: textWidth, height: currentBoundsHeight)
                     self.contentLayer?.frame = contentFrame
                     CATransaction.commit()
-                    NSLog("MarqueeLayer: static text contentFrame=\(contentFrame), layerBounds=\(self.bounds)")
                     self.stopScrollAnimation()
                 }
             }
@@ -202,7 +199,6 @@ class MarqueeLayer: CALayer {
                                               width: totalWidth, height: currentBoundsHeight)
                     self.contentLayer?.frame = contentFrame
                     CATransaction.commit()
-                    NSLog("MarqueeLayer: scrolling text contentFrame=\(contentFrame), layerBounds=\(self.bounds), cycleWidth=\(finalCycleWidth)")
                     // Start scroll animation
                     self.startScrollAnimationWithCycleWidth(finalCycleWidth)
                 }

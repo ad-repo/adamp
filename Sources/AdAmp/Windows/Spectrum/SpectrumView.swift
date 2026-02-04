@@ -192,7 +192,7 @@ class SpectrumView: NSView {
             let spacing = view.barSpacing
             let availableWidth = contentArea.width
             let barWidth = (availableWidth - CGFloat(barCount - 1) * spacing) / CGFloat(barCount)
-            view.barWidth = max(2.0, floor(barWidth))
+            view.barWidth = max(2.0, barWidth)  // Use exact width, no floor
         }
     }
     
