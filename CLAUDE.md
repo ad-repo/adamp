@@ -125,6 +125,7 @@ Sources/AdAmp/
 | Audio | `Audio/AudioEngine.swift`, `Audio/StreamingAudioPlayer.swift` |
 | Windows | `Windows/MainWindow/`, `Windows/Playlist/`, `Windows/Equalizer/` |
 | Visualization | `Windows/Milkdrop/`, `Windows/Spectrum/`, `Visualization/SpectrumAnalyzerView.swift`, `Visualization/ProjectMWrapper.swift` |
+| Marquee | `Skin/MarqueeLayer.swift`, `Windows/Playlist/PlaylistView.swift` |
 | Plex | `Plex/PlexManager.swift`, `Plex/PlexServerClient.swift` |
 | Subsonic | `Subsonic/SubsonicManager.swift`, `Subsonic/SubsonicServerClient.swift`, `Subsonic/SubsonicModels.swift` |
 | Radio | `Radio/RadioManager.swift`, `Data/Models/RadioStation.swift`, `Windows/Radio/AddRadioStationSheet.swift` |

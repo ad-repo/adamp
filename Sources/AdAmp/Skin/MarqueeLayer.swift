@@ -23,6 +23,9 @@ class MarqueeLayer: CALayer {
     var skinTextImage: NSImage? {
         didSet {
             if skinTextImage !== oldValue {
+                // Cache CGImage immediately when skin changes (NOT during render)
+                // This prevents cross-window interference from NSImage operations
+                cacheSkinCGImage()
                 renderText()
             }
         }
@@ -38,6 +41,9 @@ class MarqueeLayer: CALayer {
     
     /// The content layer that holds the rendered text image
     private var contentLayer: CALayer?
+    
+    /// Cached CGImage of TEXT.BMP to avoid NSImage operations during render
+    private var cachedSkinCGImage: CGImage?
     
     /// Width of one complete text cycle (text + separator)
     private var cycleWidth: CGFloat = 0
@@ -102,8 +108,17 @@ class MarqueeLayer: CALayer {
     
     // MARK: - Text Rendering
     
-    /// Serial queue for rendering text to avoid interference with other views
-    private static let renderQueue = DispatchQueue(label: "com.adamp.marquee.render")
+    /// Shared serial queue for marquee text rendering
+    static let sharedRenderQueue = DispatchQueue(label: "com.adamp.marquee.render")
+    
+    /// Cache the CGImage from skinTextImage - MUST be called outside of render cycle
+    /// This prevents cross-window interference from NSImage.cgImage() calls
+    private func cacheSkinCGImage() {
+        cachedSkinCGImage = nil
+        guard let nsImage = skinTextImage else { return }
+        // Get CGImage from NSImage - safe to call here (not during render)
+        cachedSkinCGImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    }
     
     /// Render the text to a CGImage and update the content layer
     func renderText() {
@@ -124,7 +139,7 @@ class MarqueeLayer: CALayer {
         // Capture values for async rendering
         let currentText = text
         let currentSeparator = separator
-        let currentSkinImage = skinTextImage
+        let currentSkinCGImage = cachedSkinCGImage  // Use cached CGImage, not NSImage
         let currentScale = contentsScale
         let currentBoundsHeight = bounds.height
         let currentCharWidth = charWidth
@@ -137,10 +152,10 @@ class MarqueeLayer: CALayer {
             cycleWidth = textWidth
             
             // Render on background queue to avoid NSGraphicsContext interference
-            Self.renderQueue.async { [weak self] in
+            Self.sharedRenderQueue.async { [weak self] in
                 // Render at full bounds height so text is centered and not stretched
                 let image = self?.renderTextToImageSync(currentText, width: textWidth, 
-                                                        skinImage: currentSkinImage, scale: currentScale,
+                                                        skinCGImage: currentSkinCGImage, scale: currentScale,
                                                         charWidth: currentCharWidth, charHeight: currentCharHeight,
                                                         boundsHeight: currentBoundsHeight)
                 DispatchQueue.main.async {
@@ -170,10 +185,10 @@ class MarqueeLayer: CALayer {
             let finalCycleWidth = cycleWidth
             
             // Render on background queue to avoid NSGraphicsContext interference
-            Self.renderQueue.async { [weak self] in
+            Self.sharedRenderQueue.async { [weak self] in
                 // Render at full bounds height so text is centered and not stretched
                 let image = self?.renderTextToImageSync(fullText, width: totalWidth,
-                                                        skinImage: currentSkinImage, scale: currentScale,
+                                                        skinCGImage: currentSkinCGImage, scale: currentScale,
                                                         charWidth: currentCharWidth, charHeight: currentCharHeight,
                                                         boundsHeight: currentBoundsHeight)
                 DispatchQueue.main.async {
@@ -196,21 +211,23 @@ class MarqueeLayer: CALayer {
     }
     
     /// Render text string to a CGImage using bitmap font sprites (thread-safe version)
-    private func renderTextToImageSync(_ string: String, width: CGFloat, skinImage: NSImage?, 
+    /// Uses pre-cached CGImage to avoid NSImage operations that can cause cross-window interference
+    private func renderTextToImageSync(_ string: String, width: CGFloat, skinCGImage: CGImage?, 
                                        scale: CGFloat, charWidth: CGFloat, charHeight: CGFloat,
                                        boundsHeight: CGFloat) -> CGImage? {
-        // Check for system font fallback (non-Latin characters)
-        if skinImage == nil || containsNonLatinCharacters(string) {
+        // Check for system font fallback (non-Latin characters or no skin image)
+        if skinCGImage == nil || containsNonLatinCharacters(string) {
             return renderSystemFontToImageSync(string, width: width, scale: scale, charHeight: charHeight, boundsHeight: boundsHeight)
         }
         
-        return renderBitmapFontToImageSync(string, width: width, skinImage: skinImage!, 
+        return renderBitmapFontToImageSync(string, width: width, skinCGImage: skinCGImage!, 
                                            scale: scale, charWidth: charWidth, charHeight: charHeight, boundsHeight: boundsHeight)
     }
     
     /// Render using Winamp bitmap font (TEXT.BMP) - thread-safe version
-    /// Uses NSBitmapImageRep for reliable rendering with proper scale handling
-    private func renderBitmapFontToImageSync(_ string: String, width: CGFloat, skinImage: NSImage,
+    /// Uses NSBitmapImageRep for reliable rendering with proper coordinate handling
+    /// The skinCGImage is converted to NSImage for drawing to ensure correct orientation
+    private func renderBitmapFontToImageSync(_ string: String, width: CGFloat, skinCGImage: CGImage,
                                              scale: CGFloat, charWidth: CGFloat, charHeight: CGFloat,
                                              boundsHeight: CGFloat) -> CGImage? {
         // Render at full bounds height so text is vertically centered without stretching
@@ -219,6 +236,10 @@ class MarqueeLayer: CALayer {
         let pixelHeight = Int(ceil(height * scale))
         
         guard pixelWidth > 0, pixelHeight > 0 else { return nil }
+        
+        // Convert cached CGImage to NSImage for proper coordinate handling
+        let skinImage = NSImage(cgImage: skinCGImage, size: NSSize(width: skinCGImage.width, height: skinCGImage.height))
+        let skinImageHeight = skinImage.size.height
         
         // Create bitmap image rep at exact pixel dimensions
         guard let bitmapRep = NSBitmapImageRep(
@@ -240,12 +261,10 @@ class MarqueeLayer: CALayer {
         // Create graphics context from bitmap rep
         guard let context = NSGraphicsContext(bitmapImageRep: bitmapRep) else { return nil }
         
-        // IMPORTANT: Use thread-local graphics state to avoid interfering with other views
+        // Use thread-local graphics state
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         context.imageInterpolation = .none
-        
-        let skinImageHeight = skinImage.size.height
         
         // Center text vertically within the bounds height
         let yOffset = (boundsHeight - charHeight) / 2
