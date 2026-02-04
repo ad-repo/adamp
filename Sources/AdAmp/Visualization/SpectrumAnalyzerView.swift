@@ -476,22 +476,26 @@ class SpectrumAnalyzerView: NSView {
     
     /// Track if we have any visible spectrum data (for idle optimization)
     /// Protected by dataLock for thread-safe access from render and updateSpectrum
-    private var hasVisibleData: Bool = false
+    /// nonisolated(unsafe) because Swift doesn't recognize our lock-based synchronization
+    nonisolated(unsafe) private var hasVisibleData: Bool = false
     
     /// Track if we've cleared the display after data stopped (only need to clear once)
     /// Protected by dataLock for thread-safe access from render and updateSpectrum
-    private var hasClearedAfterIdle: Bool = false
+    /// nonisolated(unsafe) because Swift doesn't recognize our lock-based synchronization
+    nonisolated(unsafe) private var hasClearedAfterIdle: Bool = false
     
     /// Count consecutive frames with no data - used to stop display link when idle
     /// Protected by dataLock for thread-safe access from render and updateSpectrum
-    private var idleFrameCount: Int = 0
+    /// nonisolated(unsafe) because Swift doesn't recognize our lock-based synchronization
+    nonisolated(unsafe) private var idleFrameCount: Int = 0
     
     /// Frames to wait before stopping display link when idle (~1 second at 60fps)
     private let idleFrameThreshold: Int = 60
     
     /// Track if we stopped rendering due to idle (vs window hidden)
     /// Protected by dataLock for thread-safe access from render and updateSpectrum
-    private var stoppedDueToIdle: Bool = false
+    /// nonisolated(unsafe) because Swift doesn't recognize our lock-based synchronization
+    nonisolated(unsafe) private var stoppedDueToIdle: Bool = false
     
     /// Called by display link at 60Hz
     /// Note: This is internal (not private) so the display link callback can access it

@@ -431,9 +431,9 @@ A dedicated spectrum analyzer window is available (Visualizations menu → Spect
   - Uses runtime shader compilation for SPM compatibility (`device.makeLibrary(source:)`)
   - Separate pipeline states for each quality mode
   - Display-native refresh rate support (up to 120Hz on ProMotion displays)
-- **55 bars** (vs 19 in main window) - Higher resolution frequency display
+- **84 bars** (vs 19 in main window) - Higher resolution frequency display
 - **Quality modes:**
-  - **Winamp** - Discrete color palette from skin's `viscolor.txt`, pixel-art aesthetic
+  - **Winamp** - Smooth gradient colors from skin's `viscolor.txt` with 3D cylindrical bar shading
   - **Enhanced** - Rainbow LED matrix (16 rows) with floating peaks and per-cell fade trails
   - **Ultra** - Maximum visual quality with advanced effects (see below)
 - **Decay modes** controlling bar responsiveness:

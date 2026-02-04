@@ -748,14 +748,20 @@ class MainWindowView: NSView {
         self.errorMessage = nil  // Clear any error message when track loads successfully
         bitrateScrollOffset = 0  // Reset bitrate scroll
         updateMarqueeContent()  // Update layer-based marquee
-        if isShadeMode { marqueeOffset = 0; startMarquee() }  // Shade mode uses timer
+        if isShadeMode {
+            marqueeOffset = 0
+        }
+        startMarquee()  // Restart timer for bitrate scrolling (both modes) or shade marquee
         needsDisplay = true
     }
     
     func updateVideoTrackInfo(title: String) {
         self.currentVideoTitle = title
         updateMarqueeContent()  // Update layer-based marquee
-        if isShadeMode { marqueeOffset = 0; startMarquee() }  // Shade mode uses timer
+        if isShadeMode {
+            marqueeOffset = 0
+        }
+        startMarquee()  // Restart timer for bitrate scrolling (both modes) or shade marquee
         needsDisplay = true
     }
     

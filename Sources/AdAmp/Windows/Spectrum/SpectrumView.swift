@@ -77,12 +77,12 @@ class SpectrumView: NSView {
             let spacing: CGFloat = 1.0
             
             // Calculate bar width to fit exactly in content area
-            // Use fractional pixels for precise fit
+            // Use floor() for crisp pixel-aligned bars (fractional widths cause jagged rendering)
             let availableWidth = contentArea.width
             let barWidth = (availableWidth - CGFloat(barCount - 1) * spacing) / CGFloat(barCount)
             
             view.barCount = barCount
-            view.barWidth = max(2.0, barWidth)  // Use exact width, no floor
+            view.barWidth = max(2.0, floor(barWidth))
             view.barSpacing = spacing
             view.autoresizingMask = []  // Manual frame updates
             addSubview(view)
@@ -192,7 +192,7 @@ class SpectrumView: NSView {
             let spacing = view.barSpacing
             let availableWidth = contentArea.width
             let barWidth = (availableWidth - CGFloat(barCount - 1) * spacing) / CGFloat(barCount)
-            view.barWidth = max(2.0, barWidth)  // Use exact width, no floor
+            view.barWidth = max(2.0, floor(barWidth))  // Floor for crisp pixel-aligned bars
         }
     }
     
