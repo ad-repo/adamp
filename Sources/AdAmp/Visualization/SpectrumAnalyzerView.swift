@@ -261,12 +261,61 @@ class SpectrumAnalyzerView: NSView {
         // Load colors from current skin
         updateColorsFromSkin()
         
+        // Observe window occlusion state to stop rendering when not visible
+        // This prevents drawable accumulation when the window is minimized or occluded
+        NotificationCenter.default.addObserver(self, selector: #selector(windowDidChangeOcclusionState),
+                                               name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowDidMiniaturize),
+                                               name: NSWindow.didMiniaturizeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowDidDeminiaturize),
+                                               name: NSWindow.didDeminiaturizeNotification, object: nil)
+        
         // Start rendering
         startRendering()
     }
     
     deinit {
+        NotificationCenter.default.removeObserver(self)
         stopRendering()
+    }
+    
+    // MARK: - Window Occlusion Handling
+    
+    /// Track if rendering was stopped due to window occlusion (vs idle)
+    private var stoppedDueToOcclusion: Bool = false
+    
+    @objc private func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard notification.object as? NSWindow == window else { return }
+        
+        if window?.occlusionState.contains(.visible) == true {
+            // Window became visible - restart rendering if we stopped due to occlusion
+            if stoppedDueToOcclusion {
+                stoppedDueToOcclusion = false
+                startRendering()
+            }
+        } else {
+            // Window no longer visible - stop rendering to save resources and prevent drawable accumulation
+            if isRendering {
+                stoppedDueToOcclusion = true
+                stopRendering()
+            }
+        }
+    }
+    
+    @objc private func windowDidMiniaturize(_ notification: Notification) {
+        guard notification.object as? NSWindow == window else { return }
+        if isRendering {
+            stoppedDueToOcclusion = true
+            stopRendering()
+        }
+    }
+    
+    @objc private func windowDidDeminiaturize(_ notification: Notification) {
+        guard notification.object as? NSWindow == window else { return }
+        if stoppedDueToOcclusion {
+            stoppedDueToOcclusion = false
+            startRendering()
+        }
     }
     
     // MARK: - Metal Setup
@@ -293,6 +342,12 @@ class SpectrumAnalyzerView: NSView {
         metalLayer.framebufferOnly = true
         metalLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         metalLayer.frame = bounds
+        // CRITICAL: Limit drawable pool size to prevent unbounded memory growth
+        // Without this, CAMetalLayer can create unlimited drawables during continuous rendering
+        metalLayer.maximumDrawableCount = 3
+        // Disable display sync to allow dropping frames when GPU falls behind
+        // This prevents drawable accumulation when rendering can't keep up
+        metalLayer.displaySyncEnabled = false
         layer?.addSublayer(metalLayer)
         
         // Load shaders and create pipeline
