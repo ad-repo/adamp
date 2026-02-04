@@ -254,11 +254,36 @@ fragment float4 spectrum_fragment(
     // Number of colors in palette (Winamp uses 24)
     const int colorCount = 24;
     
-    // Discrete color lookup (classic pixel-art)
-    int colorIndex = int(yPos * float(colorCount - 1));
-    colorIndex = clamp(colorIndex, 0, colorCount - 1);
+    // Smooth color interpolation between palette colors
+    float indexFloat = yPos * float(colorCount - 1);
+    int index0 = clamp(int(indexFloat), 0, colorCount - 2);
+    int index1 = index0 + 1;
+    float blend = fract(indexFloat);
     
-    return colors[colorIndex];
+    // Interpolate between adjacent colors for smooth gradient
+    float4 color0 = colors[index0];
+    float4 color1 = colors[index1];
+    float4 baseColor = mix(color0, color1, blend);
+    
+    // === 3D BAR EFFECT ===
+    float2 centered = in.uv * 2.0 - 1.0;
+    
+    // Cylindrical shading - brighter in center
+    float cylinder = 1.0 - pow(abs(centered.x), 2.0) * 0.35;
+    
+    // Specular highlight down the center
+    float specular = exp(-centered.x * centered.x * 6.0) * 0.25;
+    
+    // Vertical gradient boost at top
+    float topBoost = pow(yPos, 2.0) * 0.15;
+    
+    // Combine lighting
+    float3 litColor = baseColor.rgb * cylinder + specular + baseColor.rgb * topBoost;
+    
+    // Ensure colors stay vibrant
+    litColor = max(litColor, baseColor.rgb * 0.8);
+    
+    return float4(litColor, 1.0);
 }
 
 // =============================================================================

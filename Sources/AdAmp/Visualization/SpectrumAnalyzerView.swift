@@ -1000,10 +1000,10 @@ class SpectrumAnalyzerView: NSView {
             }
             
         case .winamp:
-            // Calculate cell dimensions for Winamp mode
-            let cellSpacing: Float = 2.0 * Float(scale)
+            // Calculate cell dimensions for Winamp mode - use exact bar width
+            let cellSpacing: Float = 1.0 * Float(scale)
             let cellHeight = (scaledHeight - Float(ledRowCount - 1) * cellSpacing) / Float(ledRowCount)
-            let cellWidth = Float(localBarWidth * scale) - 1.0
+            let cellWidth = Float(localBarWidth * scale)
             
             // Update params buffer for Winamp
             if let buffer = paramsBuffer {

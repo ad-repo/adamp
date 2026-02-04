@@ -77,13 +77,12 @@ class SpectrumView: NSView {
             let spacing: CGFloat = 1.0
             
             // Calculate bar width to fit exactly in content area
-            // totalWidth = barCount * barWidth + (barCount - 1) * spacing
-            // barWidth = (totalWidth - (barCount - 1) * spacing) / barCount
+            // Use fractional pixels for precise fit
             let availableWidth = contentArea.width
             let barWidth = (availableWidth - CGFloat(barCount - 1) * spacing) / CGFloat(barCount)
             
             view.barCount = barCount
-            view.barWidth = max(2.0, floor(barWidth))  // At least 2px, use whole pixels
+            view.barWidth = max(2.0, barWidth)  // Use exact width, no floor
             view.barSpacing = spacing
             view.autoresizingMask = []  // Manual frame updates
             addSubview(view)
