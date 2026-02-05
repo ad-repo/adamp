@@ -528,46 +528,51 @@ fragment float4 ultra_matrix_fragment(
     UltraVertexOut in [[stage_in]],
     constant UltraParams& params [[buffer(1)]]
 ) {
-    // Skip unlit cells
-    if (in.brightness < 0.01 && in.isPeak < 0.5) {
+    // Skip unlit cells (low threshold for smooth trail tails)
+    if (in.brightness < 0.003 && in.isPeak < 0.5) {
         discard_fragment();
     }
     
-    // === VIVID RAINBOW ===
+    float displayBrightness = in.isPeak > 0.5 ? 1.0 : in.brightness;
+    
+    // === SMOOTH RAINBOW COLOR ===
     float hue = in.normalizedColumn * 0.85;
     float3 baseColor = hsv2rgb(hue, 1.0, 1.0);
     
-    // === 3D CYLINDER EFFECT ===
-    // Each bar looks like a 3D glowing cylinder
-    float2 centered = in.uv * 2.0 - 1.0;
+    // === WARM TRAIL COLOR SHIFT ===
+    // As brightness fades, color shifts toward warm amber for a fluid heat-trail look
+    // Only kicks in at lower brightness to avoid color flashing in dense interior areas
+    float warmth = pow(max(0.0, 1.0 - displayBrightness * 1.5), 2.0);
+    float3 warmTint = float3(1.0, 0.35, 0.06);  // Warm amber
+    float3 trailColor = mix(baseColor, warmTint, warmth * 0.5);
     
-    // Cylindrical falloff - bright center, darker edges
-    float cylinderFalloff = 1.0 - pow(abs(centered.x), 2.0) * 0.4;
+    // === PERCEPTUAL GAMMA ===
+    // Apply gamma curve so brightness fades look smooth to human eyes
+    // Without this, linear fade looks like it "snaps" off at the end
+    float percBrightness = pow(displayBrightness, 0.75);
     
-    // Specular highlight running down center
-    float specular = exp(-centered.x * centered.x * 8.0) * 0.3;
+    float3 color = trailColor * percBrightness;
     
-    // === VERTICAL GRADIENT - brighter at top ===
-    float verticalGradient = mix(0.7, 1.1, in.normalizedRow);
+    // === SMOOTH VERTICAL GRADIENT ===
+    // Higher rows subtly brighter for visual depth (smooth interpolation)
+    float heightBoost = mix(0.8, 1.15, smoothstep(0.0, 1.0, in.normalizedRow));
+    color *= heightBoost;
     
-    // === COMBINE LIGHTING ===
-    float lighting = cylinderFalloff * verticalGradient;
-    
-    // Add specular highlight
-    float3 litColor = baseColor * lighting + float3(specular);
-    
-    // === PEAKS - bright white tint ===
+    // === SOFT PEAK GLOW ===
     if (in.isPeak > 0.5) {
-        float3 peakColor = mix(baseColor, float3(1.0, 1.0, 1.0), 0.5);
-        litColor = peakColor * 1.3;
+        // Peak: bright white-tinted color with soft pulse
+        float3 peakColor = mix(baseColor, float3(1.0), 0.45);
+        float pulse = 1.0 + sin(params.time * 6.0) * 0.05;
+        color = peakColor * pulse;
     }
     
-    // === TOP BLOOM - extra glow at bar tops ===
-    float topGlow = pow(in.normalizedRow, 3.0) * in.brightness * 0.4;
-    litColor += baseColor * topGlow;
+    // === HIGH-BRIGHTNESS BLOOM ===
+    // Cells at near-full brightness get a subtle extra glow boost
+    if (displayBrightness > 0.85) {
+        float bloom = (displayBrightness - 0.85) * 3.0;  // 0 to 0.45
+        color += baseColor * bloom * 0.2;
+    }
     
-    // === ENSURE VIBRANT MINIMUM ===
-    litColor = max(litColor, baseColor * 0.7);
-    
-    return float4(litColor, 1.0);
+    color = min(color, float3(1.0));
+    return float4(color, 1.0);
 }

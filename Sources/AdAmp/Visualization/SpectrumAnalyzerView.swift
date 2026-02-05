@@ -1277,23 +1277,30 @@ class SpectrumAnalyzerView: NSView {
     }
     
     /// Updates state for Ultra mode with physics-based peaks and higher resolution
+    /// Designed for maximum fluidity: smooth exponential decay, gradient bar tops,
+    /// no hard cutoffs -- everything flows and breathes naturally
     private func updateUltraMatrixState() {
         let colCount = ultraBarCount
+        let rowCount = ultraLedRowCount
+        let rowCountF = Float(rowCount)
         
         // Arrays are pre-allocated in commonInit - no resizing needed
         
         // Physics constants for smooth, satisfying peak animation
-        let gravity: Float = 0.012           // Acceleration downward per frame (slightly faster)
-        let bounceCoeff: Float = 0.35        // How much velocity is retained on bounce
-        let minBounceVelocity: Float = 0.015 // Minimum velocity to trigger bounce
+        let gravity: Float = 0.008            // Gentle gravity for floatier peaks
+        let bounceCoeff: Float = 0.3          // Energy retained on bounce
+        let minBounceVelocity: Float = 0.01   // Minimum velocity to trigger bounce
         
-        // Fade rates for smooth trails
-        let cellFadeRate: Float = 0.04       // How fast unlit cells fade (faster = more responsive)
-        let trailFadeRate: Float = 0.025     // Slower fade for recently-lit cells (creates trail)
+        // Smooth exponential decay factor (per frame)
+        // 0.94 means each frame retains 94% of brightness → smooth natural fadeout
+        let decayMultiplier: Float = 0.94
         
-        // Floor cutoff for better dynamic range - values below this become 0
-        // This removes the always-lit bottom rows during normal playback
-        let floor: Float = 0.15
+        // Soft gradient zone at bar top (in normalized 0-1 space)
+        // Instead of hard cutoff, brightness ramps smoothly over this range
+        let gradientZone: Float = 3.0 / rowCountF  // ~3 cells of soft transition
+        
+        // Gentle floor to avoid always-lit bottom with smooth ramp
+        let floor: Float = 0.08
         let ceiling: Float = 1.0
         let range = ceiling - floor
         
@@ -1302,46 +1309,49 @@ class SpectrumAnalyzerView: NSView {
         
         for col in 0..<min(colCount, ultraDisplaySpectrum.count) {
             let rawLevel = ultraDisplaySpectrum[col]
-            // Apply floor: subtract floor and rescale to 0-1
             let currentLevel = max(0, (rawLevel - floor) / range)
-            let currentRow = Int(currentLevel * Float(ultraLedRowCount))
             
             // Physics-based peak animation
             if currentLevel > ultraPeakPositions[col] {
-                // New peak - jump to current level and reset velocity
                 ultraPeakPositions[col] = currentLevel
                 peakVelocities[col] = 0
             } else {
-                // Apply gravity (acceleration)
                 peakVelocities[col] -= gravity
                 ultraPeakPositions[col] += peakVelocities[col]
                 
-                // Check for collision with current bar level (bounce)
                 if ultraPeakPositions[col] < currentLevel {
                     ultraPeakPositions[col] = currentLevel
-                    // Bounce with energy loss, but only if moving fast enough
                     if abs(peakVelocities[col]) > minBounceVelocity {
                         peakVelocities[col] = -peakVelocities[col] * bounceCoeff
                     } else {
                         peakVelocities[col] = 0
                     }
                 }
-                
-                // Clamp to valid range
                 ultraPeakPositions[col] = max(0, min(1.0, ultraPeakPositions[col]))
             }
             
-            // Update per-cell brightness with trails
-            for row in 0..<ultraLedRowCount {
-                if row < currentRow {
-                    // Cell is currently lit - set to full brightness
+            // Smooth per-cell brightness with gradient bar top and exponential decay
+            for row in 0..<rowCount {
+                let rowNorm = Float(row) / rowCountF
+                let current = ultraCellBrightness[col][row]
+                
+                if rowNorm < currentLevel - gradientZone {
+                    // Well below bar top - instant full brightness (no smoothing here,
+                    // smoothing in the interior causes visible pulsing from audio jitter)
                     ultraCellBrightness[col][row] = 1.0
-                } else if ultraCellBrightness[col][row] > 0.7 {
-                    // Recently lit cell - fade slower to create trail effect
-                    ultraCellBrightness[col][row] = max(0, ultraCellBrightness[col][row] - trailFadeRate)
+                } else if rowNorm < currentLevel {
+                    // Gradient zone at bar top - smooth ramp for soft edge
+                    let t = (currentLevel - rowNorm) / gradientZone
+                    let target = 0.4 + 0.6 * t
+                    ultraCellBrightness[col][row] = max(target, current * decayMultiplier)
                 } else {
-                    // Older unlit cell - fade faster
-                    ultraCellBrightness[col][row] = max(0, ultraCellBrightness[col][row] - cellFadeRate)
+                    // Above bar - smooth exponential decay
+                    ultraCellBrightness[col][row] = current * decayMultiplier
+                }
+                
+                // Clean floor to avoid sub-perceptual ghost values
+                if ultraCellBrightness[col][row] < 0.003 {
+                    ultraCellBrightness[col][row] = 0
                 }
             }
         }

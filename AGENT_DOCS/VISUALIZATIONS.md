@@ -309,7 +309,7 @@ Right-click on the window for:
 | Feature | Album Art Visualizer | ProjectM/Milkdrop | Spectrum Analyzer |
 |---------|---------------------|-------------------|-------------------|
 | **Visual Style** | Transformed album artwork | Procedural graphics | Frequency bars / Flame simulation |
-| **Effect Count** | 30 built-in effects | 100s of presets available | 4 quality modes (Winamp, Enhanced, Ultra, Flame) |
+| **Effect Count** | 30 built-in effects | 100s of presets available | 4 modes (Winamp, Enhanced, Ultra, Flame) |
 | **Customization** | Intensity adjustment | Full preset ecosystem | Quality + decay modes + flame styles |
 | **GPU Tech** | Core Image (Metal) | OpenGL shaders | Metal shaders + Metal compute shaders |
 | **Audio Response** | Spectrum bands (bass/mid/treble) | PCM waveform + beat detection | 75-band spectrum |
