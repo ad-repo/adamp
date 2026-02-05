@@ -2074,6 +2074,15 @@ class AudioEngine {
         stopStreamingPlayer()
         isStreamingPlayback = false
         
+        // Reset AudioEngine's adaptive normalization peaks for clean start
+        // When streaming was active, AudioEngine just forwarded StreamingAudioPlayer's
+        // pre-normalized data without updating its own peaks. These stale peaks
+        // would cause erratic spectrum levels when switching back to local.
+        spectrumGlobalPeak = 0.0
+        spectrumGlobalReferenceLevel = 0.0
+        spectrumRegionPeaks = [0.0, 0.0, 0.0]
+        spectrumRegionReferenceLevels = [0.0, 0.0, 0.0]
+        
         // Reset spectrum analyzer state when switching sources
         NotificationCenter.default.post(name: NSNotification.Name("ResetSpectrumState"), object: nil)
         
@@ -2577,13 +2586,16 @@ class AudioEngine {
         crossfadeStreamingPlayer?.volume = 0
         crossfadeStreamingPlayer?.play(url: nextTrack.url)
         
-        // Start volume ramp
+        // Start volume ramp - multiply crossfade values by master volume
+        // (unlike local playback where mainMixerNode handles master volume,
+        // streaming players need volume incorporated into the crossfade)
+        let masterVolume = volume
         startCrossfadeVolumeRamp(
             outgoingVolume: { [weak self] v in
-                self?.streamingPlayer?.volume = v
+                self?.streamingPlayer?.volume = masterVolume * v
             },
             incomingVolume: { [weak self] v in
-                self?.crossfadeStreamingPlayer?.volume = v
+                self?.crossfadeStreamingPlayer?.volume = masterVolume * v
             },
             completion: { [weak self] in
                 self?.completeStreamingCrossfade(nextIndex: nextIndex)
@@ -2705,6 +2717,9 @@ class AudioEngine {
         // Set delegate on new primary player
         streamingPlayer?.delegate = self
         crossfadeStreamingPlayer?.delegate = nil
+        
+        // Restore primary player to master volume (crossfade ended at masterVolume * 1.0)
+        streamingPlayer?.volume = volume
         
         // Update state
         currentIndex = nextIndex
