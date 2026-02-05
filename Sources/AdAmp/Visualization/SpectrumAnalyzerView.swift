@@ -19,7 +19,7 @@ enum SpectrumQualityMode: String, CaseIterable {
     case winamp = "Winamp"       // Discrete colors, pixel-art aesthetic
     case enhanced = "Enhanced"   // LED matrix with rainbow
     case ultra = "Ultra"         // Maximum visual quality with effects
-    case flame = "Flame"         // GPU fire simulation driven by audio
+    case flame = "Fire"          // GPU fire simulation driven by audio
     
     var displayName: String { rawValue }
 }
