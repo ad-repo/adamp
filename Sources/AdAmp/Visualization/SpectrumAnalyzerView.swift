@@ -291,6 +291,10 @@ class SpectrumAnalyzerView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(spectrumSettingsChanged),
                                                name: NSNotification.Name("SpectrumSettingsChanged"), object: nil)
         
+        // Observe audio source changes to reset state
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSourceChange),
+                                               name: NSNotification.Name("ResetSpectrumState"), object: nil)
+        
         // Start rendering
         startRendering()
     }
@@ -360,6 +364,12 @@ class SpectrumAnalyzerView: NSView {
             idleFrameCount = 0
             hasClearedAfterIdle = false
         }
+    }
+    
+    @objc private func handleSourceChange(_ notification: Notification) {
+        // Called when switching between local/streaming sources
+        // Reset all state to ensure clean transition
+        resetState()
     }
     
     // MARK: - Metal Setup
@@ -1167,6 +1177,53 @@ class SpectrumAnalyzerView: NSView {
     }
     
     // MARK: - Public API
+    
+    /// Reset all spectrum state - call when switching audio sources
+    func resetState() {
+        dataLock.withLock {
+            // Clear raw spectrum
+            rawSpectrum = []
+            
+            // Clear display spectrums
+            for i in 0..<displaySpectrum.count {
+                displaySpectrum[i] = 0
+            }
+            for i in 0..<ultraDisplaySpectrum.count {
+                ultraDisplaySpectrum[i] = 0
+            }
+            
+            // Reset peak positions
+            for i in 0..<peakHoldPositions.count {
+                peakHoldPositions[i] = 0
+            }
+            for i in 0..<ultraPeakPositions.count {
+                ultraPeakPositions[i] = 0
+            }
+            
+            // Reset cell brightness
+            for col in 0..<cellBrightness.count {
+                for row in 0..<cellBrightness[col].count {
+                    cellBrightness[col][row] = 0
+                }
+            }
+            for col in 0..<ultraCellBrightness.count {
+                for row in 0..<ultraCellBrightness[col].count {
+                    ultraCellBrightness[col][row] = 0
+                }
+            }
+            
+            // Reset peak velocities
+            for i in 0..<peakVelocities.count {
+                peakVelocities[i] = 0
+            }
+            
+            // Reset idle tracking
+            idleFrameCount = 0
+            hasClearedAfterIdle = false
+            stoppedDueToIdle = false
+        }
+        NSLog("SpectrumAnalyzerView: State reset")
+    }
     
     /// Update spectrum data from audio engine (called from audio thread)
     func updateSpectrum(_ levels: [Float]) {

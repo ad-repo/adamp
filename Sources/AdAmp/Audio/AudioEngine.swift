@@ -277,7 +277,7 @@ class AudioEngine {
     
     /// FFT setup for spectrum analysis
     private var fftSetup: vDSP_DFT_Setup?
-    private let fftSize: Int = 512  // ~11.6ms at 44.1kHz (lowest latency)
+    private let fftSize: Int = 2048  // Match streaming FFT for consistent display
     
     /// Pre-computed frequency weights for spectrum analyzer (light compensation)
     private let spectrumFrequencyWeights: [Float] = {
@@ -729,16 +729,10 @@ class AudioEngine {
                 let dB = 20.0 * log10(max(scaledMag, 1e-10))
                 
                 // Map dB range to 0-1 display range
-                let ceiling: Float = 28.0    // dB level that maps to 100%
-                let floor: Float = -12.0     // dB level that maps to 0%
-                var normalized = (dB - floor) / (ceiling - floor)
-                
-                // Gentle sub-bass boost to soften the steep rolloff from limited FFT resolution
-                // Only affects lowest ~10 bands (sub-bass region below ~50Hz)
-                if band < 10 {
-                    let boostFactor: Float = 1.0 + 0.5 * Float(10 - band) / 10.0  // Up to 50% boost at band 0
-                    normalized *= boostFactor
-                }
+                // For 2048-pt FFT, ~12dB higher than 512-pt (matches streaming)
+                let ceiling: Float = 40.0    // dB level that maps to 100%
+                let floor: Float = 0.0       // dB level that maps to 0%
+                let normalized = (dB - floor) / (ceiling - floor)
                 
                 newSpectrum[band] = max(0, min(1.0, normalized))
             } else {
@@ -2079,6 +2073,9 @@ class AudioEngine {
         stopStreamingPlayer()
         isStreamingPlayback = false
         
+        // Reset spectrum analyzer state when switching sources
+        NotificationCenter.default.post(name: NSNotification.Name("ResetSpectrumState"), object: nil)
+        
         // Clear any pre-scheduled gapless track (we're loading a new track explicitly)
         nextScheduledFile = nil
         nextScheduledTrackIndex = -1
@@ -2185,10 +2182,14 @@ class AudioEngine {
         NSLog("loadStreamingTrack: %@ - %@", track.artist ?? "Unknown", track.title)
         NSLog("  URL: %@", track.url.absoluteString)
         
-        // Stop local playback
+        // Stop local playback and REMOVE spectrum tap (streaming player has its own)
         playerNode.stop()
+        mixerNode.removeTap(onBus: 0)  // Critical: remove local spectrum tap
         audioFile = nil
         isStreamingPlayback = true
+        
+        // Reset spectrum analyzer state when switching sources
+        NotificationCenter.default.post(name: NSNotification.Name("ResetSpectrumState"), object: nil)
         
         // Set flag before starting new track - EOF callbacks from old track should be ignored
         isLoadingNewStreamingTrack = true

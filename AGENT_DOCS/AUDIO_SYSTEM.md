@@ -367,14 +367,14 @@ player.frameFiltering.add(entry: "spectrumAnalyzer") { [weak self] buffer, _ in
 
 1. **Sample extraction** - Get float samples from PCM buffer (mono-mix stereo)
 2. **Windowing** - Apply Hann window to reduce spectral leakage
-3. **FFT** - 512-point DFT using Accelerate framework (vDSP) (~11.6ms at 44.1kHz)
+3. **FFT** - 2048-point DFT using Accelerate framework (vDSP) (~46ms at 44.1kHz)
 4. **Magnitude calculation** - Convert complex output to magnitudes
 5. **Power integration** - Sum power (magnitude²) of FFT bins within each logarithmic band. For bands with few bins, interpolate and scale by bandwidth.
 6. **Frequency weighting** - Apply compensation curve in adaptive/dynamic modes (skipped in accurate mode)
 7. **Normalization** - Scale based on selected mode (accurate/adaptive/dynamic)
 8. **Smoothing** - Fast attack, slow decay for visual appeal
 
-**Note:** The FFT size was reduced from 2048 to 512 samples to decrease audio-to-visualization latency from ~46ms to ~11.6ms.
+**Note:** Both local and streaming playback use identical 2048-pt FFT processing for consistent visualization across all audio sources.
 
 ### Pink Noise Handling
 
@@ -417,7 +417,7 @@ For each of the 75 logarithmic bands:
 ```
 startFreq = 20 × (20000/20)^(band/75)      // Band's lower frequency edge
 endFreq = 20 × (20000/20)^((band+1)/75)    // Band's upper frequency edge
-binWidth = sampleRate / fftSize             // Hz per FFT bin (e.g., 44100/512 = 86.1 Hz)
+binWidth = sampleRate / fftSize             // Hz per FFT bin (e.g., 44100/2048 = 21.5 Hz)
 startBin = max(1, floor(startFreq / binWidth))
 endBin = max(startBin, min(fftSize/2 - 1, floor(endFreq / binWidth)))
 ```
@@ -457,13 +457,9 @@ dB = 20.0 × log₁₀(max(scaledMag, 1e-10))
 **Step 6: Dynamic Range Mapping**
 Map dB range to 0.0-1.0 display range:
 ```
-// Local playback (512-pt FFT):
-ceiling = 28.0 dB    // Maps to 100% (top of display)
-floor = -12.0 dB     // Maps to 0% (bottom of display)
-
-// Streaming playback (2048-pt FFT):
-ceiling = 40.0 dB    // Higher due to larger FFT giving ~12dB more magnitude
-floor = 0.0 dB
+// Both local and streaming use identical parameters (2048-pt FFT):
+ceiling = 40.0 dB    // Maps to 100% (top of display)
+floor = 0.0 dB       // Maps to 0% (bottom of display)
 
 normalized = (dB - floor) / (ceiling - floor)
 output = clamp(normalized, 0.0, 1.0)
@@ -686,28 +682,28 @@ NotificationCenter.default.post(
 )
 ```
 
-### Local vs Streaming Spectrum Processing
+### Unified Spectrum Processing
 
-The spectrum analyzer uses different FFT configurations for local and streaming playback:
+Both local and streaming playback use **identical FFT processing** for consistent visualization:
 
-| Parameter | Local (AudioEngine) | Streaming (StreamingAudioPlayer) |
-|-----------|---------------------|----------------------------------|
-| FFT size | 512 | 2048 |
-| Bin width | ~86 Hz | ~21.5 Hz |
-| Latency | ~12ms | ~46ms |
-| dB ceiling | 28 | 40 |
-| dB floor | -12 | 0 |
-| Sub-bass boost | 50% at band 0 | None |
+| Parameter | All Sources |
+|-----------|-------------|
+| FFT size | 2048 |
+| Bin width | ~21.5 Hz |
+| Latency | ~46ms |
+| dB ceiling | 40 |
+| dB floor | 0 |
 
-**Why different:**
-- Local uses smaller FFT for lowest visual latency (snappy response to transients)
-- Streaming uses larger FFT for better frequency resolution (streaming already has network latency)
-- dB values adjusted to compensate for different FFT magnitude outputs
-- Sub-bass boost only needed for local (512-pt FFT has poor sub-bass resolution)
+**Benefits of unified implementation:**
+- Consistent visualization when switching between local files, Plex, Navidrome, and radio
+- Good frequency resolution across the entire spectrum (including sub-bass)
+- No visual artifacts when changing audio sources
 
-**Known limitations:**
-- Local playback has a slight sub-bass roll-off in Accurate mode due to 512-pt FFT resolution (multiple bands map to the same FFT bin below ~40 Hz)
-- Spectrum characteristics differ slightly when switching between local and streaming sources
+**Source switching:**
+- When switching from local to streaming, the local spectrum tap on `mixerNode` is removed
+- When switching from streaming to local, the streaming player is stopped and its spectrum cleared
+- A `ResetSpectrumState` notification triggers the `SpectrumAnalyzerView` to clear all visualization state
+- This ensures clean transitions with no residual data from the previous source
 
 ### Volume-Independent Visualizations
 
