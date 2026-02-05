@@ -48,8 +48,10 @@ The build script reads version from Info.plist automatically. The DMG is named `
 
 The `kill_build_run.sh` script:
 1. Kills any running AdAmp instances (`pkill -9 -x AdAmp`)
-2. Builds with `swift build`
-3. Launches the app in background (`.build/debug/AdAmp &`)
+2. Builds in release mode (`swift build -c release`)
+3. Launches the app in background (`.build/arm64-apple-macosx/release/AdAmp &`)
+
+**Note**: Release mode ensures you're testing the same binary configuration as the DMG distribution, catching optimization-related issues early.
 
 **Important**: The script exits immediately after launching the app. The app continues running independently.
 
@@ -113,7 +115,7 @@ Sources/AdAmp/
 ├── Windows/          # All window views (MainWindow, Playlist, EQ, etc.)
 ├── Plex/             # Plex server integration
 ├── Subsonic/         # Navidrome/Subsonic server integration
-├── Visualization/    # ProjectM wrapper
+├── Visualization/    # ProjectM wrapper, Metal spectrum analyzer
 └── Models/           # Track, Playlist, MediaLibrary
 ```
 
@@ -124,7 +126,8 @@ Sources/AdAmp/
 | Skin | `Skin/SkinElements.swift`, `Skin/SkinRenderer.swift`, `Skin/SkinLoader.swift` |
 | Audio | `Audio/AudioEngine.swift`, `Audio/StreamingAudioPlayer.swift` |
 | Windows | `Windows/MainWindow/`, `Windows/Playlist/`, `Windows/Equalizer/` |
-| Visualization | `Windows/Milkdrop/`, `Windows/PlexBrowser/PlexBrowserView.swift`, `Visualization/ProjectMWrapper.swift` |
+| Visualization | `Windows/Milkdrop/`, `Windows/Spectrum/`, `Visualization/SpectrumAnalyzerView.swift`, `Visualization/ProjectMWrapper.swift` |
+| Marquee | `Skin/MarqueeLayer.swift`, `Windows/Playlist/PlaylistView.swift` |
 | Plex | `Plex/PlexManager.swift`, `Plex/PlexServerClient.swift` |
 | Subsonic | `Subsonic/SubsonicManager.swift`, `Subsonic/SubsonicServerClient.swift`, `Subsonic/SubsonicModels.swift` |
 | Radio | `Radio/RadioManager.swift`, `Data/Models/RadioStation.swift`, `Windows/Radio/AddRadioStationSheet.swift` |

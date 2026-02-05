@@ -10,9 +10,9 @@ class PlexBrowserWindowController: NSWindowController {
     /// Minimum window size (wider to fit 6 tabs)
     private static let minSize = NSSize(width: 480, height: 300)
     
-    /// Default window size - height matches 3 stacked main windows (main + EQ + playlist)
+    /// Default window size - height matches 4 stacked main windows (main + EQ + playlist + spectrum)
     private static var defaultSize: NSSize {
-        let height = Skin.mainWindowSize.height * 3  // Match combined height of 3 windows
+        let height = Skin.mainWindowSize.height * 4  // Match combined height of 4 windows
         return NSSize(width: 550, height: height)
     }
     

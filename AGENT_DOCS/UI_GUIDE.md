@@ -181,53 +181,75 @@ Sliders use programmatic color based on knob position (not sprites):
 | Middle | 0 | Yellow |
 | Bottom | -12 | Green |
 
-## Playlist Marquee Scrolling
+## Playlist Text Rendering
 
-The playlist window features marquee scrolling for the currently playing track when its title is too long to fit in the available space.
+The playlist window renders all text using the same bitmap font (`TEXT.BMP`) as the main window, ensuring visual consistency across the application.
 
 ### Implementation
 
 Located in `Windows/Playlist/PlaylistView.swift`:
 
 ```swift
+// All playlist text uses bitmap font from TEXT.BMP
+// CGImage is cached outside draw cycle to prevent cross-window interference
+private var cachedTextBitmapCGImage: CGImage?
+
+private func cacheTextBitmapCGImage() {
+    guard let skin = WindowManager.shared.currentSkin,
+          let textImage = skin.text else { return }
+    cachedTextBitmapCGImage = textImage.cgImage(forProposedRect: nil, context: nil, hints: nil)
+}
+
+// Characters are drawn using CGContext with proper coordinate flipping
+private func drawBitmapText(_ text: String, at position: NSPoint, in context: CGContext, skin: Skin?, isSelected: Bool = false) {
+    // Crop each character from cached CGImage
+    // Apply Y-flip for CGContext coordinate system
+    // For selected tracks, convert green pixels to white
+}
+```
+
+### Marquee Scrolling
+
+The currently playing track marquees when its title is too long:
+
+```swift
+// Timer-based marquee offset (8Hz update rate)
 private var marqueeOffset: CGFloat = 0
+private var currentTrackTextWidth: CGFloat = 0
 
-// Timer fires at 30fps with 1px increments for smooth scrolling
-displayTimer = Timer.scheduledTimer(withTimeInterval: 0.033, repeats: true) { [weak self] _ in
-    self?.marqueeOffset += 1
-    self?.needsDisplay = true
+// In drawTrackText(), current track uses marqueeOffset for scrolling
+let xOffset = needsMarquee ? -marqueeOffset : 0
+```
+
+### Selected Track Appearance
+
+Selected tracks display white text instead of green. This uses pixel manipulation:
+
+```swift
+private func convertToWhite(_ charImage: CGImage, charWidth: Int, charHeight: Int) -> CGImage? {
+    // Convert green (0, G, 0) pixels to white (G, G, G)
+    // Magenta (255, 0, 255) pixels are treated as transparent
 }
 ```
 
-### Drawing Logic
+### Auto-Selection
 
-In `drawTrackText()`:
-1. Calculate available width (item width minus duration area)
-2. If current track AND text width exceeds available width:
-   - Draw text twice with simple spacing for seamless loop
-   - Use `marqueeOffset` modulo cycle width for smooth wrapping
-3. Clip all tracks to prevent text/duration overlap
+When the playlist opens while music is playing, the current track is auto-selected:
 
 ```swift
-if isCurrentTrack && textWidth > titleMaxWidth {
-    let fullText = titleText + "     "  // Simple spacing between repeats
-    let cycleWidth = fullText.size(withAttributes: attrs).width
-    let offset = marqueeOffset.truncatingRemainder(dividingBy: cycleWidth)
-    
-    fullText.draw(at: NSPoint(x: titleX - offset, y: textY), withAttributes: attrs)
-    fullText.draw(at: NSPoint(x: titleX - offset + cycleWidth, y: textY), withAttributes: attrs)
+override func viewDidMoveToWindow() {
+    // Auto-select the currently playing track when playlist opens
+    if selectedIndices.isEmpty && engine.currentIndex >= 0 {
+        selectedIndices = [engine.currentIndex]
+    }
 }
 ```
 
-### Text Clipping
+### Cross-Window Interference Prevention
 
-All track titles are clipped to prevent overlap with the duration column:
+A key issue was `NSImage.cgImage()` affecting shared graphics state during render cycles, causing the main window marquee to switch fonts when the playlist scrolled.
 
-```swift
-context.clip(to: NSRect(x: titleX, y: rect.minY, width: titleMaxWidth, height: rect.height))
-```
-
-This ensures long titles don't bleed into the duration area, even when not marquee scrolling.
+**Solution**: Cache `CGImage` representation of `TEXT.BMP` outside of draw cycles, called only when skin changes or view initializes.
 
 ## Main Window Marquee
 
@@ -323,6 +345,8 @@ The offscreen buffer approach processes pixels at native resolution before scali
 | `Skin/SkinElements.swift` | All sprite coordinates |
 | `Skin/SkinRenderer.swift` | Drawing code |
 | `Skin/SkinLoader.swift` | WSZ loading, BMP parsing |
+| `Skin/MarqueeLayer.swift` | Main window marquee (bitmap font, CALayer-based) |
+| `Windows/Playlist/PlaylistView.swift` | Playlist view with bitmap font rendering |
 | `Windows/*/View.swift` | Window views |
 
 ## Art Visualizer Window
@@ -369,6 +393,66 @@ The visualizer uses the existing 75-band spectrum data from `AudioEngine`:
 - Bands 36-74: Treble (4000-20000Hz)
 
 Beat detection triggers on bass energy spikes above threshold.
+
+## Spectrum Analyzer Window
+
+A standalone Metal-based spectrum analyzer visualization window that provides a larger, more detailed view of the audio spectrum than the main window's built-in analyzer.
+
+### Opening the Window
+
+- **Click** the spectrum analyzer display in the main window
+- Context Menu → Spectrum Analyzer
+- Window menu → Spectrum Analyzer
+
+### Window Docking
+
+The Spectrum Analyzer participates in the docking system alongside Main, EQ, and Playlist:
+- Docks and moves with the window group when dragged
+- Opens below the current vertical stack (Main → EQ → Playlist → Spectrum)
+- State (visibility and position) saved with "Remember State on Quit"
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `Visualization/SpectrumAnalyzerView.swift` | Metal-based spectrum view component |
+| `Visualization/SpectrumShaders.metal` | GPU shaders for bar rendering |
+| `Windows/Spectrum/SpectrumWindowController.swift` | Window controller |
+| `Windows/Spectrum/SpectrumView.swift` | Container view with skin chrome |
+
+### Quality Modes
+
+| Mode | Description |
+|------|-------------|
+| **Winamp** | Discrete color palette from skin's `viscolor.txt`, authentic pixel-art look |
+| **Enhanced** | Smooth gradient interpolation with subtle glow effect on bar tops |
+
+### Decay/Responsiveness Modes
+
+Controls how quickly spectrum bars fall after peaks:
+
+| Mode | Retention | Feel |
+|------|-----------|------|
+| Instant | 0% | No smoothing, immediate response |
+| Snappy | 25% | Fast and punchy (default) |
+| Balanced | 40% | Good middle ground |
+| Smooth | 55% | Original Winamp feel |
+
+### Window Specifications
+
+- **Size**: 275x116 (same as main window for docking)
+- **Bar count**: 55 bars (vs 19 in main window)
+- **Refresh**: 60Hz via CVDisplayLink
+- **Skin colors**: Uses skin's `viscolor.txt` (24 colors)
+
+### Context Menu
+
+Right-click on the spectrum window for:
+- **Quality** submenu - Switch between Winamp/Enhanced modes
+- **Responsiveness** submenu - Adjust decay behavior
+- **Close** - Close the window
+
+Settings are persisted across app restarts.
 
 ## Related Documentation
 

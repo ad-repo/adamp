@@ -48,6 +48,9 @@ class MilkdropWindowController: NSWindowController {
         window.minSize = SkinElements.Milkdrop.minSize
         window.title = "Milkdrop"
         
+        // Prevent window from being released when closed - we reuse the same controller
+        window.isReleasedWhenClosed = false
+        
         // Initial center position - will be repositioned in showWindow()
         window.center()
         
@@ -64,8 +67,14 @@ class MilkdropWindowController: NSWindowController {
         super.showWindow(sender)
         // Position after window is shown to ensure correct frame dimensions
         positionWindow()
-        // Restart rendering (may have been stopped by windowWillClose)
+        // Restart rendering (may have been stopped by windowWillClose or hide)
         milkdropView.startRendering()
+    }
+    
+    /// Stop rendering when window is hidden via orderOut() (not close)
+    /// This saves CPU since orderOut() doesn't trigger windowWillClose
+    func stopRenderingForHide() {
+        milkdropView.stopRendering()
     }
     
     /// Position the window to the LEFT of the main window

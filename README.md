@@ -5,7 +5,16 @@
 **If you enjoy AdAmp, please ⭐ star ⭐ the project on GitHub!**
 
 
- <img width="1455" height="451" alt="Screenshot 2026-01-31 at 10 06 49 PM" src="https://github.com/user-attachments/assets/ff8a5762-b84e-4681-88c1-0283943f2cbf" />
+
+
+https://github.com/user-attachments/assets/1d05032c-d49b-482a-99e9-b3cfa56b2a0b
+
+
+https://github.com/user-attachments/assets/6c052a05-9d35-4302-ad01-c25b69922ae1
+
+
+
+<img width="1455" height="451" alt="Screenshot 2026-01-31 at 10 06 49 PM" src="https://github.com/user-attachments/assets/ff8a5762-b84e-4681-88c1-0283943f2cbf" />
 <img width="1481" height="711" alt="Screenshot 2026-01-31 at 10 10 35 PM" src="https://github.com/user-attachments/assets/7758838c-7dc1-477f-b32f-3fd598c9debf" />
 
 
@@ -45,9 +54,9 @@ Download the latest DMG from [Releases](https://github.com/ad-repo/adamp/release
 Follow [r/AdAmp](https://www.reddit.com/r/AdAmp/) for release notifications. Report bugs on [GitHub Issues](https://github.com/ad-repo/adamp/issues) or the subreddit.
 
 
-### Fixing "App is damaged" Error
+### Fixing "App is damaged" or "macOS cannot verify that this app is free from malware" Error
 
-Since the app is not code-signed, macOS Gatekeeper will block it. To fix this:
+Since the app is in beta testing and not code-signed (it costs $99 a year to sign the app and I am not sure yet I want to pay that yet) macOS Gatekeeper will block it. To fix this:
 
 **Option 1: Terminal (Recommended)**
 ```bash
