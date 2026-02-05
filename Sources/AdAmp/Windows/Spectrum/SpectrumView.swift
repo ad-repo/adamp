@@ -397,7 +397,7 @@ class SpectrumView: NSView {
             item.state = (spectrumAnalyzerView?.qualityMode == mode) ? .on : .off
             qualityMenu.addItem(item)
         }
-        let qualityMenuItem = NSMenuItem(title: "Quality", action: nil, keyEquivalent: "")
+        let qualityMenuItem = NSMenuItem(title: "Mode", action: nil, keyEquivalent: "")
         qualityMenuItem.submenu = qualityMenu
         menu.addItem(qualityMenuItem)
         
