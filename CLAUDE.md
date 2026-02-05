@@ -115,7 +115,7 @@ Sources/AdAmp/
 ├── Windows/          # All window views (MainWindow, Playlist, EQ, etc.)
 ├── Plex/             # Plex server integration
 ├── Subsonic/         # Navidrome/Subsonic server integration
-├── Visualization/    # ProjectM wrapper, Metal spectrum analyzer
+├── Visualization/    # ProjectM wrapper, Metal spectrum analyzer + flame mode
 └── Models/           # Track, Playlist, MediaLibrary
 ```
 
@@ -126,7 +126,7 @@ Sources/AdAmp/
 | Skin | `Skin/SkinElements.swift`, `Skin/SkinRenderer.swift`, `Skin/SkinLoader.swift` |
 | Audio | `Audio/AudioEngine.swift`, `Audio/StreamingAudioPlayer.swift` |
 | Windows | `Windows/MainWindow/`, `Windows/Playlist/`, `Windows/Equalizer/` |
-| Visualization | `Windows/Milkdrop/`, `Windows/Spectrum/`, `Visualization/SpectrumAnalyzerView.swift`, `Visualization/ProjectMWrapper.swift` |
+| Visualization | `Windows/Milkdrop/`, `Windows/Spectrum/`, `Visualization/SpectrumAnalyzerView.swift`, `Visualization/FlameShaders.metal`, `Visualization/ProjectMWrapper.swift` |
 | Marquee | `Skin/MarqueeLayer.swift`, `Windows/Playlist/PlaylistView.swift` |
 | Plex | `Plex/PlexManager.swift`, `Plex/PlexServerClient.swift` |
 | Subsonic | `Subsonic/SubsonicManager.swift`, `Subsonic/SubsonicServerClient.swift`, `Subsonic/SubsonicModels.swift` |

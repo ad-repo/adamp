@@ -236,6 +236,29 @@ The Spectrum Analyzer window participates in the docking system:
 |------|-------------|
 | **Winamp** | Discrete color bands from skin's 24-color palette, classic pixel-art aesthetic (default) |
 | **Enhanced** | Rainbow LED matrix with floating peaks, per-cell fade trails, and rounded corners |
+| **Flame** | GPU fire simulation with audio-reactive flame tongues (see below) |
+
+### Flame Quality Mode
+
+Flame mode replaces spectrum bars with a GPU-driven fire simulation. Narrow flame tongues rise from the bottom, dance independently, thin to points, and react to music in real-time.
+
+**Flame Style Presets** (right-click > Flame Style, or left/right arrow keys):
+
+| Style | Description |
+|-------|-------------|
+| **Inferno** | Classic orange/red fire |
+| **Aurora** | Green/cyan/purple northern lights |
+| **Electric** | Blue/white/purple plasma |
+| **Ocean** | Deep blue/teal/white |
+
+**Audio Reactivity:**
+- Bass (bands 0-15): Controls heat injection intensity. Strong bass = taller tongues
+- Mids (bands 16-49): Increases flame sway and lateral motion
+- Treble (bands 50-74): Adds ember sparks in the flame zone
+
+**Technical:** 128x96 simulation grid with per-column propagation and edge erosion. Rendered with an 11x11 Gaussian blur at 2-texel steps for silky smooth output. Single compute pass + render pass per frame at 60 FPS.
+
+**Key files:** `Visualization/FlameShaders.metal` (compute + render shaders), `Visualization/SpectrumAnalyzerView.swift` (pipeline integration)
 
 ### Responsiveness Modes
 
@@ -251,8 +274,9 @@ Controls how quickly spectrum bars fall after peaks:
 ### Context Menu
 
 Right-click on the window for:
-- **Quality** - Switch between Winamp/Enhanced rendering
-- **Responsiveness** - Adjust decay behavior
+- **Quality** - Switch between Winamp/Enhanced/Flame rendering
+- **Responsiveness** - Adjust decay behavior (bar modes)
+- **Flame Style** - Choose flame preset (Flame mode only)
 - **Close** - Close the window
 
 ### Technical Details
@@ -275,12 +299,12 @@ Right-click on the window for:
 
 | Feature | Album Art Visualizer | ProjectM/Milkdrop | Spectrum Analyzer |
 |---------|---------------------|-------------------|-------------------|
-| **Visual Style** | Transformed album artwork | Procedural graphics | Classic frequency bars |
-| **Effect Count** | 30 built-in effects | 100s of presets available | 2 quality modes |
-| **Customization** | Intensity adjustment | Full preset ecosystem | Quality + decay modes |
-| **GPU Tech** | Core Image (Metal) | OpenGL shaders | Metal shaders |
+| **Visual Style** | Transformed album artwork | Procedural graphics | Frequency bars / Flame simulation |
+| **Effect Count** | 30 built-in effects | 100s of presets available | 4 quality modes (Winamp, Enhanced, Ultra, Flame) |
+| **Customization** | Intensity adjustment | Full preset ecosystem | Quality + decay modes + flame styles |
+| **GPU Tech** | Core Image (Metal) | OpenGL shaders | Metal shaders + Metal compute shaders |
 | **Audio Response** | Spectrum bands (bass/mid/treble) | PCM waveform + beat detection | 75-band spectrum |
-| **Best For** | Album art appreciation | Immersive light shows | Detailed frequency analysis |
+| **Best For** | Album art appreciation | Immersive light shows | Frequency analysis / Ambient fire visuals |
 
 ### When to Use Each
 

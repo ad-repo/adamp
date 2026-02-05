@@ -19,8 +19,59 @@ enum SpectrumQualityMode: String, CaseIterable {
     case winamp = "Winamp"       // Discrete colors, pixel-art aesthetic
     case enhanced = "Enhanced"   // LED matrix with rainbow
     case ultra = "Ultra"         // Maximum visual quality with effects
+    case flame = "Flame"         // GPU fire simulation driven by audio
     
     var displayName: String { rawValue }
+}
+
+/// Visual style presets for Flame mode
+enum FlameStyle: String, CaseIterable {
+    case inferno = "Inferno"
+    case aurora = "Aurora"
+    case electric = "Electric"
+    case ocean = "Ocean"
+    var displayName: String { rawValue }
+    var colorScheme: Int32 {
+        switch self { case .inferno: return 0; case .aurora: return 1; case .electric: return 2; case .ocean: return 3 }
+    }
+    var buoyancy: Float {
+        switch self { case .inferno: return 6.0; case .aurora: return 3.5; case .electric: return 8.0; case .ocean: return 4.0 }
+    }
+    var cooling: Float {
+        switch self { case .inferno: return 0.4; case .aurora: return 0.25; case .electric: return 0.55; case .ocean: return 0.2 }
+    }
+    var turbulence: Float {
+        switch self { case .inferno: return 2.0; case .aurora: return 1.2; case .electric: return 3.0; case .ocean: return 0.8 }
+    }
+    var diffusion: Float {
+        switch self { case .inferno: return 0.04; case .aurora: return 0.08; case .electric: return 0.02; case .ocean: return 0.1 }
+    }
+    var windStrength: Float {
+        switch self { case .inferno: return 1.2; case .aurora: return 2.5; case .electric: return 1.8; case .ocean: return 1.0 }
+    }
+    var emberRate: Float {
+        switch self { case .inferno: return 0.002; case .aurora: return 0.001; case .electric: return 0.004; case .ocean: return 0.001 }
+    }
+}
+
+/// Parameters for Flame Metal shaders (must match Metal FlameParams struct)
+struct FlameParams {
+    var gridSize: SIMD2<Float>
+    var viewportSize: SIMD2<Float>
+    var time: Float
+    var dt: Float
+    var bassEnergy: Float
+    var midEnergy: Float
+    var trebleEnergy: Float
+    var buoyancy: Float
+    var cooling: Float
+    var turbulence: Float
+    var diffusion: Float
+    var windStrength: Float
+    var colorScheme: Int32
+    var intensity: Float
+    var emberRate: Float
+    var padding: Float = 0
 }
 
 /// Decay mode controlling how quickly bars fall
@@ -158,6 +209,15 @@ class SpectrumAnalyzerView: NSView {
     /// Glow intensity for enhanced mode (0-1)
     var glowIntensity: Float = 0.5
     
+    /// Current flame style preset (only used when qualityMode == .flame)
+    var flameStyle: FlameStyle = .inferno {
+        didSet {
+            UserDefaults.standard.set(flameStyle.rawValue, forKey: "flameStyle")
+            let style = flameStyle
+            dataLock.withLock { renderFlameStyle = style }
+        }
+    }
+    
     // MARK: - Metal Resources
     
     private var metalLayer: CAMetalLayer!
@@ -183,6 +243,17 @@ class SpectrumAnalyzerView: NSView {
     // Ultra mode buffers
     private var ultraCellBrightnessBuffer: MTLBuffer?
     private var ultraParamsBuffer: MTLBuffer?
+    
+    // Flame mode resources
+    private var flamePropPipeline: MTLComputePipelineState?
+    private var flameRenderPipeline: MTLRenderPipelineState?
+    private var flameSimTextureA: MTLTexture?
+    private var flameSimTextureB: MTLTexture?
+    private var flameSpectrumBuffer: MTLBuffer?
+    private var flameParamsBuffer: MTLBuffer?
+    private let flameGridWidth: Int = 128
+    private let flameGridHeight: Int = 96
+    nonisolated(unsafe) private var flameCurrentTex: Int = 0
     
     // MARK: - Display Sync
     
@@ -222,6 +293,12 @@ class SpectrumAnalyzerView: NSView {
     nonisolated(unsafe) private var peakVelocities: [Float] = []  // Peak velocity for physics simulation
     nonisolated(unsafe) private var animationTime: Float = 0  // For subtle animations
     
+    // Flame mode state
+    nonisolated(unsafe) private var renderFlameStyle: FlameStyle = .inferno
+    nonisolated(unsafe) private var flameSmoothBass: Float = 0
+    nonisolated(unsafe) private var flameSmoothMid: Float = 0
+    nonisolated(unsafe) private var flameSmoothTreble: Float = 0
+    
     // MARK: - Color Palette
     
     /// Current skin's visualization colors (24 colors, updated on skin change)
@@ -252,6 +329,12 @@ class SpectrumAnalyzerView: NSView {
            let mode = SpectrumDecayMode(rawValue: savedDecay) {
             decayMode = mode
         }
+        
+        if let saved = UserDefaults.standard.string(forKey: "flameStyle"),
+           let style = FlameStyle(rawValue: saved) {
+            flameStyle = style
+        }
+        renderFlameStyle = flameStyle
         
         // Initialize display spectrum and sync to render-safe variables
         // Use max size to avoid any resizing during mode switches
@@ -423,6 +506,7 @@ class SpectrumAnalyzerView: NSView {
         
         // Load shaders and create pipeline
         setupPipeline()
+        setupFlamePipelines()
         
         // Create buffers
         setupBuffers()
@@ -491,8 +575,10 @@ class SpectrumAnalyzerView: NSView {
                 pipelineState = ledPipelineState
             case .ultra:
                 pipelineState = ultraPipelineState
+            case .flame:
+                pipelineState = flameRenderPipeline
             }
-            
+
             NSLog("SpectrumAnalyzerView: Metal pipelines created successfully")
         } catch {
             NSLog("SpectrumAnalyzerView: Failed to compile shaders: \(error)")
@@ -550,8 +636,61 @@ class SpectrumAnalyzerView: NSView {
             length: MemoryLayout<UltraParams>.stride,
             options: .storageModeShared
         )
+        
+        // Flame mode buffers
+        flameSpectrumBuffer = device.makeBuffer(length: 75 * MemoryLayout<Float>.stride, options: .storageModeShared)
+        flameParamsBuffer = device.makeBuffer(length: MemoryLayout<FlameParams>.stride, options: .storageModeShared)
     }
     
+    /// Set up flame compute and render pipelines
+    private func setupFlamePipelines() {
+        guard let device = device else { return }
+        guard let url = BundleHelper.url(forResource: "FlameShaders", withExtension: "metal"),
+              let src = try? String(contentsOf: url, encoding: .utf8) else {
+            NSLog("SpectrumAnalyzerView: FlameShaders.metal not found")
+            return
+        }
+        do {
+            let lib = try device.makeLibrary(source: src, options: nil)
+            if let fn = lib.makeFunction(name: "propagate_fire") {
+                flamePropPipeline = try device.makeComputePipelineState(function: fn)
+            }
+            if let vf = lib.makeFunction(name: "flame_vertex"),
+               let ff = lib.makeFunction(name: "flame_fragment") {
+                let d = MTLRenderPipelineDescriptor()
+                d.vertexFunction = vf; d.fragmentFunction = ff
+                d.colorAttachments[0].pixelFormat = .bgra8Unorm
+                d.colorAttachments[0].isBlendingEnabled = true
+                d.colorAttachments[0].rgbBlendOperation = .add
+                d.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+                d.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+                d.colorAttachments[0].sourceAlphaBlendFactor = .one
+                d.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+                flameRenderPipeline = try device.makeRenderPipelineState(descriptor: d)
+            }
+            NSLog("SpectrumAnalyzerView: Flame pipelines created")
+        } catch {
+            NSLog("SpectrumAnalyzerView: Flame shader error: \(error)")
+        }
+        // Create simulation textures
+        let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: flameGridWidth, height: flameGridHeight, mipmapped: false)
+        td.usage = [.shaderRead, .shaderWrite]; td.storageMode = .private
+        flameSimTextureA = device.makeTexture(descriptor: td)
+        flameSimTextureB = device.makeTexture(descriptor: td)
+        // Clear textures
+        if let cb = commandQueue?.makeCommandBuffer(), let be = cb.makeBlitCommandEncoder() {
+            let size = MTLSize(width: flameGridWidth, height: flameGridHeight, depth: 1)
+            let bpr = flameGridWidth * 4 * MemoryLayout<Float>.stride
+            let zeros = [UInt8](repeating: 0, count: bpr * flameGridHeight)
+            if let buf = device.makeBuffer(bytes: zeros, length: zeros.count, options: .storageModeShared) {
+                let origin = MTLOrigin(x: 0, y: 0, z: 0)
+                be.copy(from: buf, sourceOffset: 0, sourceBytesPerRow: bpr, sourceBytesPerImage: zeros.count, sourceSize: size, to: flameSimTextureA!, destinationSlice: 0, destinationLevel: 0, destinationOrigin: origin)
+                be.copy(from: buf, sourceOffset: 0, sourceBytesPerRow: bpr, sourceBytesPerImage: zeros.count, sourceSize: size, to: flameSimTextureB!, destinationSlice: 0, destinationLevel: 0, destinationOrigin: origin)
+            }
+            be.endEncoding(); cb.commit(); cb.waitUntilCompleted()
+        }
+    }
+
     // MARK: - Display Link
     
     private func startRendering() {
@@ -698,6 +837,13 @@ class SpectrumAnalyzerView: NSView {
             inFlightSemaphore.signal()  // Release slot since we won't use it
             return
         }
+        
+        // Flame mode uses a completely different pipeline (compute + render)
+        if currentMode == .flame {
+            renderFlame(drawable: drawable)
+            return
+        }
+        
         let activePipeline: MTLRenderPipelineState?
         switch currentMode {
         case .winamp:
@@ -706,8 +852,10 @@ class SpectrumAnalyzerView: NSView {
             activePipeline = ledPipelineState
         case .ultra:
             activePipeline = ultraPipelineState
+        case .flame:
+            activePipeline = nil  // Handled by renderFlame() above
         }
-        
+
         guard let pipeline = activePipeline,
               let commandBuffer = commandQueue?.makeCommandBuffer() else {
             inFlightSemaphore.signal()  // Release slot since we won't render
@@ -791,6 +939,9 @@ class SpectrumAnalyzerView: NSView {
             // 6 vertices per bar
             let vertexCount = localBarCount * 6
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+            
+        case .flame:
+            break  // Handled by renderFlame() above
         }
         
         encoder.endEncoding()
@@ -802,6 +953,68 @@ class SpectrumAnalyzerView: NSView {
         
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+    
+    /// Render flame mode: single compute pass + render pass with ping-pong textures
+    private func renderFlame(drawable: CAMetalDrawable) {
+        guard let cb = commandQueue?.makeCommandBuffer(),
+              let simA = flameSimTextureA, let simB = flameSimTextureB else {
+            inFlightSemaphore.signal(); return
+        }
+        var localSpectrum: [Float] = []; var localStyle: FlameStyle = .inferno; var localTime: Float = 0
+        dataLock.withLock {
+            animationTime += 1.0 / 60.0; localTime = animationTime
+            localStyle = renderFlameStyle; localSpectrum = rawSpectrum
+            var bass: Float = 0; var mid: Float = 0; var treble: Float = 0
+            if !rawSpectrum.isEmpty {
+                for i in 0..<min(16, rawSpectrum.count) { bass += rawSpectrum[i] }; bass /= 16.0
+                for i in 16..<min(50, rawSpectrum.count) { mid += rawSpectrum[i] }; mid /= 34.0
+                for i in 50..<min(75, rawSpectrum.count) { treble += rawSpectrum[i] }; treble /= 25.0
+            }
+            flameSmoothBass += (bass - flameSmoothBass) * (bass > flameSmoothBass ? 0.3 : 0.05)
+            flameSmoothMid += (mid - flameSmoothMid) * (mid > flameSmoothMid ? 0.3 : 0.05)
+            flameSmoothTreble += (treble - flameSmoothTreble) * (treble > flameSmoothTreble ? 0.3 : 0.05)
+        }
+        if let buf = flameSpectrumBuffer {
+            let p = buf.contents().bindMemory(to: Float.self, capacity: 75)
+            for i in 0..<75 { p[i] = i < localSpectrum.count ? localSpectrum[i] : 0 }
+        }
+        let scale = metalLayer?.contentsScale ?? 2.0
+        if let buf = flameParamsBuffer {
+            let p = buf.contents().bindMemory(to: FlameParams.self, capacity: 1)
+            p.pointee = FlameParams(
+                gridSize: SIMD2<Float>(Float(flameGridWidth), Float(flameGridHeight)),
+                viewportSize: SIMD2<Float>(Float(bounds.width * scale), Float(bounds.height * scale)),
+                time: localTime, dt: 1.0 / 60.0,
+                bassEnergy: flameSmoothBass, midEnergy: flameSmoothMid, trebleEnergy: flameSmoothTreble,
+                buoyancy: localStyle.buoyancy, cooling: localStyle.cooling, turbulence: localStyle.turbulence,
+                diffusion: localStyle.diffusion, windStrength: localStyle.windStrength,
+                colorScheme: localStyle.colorScheme, intensity: 1.0, emberRate: localStyle.emberRate)
+        }
+        let readTex = flameCurrentTex == 0 ? simA : simB
+        let writeTex = flameCurrentTex == 0 ? simB : simA
+        flameCurrentTex = 1 - flameCurrentTex
+        let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+        let tgs = MTLSize(width: (flameGridWidth + 15) / 16, height: (flameGridHeight + 15) / 16, depth: 1)
+        if let enc = cb.makeComputeCommandEncoder(), let pl = flamePropPipeline {
+            enc.setComputePipelineState(pl)
+            enc.setTexture(readTex, index: 0); enc.setTexture(writeTex, index: 1)
+            enc.setBuffer(flameParamsBuffer, offset: 0, index: 0)
+            enc.setBuffer(flameSpectrumBuffer, offset: 0, index: 1)
+            enc.dispatchThreadgroups(tgs, threadsPerThreadgroup: tgSize); enc.endEncoding()
+        }
+        let rpd = MTLRenderPassDescriptor()
+        rpd.colorAttachments[0].texture = drawable.texture
+        rpd.colorAttachments[0].loadAction = .clear; rpd.colorAttachments[0].storeAction = .store
+        rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd), let pl = flameRenderPipeline {
+            enc.setRenderPipelineState(pl)
+            enc.setFragmentTexture(writeTex, index: 0)
+            enc.setFragmentBuffer(flameParamsBuffer, offset: 0, index: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6); enc.endEncoding()
+        }
+        cb.addCompletedHandler { [weak self] _ in self?.inFlightSemaphore.signal() }
+        cb.present(drawable); cb.commit()
     }
     
     /// Update display spectrum with decay and return whether there's visible data
@@ -927,8 +1140,10 @@ class SpectrumAnalyzerView: NSView {
             updateUltraMatrixState()
         case .winamp:
             break  // Winamp mode doesn't use LED matrix
+        case .flame:
+            break  // Flame handles its own state in renderFlame()
         }
-        
+
         hasVisibleData = hasData
         return hasData
     }
@@ -1204,6 +1419,9 @@ class SpectrumAnalyzerView: NSView {
                     ptr[i] = color
                 }
             }
+            
+        case .flame:
+            break  // Flame updates its own buffers in renderFlame()
         }
     }
     
