@@ -926,6 +926,9 @@ class SpectrumAnalyzerView: NSView {
             if let buffer = heightBuffer {
                 encoder.setVertexBuffer(buffer, offset: 0, index: 0)
             }
+            if let buffer = peakPositionsBuffer {
+                encoder.setVertexBuffer(buffer, offset: 0, index: 1)
+            }
             if let buffer = paramsBuffer {
                 encoder.setVertexBuffer(buffer, offset: 0, index: 2)
             }
@@ -1132,14 +1135,14 @@ class SpectrumAnalyzerView: NSView {
                 }
             }
             
-        // Update LED matrix state based on mode
+        // Update LED matrix / peak state based on mode
         switch renderQualityMode {
         case .enhanced:
             updateLEDMatrixState()
         case .ultra:
             updateUltraMatrixState()
         case .winamp:
-            break  // Winamp mode doesn't use LED matrix
+            updateWinampPeakState()
         case .flame:
             break  // Flame handles its own state in renderFlame()
         }
@@ -1185,6 +1188,44 @@ class SpectrumAnalyzerView: NSView {
                     // Cell should be dark - fade out
                     cellBrightness[col][row] = max(0, currentBrightness - cellFadeRate)
                 }
+            }
+        }
+    }
+    
+    /// Updates peak hold positions for Winamp mode with gravity-based physics
+    /// Peaks jump to new bar heights, then float and fall with satisfying gravity
+    private func updateWinampPeakState() {
+        let colCount = renderBarCount
+        
+        // Physics constants for satisfying peak animation
+        let gravity: Float = 0.004           // Acceleration downward per frame
+        let bounceCoeff: Float = 0.3         // Energy retained on bounce
+        let minBounceVelocity: Float = 0.008 // Minimum velocity to trigger bounce
+        
+        for col in 0..<min(colCount, displaySpectrum.count) {
+            let currentLevel = displaySpectrum[col]
+            
+            if currentLevel > peakHoldPositions[col] {
+                // New peak - jump to current level and reset velocity
+                peakHoldPositions[col] = currentLevel
+                peakVelocities[col] = 0
+            } else {
+                // Apply gravity (acceleration downward)
+                peakVelocities[col] -= gravity
+                peakHoldPositions[col] += peakVelocities[col]
+                
+                // Bounce off bar level
+                if peakHoldPositions[col] < currentLevel {
+                    peakHoldPositions[col] = currentLevel
+                    if abs(peakVelocities[col]) > minBounceVelocity {
+                        peakVelocities[col] = -peakVelocities[col] * bounceCoeff
+                    } else {
+                        peakVelocities[col] = 0
+                    }
+                }
+                
+                // Clamp to valid range
+                peakHoldPositions[col] = max(0, min(1.0, peakHoldPositions[col]))
             }
         }
     }
@@ -1409,6 +1450,14 @@ class SpectrumAnalyzerView: NSView {
                 let ptr = buffer.contents().bindMemory(to: Float.self, capacity: localBarCount)
                 for i in 0..<min(localBarCount, localSpectrum.count) {
                     ptr[i] = localSpectrum[i]
+                }
+            }
+            
+            // Update peak positions buffer for floating peak indicators
+            if let buffer = peakPositionsBuffer {
+                let ptr = buffer.contents().bindMemory(to: Float.self, capacity: localBarCount)
+                for col in 0..<localBarCount {
+                    ptr[col] = col < localPeakPositions.count ? localPeakPositions[col] : 0
                 }
             }
             

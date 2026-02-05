@@ -424,8 +424,8 @@ The Spectrum Analyzer participates in the docking system alongside Main, EQ, and
 
 | Mode | Description |
 |------|-------------|
-| **Winamp** | Discrete color palette from skin's `viscolor.txt`, authentic pixel-art look |
-| **Enhanced** | Smooth gradient interpolation with subtle glow effect on bar tops |
+| **Winamp** | Discrete color bands from skin's `viscolor.txt` with floating peak indicators, 3D bar shading, and segmented LED gaps |
+| **Enhanced** | Rainbow LED matrix with floating peaks, per-cell fade trails, and rounded corners |
 
 ### Decay/Responsiveness Modes
 

@@ -234,9 +234,18 @@ The Spectrum Analyzer window participates in the docking system:
 
 | Mode | Description |
 |------|-------------|
-| **Winamp** | Discrete color bands from skin's 24-color palette, classic pixel-art aesthetic (default) |
+| **Winamp** | Discrete color bands from skin's 24-color palette with floating peak indicators, 3D bar shading, and band gaps for an authentic segmented LED look (default) |
 | **Enhanced** | Rainbow LED matrix with floating peaks, per-cell fade trails, and rounded corners |
 | **Flame** | GPU fire simulation with audio-reactive flame tongues (see below) |
+
+### Winamp Mode Details
+
+The Winamp mode aims to recreate the iconic Winamp 2.x spectrum analyzer aesthetic with modern enhancements:
+
+- **Discrete Color Bands**: Bars are divided into 16 horizontal segments with dark gaps between them, creating the classic LED matrix look
+- **Floating Peak Indicators**: Bright lines hold at peak heights, then fall with gravity-based physics including subtle bouncing for satisfying visual feedback
+- **3D Cylindrical Shading**: Each bar has a specular highlight down the center for depth
+- **Skin Palette Colors**: All colors come from the loaded skin's `viscolor.txt` (24-color palette)
 
 ### Flame Quality Mode
 
