@@ -19,6 +19,8 @@ struct CosmicParams {
     float totalEnergy;
     float beatIntensity;
     float flareIntensity;   // Big JWST flare (rare, on major peaks)
+    float flareScroll;      // Scroll position frozen when giant fired
+    float padding;
 };
 
 // MARK: - Noise
@@ -93,40 +95,71 @@ float jwst_diffraction(float2 delta, float brightness) {
     return spikes * brightness;
 }
 
-/// Parametric JWST flare with rotation
-/// size: 0.5 = small sparkle, 1.0 = medium, 2.0+ = screen-filler
-/// angle: rotation in radians — gives each flare a unique orientation
-float jwst_flare(float2 delta, float intensity, float size, float angle) {
-    // Rotate delta so each flare has its own spike orientation
+/// Vivid, saturated star colors from JWST images — cranked up
+float3 jwst_star_color(float seed) {
+    seed = fract(seed);
+    if (seed < 0.16) return float3(0.2, 0.5, 1.0);      // Electric blue
+    if (seed < 0.28) return float3(1.0, 0.15, 0.1);     // Vivid red
+    if (seed < 0.38) return float3(1.0, 0.85, 0.0);     // Pure gold
+    if (seed < 0.48) return float3(0.1, 0.7, 1.0);      // Cyan blue
+    if (seed < 0.56) return float3(1.0, 0.1, 0.5);      // Neon pink
+    if (seed < 0.64) return float3(0.15, 0.3, 1.0);     // Royal blue
+    if (seed < 0.72) return float3(1.0, 0.6, 0.0);      // Blazing orange
+    if (seed < 0.80) return float3(0.9, 0.05, 0.2);     // Hot crimson
+    if (seed < 0.88) return float3(0.4, 0.9, 1.0);      // Sky blue
+    return float3(1.0, 0.98, 0.9);                        // Bright white
+}
+
+/// Parametric JWST flare with rotation and chromatic color fringing
+/// Returns float3 color directly — spikes carry chromatic aberration
+/// (blue fringe on outer edges, warm core)
+float3 jwst_flare(float2 delta, float intensity, float size, float angle, float3 baseCol) {
     float ca = cos(angle), sa = sin(angle);
     float2 rd = float2(delta.x * ca - delta.y * sa, delta.x * sa + delta.y * ca);
     
     float dist = length(rd);
     
-    // Core glow
+    // Core glow (white-hot center)
     float coreSharp = 30.0 / (size * size);
     float core = exp(-dist * dist * coreSharp) * 1.2;
-    float halo = exp(-dist * (4.0 / size)) * 0.25;
+    float halo = exp(-dist * (5.0 / size)) * 0.12;
     
-    // Spike thinness and length scale with size
+    // Spike thinness and length
     float thinness = 120.0 + size * 40.0;
     float falloff = 1.5 / size;
     
     float spikes = 0.0;
-    
-    // Vertical spike (strongest)
     spikes += exp(-abs(rd.x) * thinness) * exp(-abs(rd.y) * falloff * 0.6) * 0.65;
-    
-    // 60° diagonals
     float2 d2 = float2(rd.x * 0.5 - rd.y * 0.866, rd.x * 0.866 + rd.y * 0.5);
     float2 d3 = float2(rd.x * 0.5 + rd.y * 0.866, -rd.x * 0.866 + rd.y * 0.5);
     spikes += exp(-abs(d2.x) * thinness) * exp(-abs(d2.y) * falloff) * 0.4;
     spikes += exp(-abs(d3.x) * thinness) * exp(-abs(d3.y) * falloff) * 0.4;
-    
-    // Horizontal strut spike
     spikes += exp(-abs(rd.y) * thinness) * exp(-abs(rd.x) * falloff * 2.0) * 0.18;
     
-    return (core + halo + spikes) * intensity;
+    // === CHROMATIC FRINGING (like real JWST optics) ===
+    // Core keeps color, halo tighter and less washy
+    float3 coreColor = mix(baseCol, float3(1.0), 0.45);
+    float3 haloColor = baseCol * 1.3;
+    
+    // Chromatic spike spread: slightly different falloff per channel
+    // Blue channel extends slightly further, red is slightly tighter
+    float spikesR = 0.0, spikesB = 0.0;
+    float thinR = thinness * 1.08;  // Red is tighter
+    float thinB = thinness * 0.92;  // Blue extends further
+    spikesR += exp(-abs(rd.x) * thinR) * exp(-abs(rd.y) * falloff * 0.6) * 0.65;
+    spikesB += exp(-abs(rd.x) * thinB) * exp(-abs(rd.y) * falloff * 0.6) * 0.65;
+    spikesR += exp(-abs(d2.x) * thinR) * exp(-abs(d2.y) * falloff) * 0.4;
+    spikesB += exp(-abs(d2.x) * thinB) * exp(-abs(d2.y) * falloff) * 0.4;
+    spikesR += exp(-abs(d3.x) * thinR) * exp(-abs(d3.y) * falloff) * 0.4;
+    spikesB += exp(-abs(d3.x) * thinB) * exp(-abs(d3.y) * falloff) * 0.4;
+    
+    // Compose: colored core + vivid halo + chromatically-fringed spikes
+    float3 spikeColor = float3(baseCol.r * spikesR, baseCol.g * spikes, baseCol.b * spikesB) * 1.4;
+    float3 result = coreColor * core
+                  + haloColor * halo
+                  + spikeColor;
+    
+    return result * intensity;
 }
 
 // MARK: - Shaders
@@ -141,7 +174,8 @@ vertex float4 cosmic_vertex(uint vertexID [[vertex_id]]) {
 
 fragment float4 cosmic_fragment(
     float4 position [[position]],
-    constant CosmicParams& params [[buffer(0)]]
+    constant CosmicParams& params [[buffer(0)]],
+    constant float* spectrum [[buffer(1)]]
 ) {
     float2 uv = position.xy / params.viewportSize;
     uv.y = 1.0 - uv.y;
@@ -238,7 +272,11 @@ fragment float4 cosmic_fragment(
         }
     }
 
-    color += starField;
+    // Giant flare suppression factor (computed early, used throughout)
+    // Dims everything else so the giant truly owns the screen
+    float giantActive = smoothstep(0.0, 0.08, params.flareIntensity);
+    
+    color += starField * (1.0 - giantActive * 0.7);  // Dim stars during giant
 
     // ================================================================
     // CELESTIAL BODIES: rare, colorful, with JWST flares on peaks
@@ -292,8 +330,9 @@ fragment float4 cosmic_fragment(
 
             float twinkle = 0.75 + 0.25 * sin(t * 1.2 + h * 100.0);
 
-            color += (glow + coreGlow) * objCol * twinkle;
-            color += spikes * objCol * twinkle;
+            float celestialSuppress = 1.0 - giantActive;
+            color += (glow + coreGlow) * objCol * twinkle * celestialSuppress;
+            color += spikes * objCol * twinkle * celestialSuppress;
         }
     }
 
@@ -306,56 +345,79 @@ fragment float4 cosmic_fragment(
 
     float2 flareUV = (uv - 0.5) * float2(aspect, 1.0);
 
-    // --- Intensity flares (4 channels, each with unique character) ---
-    for (int fi = 0; fi < 4; fi++) {
-        // Higher thresholds = fewer flares, only during louder passages
-        float threshold = 0.10 + float(fi) * 0.07;
-        float flareEnergy = max(0.0, energy - threshold);
-        if (flareEnergy < 0.005) continue;
-
-        // Position cycles at different rates — not aligned to any frequency
-        float cycleRate = 0.35 + float(fi) * 0.25;
+    // --- Intensity flares aligned to frequency peaks ---
+    // Find the top 2 spectrum peaks only — fewer flares = each one pops harder.
+    // X = frequency position, Y = random. Colors cranked to max vivid.
+    
+    // When the giant flare is active, suppress small flares entirely
+    // The giant owns the screen until it fully dissipates
+    float flareSuppress = smoothstep(0.0, 0.08, params.flareIntensity);
+    
+    int peakBands[2] = {-1, -1};
+    float peakVals[2] = {0, 0};
+    
+    // Dynamic threshold: quiet = very high (sparse), loud = lower (more frequent)
+    float peakThreshold = max(0.12, 0.40 - energy * 0.9);
+    
+    for (int b = 1; b < 74; b++) {
+        float val = spectrum[b];
+        if (val < peakThreshold) continue;
+        if (val >= spectrum[b - 1] && val >= spectrum[b + 1]) {
+            for (int s = 0; s < 2; s++) {
+                if (val > peakVals[s]) {
+                    for (int k = 1; k > s; k--) {
+                        peakBands[k] = peakBands[k - 1];
+                        peakVals[k] = peakVals[k - 1];
+                    }
+                    peakBands[s] = b;
+                    peakVals[s] = val;
+                    break;
+                }
+            }
+        }
+    }
+    
+    for (int fi = 0; fi < 2; fi++) {
+        if (peakBands[fi] < 0) continue;
+        
+        float peakVal = peakVals[fi];
+        float bandNorm = float(peakBands[fi]) / 74.0;
+        
+        float cycleRate = 0.3 + float(fi) * 0.25;
         float phase = floor(scroll * cycleRate + float(fi) * 0.37);
         float seed = cosmic_hash(float2(phase * 0.7, float(fi) * 11.3));
-        float2 fpos = float2(
-            cosmic_hash(float2(phase, float(fi) * 7.3)) * 1.4 - 0.7,
-            cosmic_hash(float2(phase + 100.0, float(fi) * 13.1)) * 1.0 - 0.5
-        );
-
-        // Fade through cycle
+        
+        float fx = (bandNorm - 0.5) * aspect;
+        float fy = cosmic_hash(float2(phase + 100.0, float(fi) * 13.1)) * 0.8 - 0.4;
+        float2 fpos = float2(fx, fy);
+        
         float cyclePos = fract(scroll * cycleRate + float(fi) * 0.37);
-        float fade = exp(-cyclePos * 5.0);
-
-        // Each flare has unique size, intensity, rotation, and color
-        float fIntensity = flareEnergy * (0.8 + seed * 1.2) * fade;
-        float fSize = 0.3 + seed * 1.5 + float(fi) * 0.3 + flareEnergy * 1.5;
-        float fAngle = seed * 3.14159;  // Random rotation per flare
-
-        // Rich varied color from full JWST palette (not pushed to white)
-        float3 fCol = jwst_palette(seed * 0.8 + float(fi) * 0.2);
-        // Only slightly lighten — keep the color character
-        fCol = mix(fCol, float3(1.0, 0.95, 0.88), 0.2);
-        // Boost brightness so colors read clearly
-        fCol *= 1.3;
-
+        float fade = exp(-cyclePos * 4.0);
+        
+        // Each flare is an event — but controlled glow
+        float fIntensity = peakVal * (0.6 + seed * 0.5) * fade;
+        float fSize = 0.4 + seed * 1.2 + peakVal * 1.5;
+        float fAngle = seed * 3.14159;
+        
+        // Vivid colors at full blast
+        float3 fCol = jwst_star_color(seed + float(fi) * 0.23);
+        fCol *= 1.6;  // Extra brightness punch
+        
         float2 fDelta = flareUV - fpos;
-        float f = jwst_flare(fDelta, fIntensity, fSize, fAngle);
-        color += fCol * f;
+        color += jwst_flare(fDelta, fIntensity, fSize, fAngle, fCol) * (1.0 - flareSuppress);
     }
 
-    // --- Rare giant flare on major peaks ---
+    // --- Rare giant flare on major peaks (position frozen at trigger) ---
     if (params.flareIntensity > 0.01) {
+        float fs = params.flareScroll;  // Scroll snapshot from trigger moment
         float2 giantPos = float2(
-            sin(scroll * 0.7) * 0.15,
-            cos(scroll * 0.9) * 0.1
+            sin(fs * 0.7) * 0.15,
+            cos(fs * 0.9) * 0.1
         );
-        float giantAngle = sin(scroll * 0.3) * 0.4;  // Slow lazy rotation
+        float giantAngle = sin(fs * 0.3) * 0.4;  // Locked rotation
         float2 gDelta = flareUV - giantPos;
-        float gf = jwst_flare(gDelta, params.flareIntensity * 1.5, 3.5, giantAngle);
-
-        float3 gCol = jwst_palette(fract(scroll * 0.05 + 0.55));
-        gCol = mix(gCol, float3(1.0, 0.92, 0.7), 0.3);
-        color += gCol * gf;
+        float3 gCol = jwst_star_color(fract(fs * 0.05 + 0.55));  // Locked color
+        color += jwst_flare(gDelta, params.flareIntensity * 1.5, 3.5, giantAngle, gCol);
     }
 
     // ================================================================

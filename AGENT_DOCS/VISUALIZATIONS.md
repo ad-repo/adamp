@@ -237,7 +237,7 @@ The Spectrum Analyzer window participates in the docking system:
 | **Winamp** | Discrete color bands from skin's 24-color palette with floating peak indicators, 3D bar shading, and band gaps for an authentic segmented LED look (default) |
 | **Enhanced** | Rainbow LED matrix with gravity-bouncing peaks, warm amber fade trails, 3D inner glow cells, and anti-aliased rounded corners |
 | **Fire** | GPU fire simulation with audio-reactive flame tongues (see below) |
-| **Cosmic** | Procedural JWST-inspired nebula with star fields, gas pillars, and diffraction spikes (see below) |
+| **JWST** | Deep space flythrough with 3D perspective star field, JWST diffraction flares as intensity indicators, and vivid celestial bodies (see below) |
 
 ### Winamp Mode Details
 
@@ -270,28 +270,32 @@ Flame mode replaces spectrum bars with a GPU-driven fire simulation. Narrow flam
 
 **Key files:** `Visualization/FlameShaders.metal` (compute + render shaders), `Visualization/SpectrumAnalyzerView.swift` (pipeline integration)
 
-### Cosmic Mode
+### JWST Mode
 
-Cosmic mode is a fully procedural visualization inspired by the James Webb Space Telescope's image of the Pillars of Creation. Everything is generated in a single GPU fragment shader pass -- no simulation textures or state needed.
+JWST mode is a 3D deep space flythrough inspired by the James Webb Space Telescope's Pillars of Creation image. You drift through space while vivid JWST-style diffraction flares visualize the music. Everything is generated in a single GPU fragment shader pass.
 
 **Visual Elements:**
-- **Nebula gas pillars**: Rising columns of cosmic gas shaped by the audio spectrum, with FBM noise for cloud-like edges and internal structure
-- **Star field**: 3 depth layers of stars with JWST-style 6-point diffraction spikes, treble-reactive twinkling
-- **JWST color palette**: Deep navy, dusty amber, mauve, indigo -- colors sampled from the actual JWST Pillars of Creation image
-- **Rim lighting**: Bright golden edges on pillar boundaries (like starlight illuminating gas clouds)
-- **Embedded stars**: Stars visible through thin nebula gas
-- **Floating cosmic dust**: Tiny particles drifting upward
-- **Beat pressure waves**: Bass hits create visible ripples through the nebula
+- **3D perspective star field**: 5 depth layers of stars emanating outward from a central vanishing point, creating a forward-flight effect. Stars subtly streak radially when music is intense
+- **JWST 6-axis diffraction flares**: Authentic spike pattern (strong vertical, 4 diagonal at ±60°, short horizontal strut) with chromatic color fringing — blue extends further than red along each spike, like real JWST optics
+- **Vivid celestial bodies**: Rare, richly colored objects (galaxies, nebula patches) with saturated JWST palette colors and prominent diffraction spikes
+- **Giant flare events**: On major peaks, a massive screen-filling diffraction flare fires and slowly decays over ~5.5 seconds while suppressing all other flares — the giant owns the screen until it dissipates, position locked at trigger
+- **JWST color palette**: 10-stop gradient cycling through deep navy, indigo, violet, mauve, dusty rose, chocolate, amber, gold, cream, and warm white
+- **Bold star colors**: Electric blue, vivid red, pure gold, neon pink, hot crimson, cyan, royal blue — at full saturation with chromatic fringing
+- **Gossamer nebula wisps**: Very sparse, transparent gas layers with vertical stretch for abstract pillar-like forms
+- **Floating cosmic dust**: Tiny particles drifting through space
 
-**Audio Reactivity:**
-- Bass (bands 0-15): Drives pillar height, nebula density, rim lighting intensity
-- Mids (bands 16-49): Controls gas turbulence and flow speed
-- Treble (bands 50-74): Star brightness and twinkle rate
-- Beat detection: Brightness flash and pressure wave on strong bass hits
+**Audio Reactivity (not a spectrum analyzer — pure atmospheric):**
+- Music intensity drives flight speed (scroll accumulation: gentle drift when quiet, faster when loud)
+- Flare frequency tied to overall dB: dynamic threshold `max(0.12, 0.40 - energy * 0.9)` — quiet = very sparse flares, loud = more frequent
+- Flare horizontal position aligned to frequency peaks (bass on left, treble on right), vertical position random
+- Uses normalized `displaySpectrum` (AudioEngine's per-region normalization) so highs compete fairly with lows
+- Giant flare on strong bass peaks (>0.25 above smoothed average), 6-second cooldown, 5.5-second slow decay
+- Stars twinkle with treble energy, overall saturation lifts with energy
+- Beat detection creates gentle zoom nudges and brightness pulses
 
-**Technical:** Single render pass with procedural FBM noise (4 octaves), 3-layer star field with 3x3 cell neighborhood search, filmic tone mapping. 60 FPS.
+**Technical:** Single render pass with procedural FBM noise, 5-layer perspective star field, parametric JWST flare function with rotation and chromatic aberration, filmic tone mapping. 60 FPS. CosmicParams struct (48 bytes) passes time, scroll offset, energy bands, beat/flare intensity, and frozen flare scroll snapshot.
 
-**Key files:** `Visualization/CosmicShaders.metal` (vertex + fragment shaders), `Visualization/SpectrumAnalyzerView.swift` (pipeline integration)
+**Key files:** `Visualization/CosmicShaders.metal` (vertex + fragment shaders), `Visualization/SpectrumAnalyzerView.swift` (pipeline integration, flare state management)
 
 ### Responsiveness Modes
 
@@ -307,7 +311,7 @@ Controls how quickly spectrum bars fall after peaks:
 ### Context Menu
 
 Right-click on the window for:
-- **Quality** - Switch between Winamp/Enhanced/Flame rendering
+- **Mode** - Switch between Winamp/Enhanced/Fire/JWST rendering
 - **Responsiveness** - Adjust decay behavior (bar modes)
 - **Flame Style** - Choose flame preset (Flame mode only)
 - **Close** - Close the window
@@ -315,7 +319,7 @@ Right-click on the window for:
 ### Technical Details
 
 - **Rendering**: Metal shaders via CAMetalLayer with runtime shader compilation
-- **Shader Modes**: Separate pipeline states for Winamp (bar) and Enhanced (LED matrix) modes
+- **Shader Modes**: Separate pipeline states for Winamp (bar), Enhanced (LED matrix), Ultra (seamless gradient), Fire (compute simulation), and JWST (procedural space) modes
 - **Frame Rate**: 60 FPS via CVDisplayLink (auto-stops when window closes or occluded)
 - **Audio Input**: 75-band spectrum data from AudioEngine
 - **Thread Safety**: OSAllocatedUnfairLock for spectrum data updates
@@ -332,12 +336,12 @@ Right-click on the window for:
 
 | Feature | Album Art Visualizer | ProjectM/Milkdrop | Spectrum Analyzer |
 |---------|---------------------|-------------------|-------------------|
-| **Visual Style** | Transformed album artwork | Procedural graphics | Frequency bars / Flame simulation |
-| **Effect Count** | 30 built-in effects | 100s of presets available | 4 modes (Winamp, Enhanced, Ultra, Flame) |
-| **Customization** | Intensity adjustment | Full preset ecosystem | Quality + decay modes + flame styles |
+| **Visual Style** | Transformed album artwork | Procedural graphics | Frequency bars / Fire / Deep space |
+| **Effect Count** | 30 built-in effects | 100s of presets available | 5 modes (Winamp, Enhanced, Ultra, Fire, JWST) |
+| **Customization** | Intensity adjustment | Full preset ecosystem | Mode + decay + flame styles |
 | **GPU Tech** | Core Image (Metal) | OpenGL shaders | Metal shaders + Metal compute shaders |
-| **Audio Response** | Spectrum bands (bass/mid/treble) | PCM waveform + beat detection | 75-band spectrum |
-| **Best For** | Album art appreciation | Immersive light shows | Frequency analysis / Ambient fire visuals |
+| **Audio Response** | Spectrum bands (bass/mid/treble) | PCM waveform + beat detection | 75-band spectrum / energy-driven |
+| **Best For** | Album art appreciation | Immersive light shows | Frequency analysis / Ambient visuals / Deep space drift |
 
 ### When to Use Each
 
@@ -353,10 +357,12 @@ Right-click on the window for:
 - When you want maximum visual variety
 
 **Spectrum Analyzer**
-- When you want detailed frequency visualization
+- When you want detailed frequency visualization (Winamp/Enhanced/Ultra modes)
 - For monitoring audio levels
 - Classic Winamp spectrum aesthetic
 - Complements the main window's smaller analyzer
+- Fire mode for ambient flame visuals
+- JWST mode for a chill deep space drift with music-reactive diffraction flares
 
 ---
 

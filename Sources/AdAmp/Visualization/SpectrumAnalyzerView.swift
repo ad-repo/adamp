@@ -86,6 +86,8 @@ struct CosmicParams {
     var totalEnergy: Float           // 4 bytes (offset 28)
     var beatIntensity: Float         // 4 bytes (offset 32)
     var flareIntensity: Float = 0    // 4 bytes (offset 36) - big JWST flare on rare peaks
+    var flareScroll: Float = 0       // 4 bytes (offset 40) - scroll snapshot when giant fired
+    var padding: Float = 0           // 4 bytes (offset 44) → total 48
 }
 
 /// Decay mode controlling how quickly bars fall
@@ -319,6 +321,7 @@ class SpectrumAnalyzerView: NSView {
     nonisolated(unsafe) private var cosmicScrollOffset: Float = 0
     nonisolated(unsafe) private var cosmicFlareIntensity: Float = 0
     nonisolated(unsafe) private var cosmicFlareCooldown: Int = 0  // Frames until next flare allowed
+    nonisolated(unsafe) private var cosmicFlareScrollSnapshot: Float = 0  // Scroll position when giant fired
     
     // Flame mode state
     nonisolated(unsafe) private var renderFlameStyle: FlameStyle = .inferno
@@ -1134,15 +1137,19 @@ class SpectrumAnalyzerView: NSView {
             cosmicBeatIntensity *= 0.92
             
             // Rare big flare: only on strong peaks, with long cooldown
+            // While active, suppresses all small flares — the giant owns the screen
             if cosmicFlareCooldown > 0 {
                 cosmicFlareCooldown -= 1
             }
-            if bass > cosmicSmoothBass + 0.25 && cosmicFlareCooldown == 0 {
-                // Big peak detected — fire the flare
+            if bass > cosmicSmoothBass + 0.25 && cosmicFlareCooldown == 0 && cosmicFlareIntensity < 0.05 {
+                // Big peak detected — fire the flare, lock position
                 cosmicFlareIntensity = 1.0
-                cosmicFlareCooldown = 300  // ~5 seconds cooldown at 60fps
+                cosmicFlareScrollSnapshot = cosmicScrollOffset
+                cosmicFlareCooldown = 360  // ~6 seconds cooldown at 60fps
             }
-            cosmicFlareIntensity *= 0.965  // Slow decay (~2 seconds visible)
+            // Very slow decay: ~5.5 seconds to fade from 1.0 to ~0.05
+            // 0.991^330 ≈ 0.05 → 330 frames = 5.5 seconds
+            cosmicFlareIntensity *= 0.991
             
             // Accumulate scroll distance based on music intensity
             // Gentle drift always, slightly faster when loud — chill ride through space
@@ -1166,7 +1173,8 @@ class SpectrumAnalyzerView: NSView {
                 trebleEnergy: cosmicSmoothTreble,
                 totalEnergy: totalE,
                 beatIntensity: cosmicBeatIntensity,
-                flareIntensity: cosmicFlareIntensity
+                flareIntensity: cosmicFlareIntensity,
+                flareScroll: cosmicFlareScrollSnapshot
             )
         }
         
@@ -1177,9 +1185,19 @@ class SpectrumAnalyzerView: NSView {
         rpd.colorAttachments[0].storeAction = .store
         rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         
+        // Update spectrum buffer for frequency-aligned flares
+        // Uses displaySpectrum (already normalized by AudioEngine) not rawSpectrum
+        var localSpectrum: [Float] = []
+        dataLock.withLock { localSpectrum = displaySpectrum }
+        if let buf = flameSpectrumBuffer {
+            let p = buf.contents().bindMemory(to: Float.self, capacity: 75)
+            for i in 0..<75 { p[i] = i < localSpectrum.count ? localSpectrum[i] : 0 }
+        }
+        
         if let enc = cb.makeRenderCommandEncoder(descriptor: rpd), let pl = cosmicRenderPipeline {
             enc.setRenderPipelineState(pl)
             enc.setFragmentBuffer(cosmicParamsBuffer, offset: 0, index: 0)
+            enc.setFragmentBuffer(flameSpectrumBuffer, offset: 0, index: 1)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
             enc.endEncoding()
         }

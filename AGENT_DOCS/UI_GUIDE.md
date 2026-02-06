@@ -426,6 +426,9 @@ The Spectrum Analyzer participates in the docking system alongside Main, EQ, and
 |------|-------------|
 | **Winamp** | Discrete color bands from skin's `viscolor.txt` with floating peak indicators, 3D bar shading, and segmented LED gaps |
 | **Enhanced** | Rainbow LED matrix with gravity-bouncing peaks, warm amber fade trails, 3D inner glow cells, and anti-aliased rounded corners |
+| **Ultra** | Maximum fidelity seamless gradient with smooth exponential decay, perceptual gamma, and warm color trails |
+| **Fire** | GPU fire simulation with audio-reactive flame tongues in 4 color styles |
+| **JWST** | Deep space flythrough with 3D star field, vivid JWST diffraction flares as intensity indicators, and rare giant flare events |
 
 ### Decay/Responsiveness Modes
 
