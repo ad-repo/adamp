@@ -60,21 +60,43 @@ class SkinRenderer {
         drawTitleBar(in: context, bounds: bounds, isActive: isActive)
     }
     
-    /// Draw title bar (from titlebar.bmp)
+    /// Draw title bar using PLEDIT.BMP tiles (matching ProjectM/Library/Analyzer style)
     func drawTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool) {
-        guard let titlebarImage = skin.titlebar else {
-            // Fallback title bar handled by drawFallbackMainBackground
-            return
+        let titleHeight = SkinElements.Playlist.titleHeight  // 20 - native PLEDIT sprite height
+        
+        // Use PLEDIT tiles for the title bar background (same as ProjectM/Library/Analyzer)
+        if let pleditImage = skin.pledit {
+            let leftCornerWidth: CGFloat = 25
+            let rightCornerWidth: CGFloat = 25
+            let tileWidth: CGFloat = 25
+            
+            let leftCorner = isActive ? SkinElements.Playlist.TitleBarActive.leftCorner : SkinElements.Playlist.TitleBarInactive.leftCorner
+            let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
+            let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
+            
+            // Draw left corner
+            drawSprite(from: pleditImage, sourceRect: leftCorner,
+                      to: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
+            
+            // Draw right corner
+            drawSprite(from: pleditImage, sourceRect: rightCorner,
+                      to: NSRect(x: bounds.width - rightCornerWidth, y: 0, width: rightCornerWidth, height: titleHeight), in: context)
+            
+            // Tile middle section
+            let middleStart = leftCornerWidth
+            let middleEnd = bounds.width - rightCornerWidth
+            var x: CGFloat = middleStart
+            while x < middleEnd {
+                let w = min(tileWidth, middleEnd - x)
+                drawSprite(from: pleditImage, sourceRect: tileSprite,
+                          to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
+                x += tileWidth
+            }
         }
         
-        let sourceRect = isActive ? SkinElements.TitleBar.active : SkinElements.TitleBar.inactive
-        let destRect = NSRect(x: 0, y: 0,
-                              width: bounds.width, height: SkinElements.titleBarHeight)
-        
-        drawSprite(from: titlebarImage, sourceRect: sourceRect, to: destRect, in: context)
-        
-        // Override baked-in title text with "NULLPLAYER" using GenFont
-        drawGenFontTitleText("NULLPLAYER", in: context, bounds: bounds, titleHeight: SkinElements.titleBarHeight, isActive: isActive)
+        // Draw "NULLPLAYER" text using GenFont with dark background gap
+        // fontScale: 1.0 because the view already applies context scaling
+        drawGenFontTitleText("NULLPLAYER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
     }
     
     // MARK: - Button Rendering
@@ -1263,13 +1285,36 @@ class SkinRenderer {
             let sourceRect = NSRect(x: 0, y: 0, width: 275, height: 116)
             drawSprite(from: eqImage, sourceRect: sourceRect, to: bounds, in: context)
             
-            // Draw title bar
-            let titleSource = isActive ? SkinElements.Equalizer.titleActive : SkinElements.Equalizer.titleInactive
-            let titleDest = NSRect(x: 0, y: 0, width: bounds.width, height: 14)
-            drawSprite(from: eqImage, sourceRect: titleSource, to: titleDest, in: context)
+            // Draw title bar using PLEDIT tiles (matching ProjectM/Library/Analyzer style)
+            let titleHeight: CGFloat = 20  // Native PLEDIT sprite height
+            if let pleditImage = skin.pledit {
+                let leftCornerWidth: CGFloat = 25
+                let rightCornerWidth: CGFloat = 25
+                let tileWidth: CGFloat = 25
+                
+                let leftCorner = isActive ? SkinElements.Playlist.TitleBarActive.leftCorner : SkinElements.Playlist.TitleBarInactive.leftCorner
+                let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
+                let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
+                
+                drawSprite(from: pleditImage, sourceRect: leftCorner,
+                          to: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
+                drawSprite(from: pleditImage, sourceRect: rightCorner,
+                          to: NSRect(x: bounds.width - rightCornerWidth, y: 0, width: rightCornerWidth, height: titleHeight), in: context)
+                
+                let middleStart = leftCornerWidth
+                let middleEnd = bounds.width - rightCornerWidth
+                var x: CGFloat = middleStart
+                while x < middleEnd {
+                    let w = min(tileWidth, middleEnd - x)
+                    drawSprite(from: pleditImage, sourceRect: tileSprite,
+                              to: NSRect(x: x, y: 0, width: w, height: titleHeight), in: context)
+                    x += tileWidth
+                }
+            }
             
-            // Override baked-in title text with "NULLPLAYER EQUALIZER" using GenFont
-            drawGenFontTitleText("NULLPLAYER EQUALIZER", in: context, bounds: bounds, titleHeight: 14, isActive: isActive)
+            // Draw "NULLPLAYER EQUALIZER" text using GenFont with dark background gap
+            // fontScale: 1.0 because the view already applies context scaling
+            drawGenFontTitleText("NULLPLAYER EQUALIZER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
         } else {
             // Fallback EQ background
             drawFallbackEQBackground(in: context, bounds: bounds)
@@ -1487,8 +1532,8 @@ class SkinRenderer {
             x += tileWidth
         }
         
-        // Draw "PROJECTM" text using GenFont (active/inactive based on window state)
-        drawProjectMTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        // Draw "PROJECTM" text using GenFont with dark background gap
+        drawGenFontTitleText("PROJECTM", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw close button pressed state if needed
         if pressedButton == .close {
@@ -1672,8 +1717,8 @@ class SkinRenderer {
             x += tileWidth
         }
         
-        // Draw "NULLPLAYER ANALYZER" text using GenFont
-        drawSpectrumAnalyzerTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        // Draw "NULLPLAYER ANALYZER" text using GenFont with dark background gap
+        drawGenFontTitleText("NULLPLAYER ANALYZER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw close button pressed state if needed
         if pressedButton == .close {
@@ -1825,7 +1870,7 @@ class SkinRenderer {
         }
         
         // Draw "NULLPLAYER ANALYZER" text (smaller for shade mode)
-        drawSpectrumAnalyzerTitleText(in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
+        drawGenFontTitleText("NULLPLAYER ANALYZER", in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
         
         // Close button pressed state
         if pressedButton == .close {
@@ -1841,8 +1886,11 @@ class SkinRenderer {
     }
     
     /// Draw title text using GenFont from gen.png with a dark background gap
-    /// Reusable across all window title bars (main, playlist, EQ, library)
-    private func drawGenFontTitleText(_ text: String, in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
+    /// Reusable across all window title bars (main, playlist, EQ, library, ProjectM, analyzer)
+    /// - Parameter fontScale: Font scale factor. Use 1.0 for views that already apply context scaling
+    ///   (main window, EQ, playlist). Use Skin.scaleFactor for views that draw at actual window size
+    ///   (ProjectM, library, analyzer).
+    private func drawGenFontTitleText(_ text: String, in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true, fontScale: CGFloat = Skin.scaleFactor) {
         // Load gen.png from skin or bundle
         let genImage = skin.gen ?? Skin.genWindowImage
         guard let genImage = genImage,
@@ -1850,7 +1898,7 @@ class SkinRenderer {
             return  // GenFont required - no fallback
         }
         
-        let scale: CGFloat = 1.15
+        let scale = fontScale
         let charHeight = SkinElements.GenFont.charHeight * scale
         let charSpacing: CGFloat = 0
         let spaceWidth: CGFloat = 4
@@ -2139,8 +2187,8 @@ class SkinRenderer {
             x += tile.width
         }
         
-        // Draw "PROJECTM" text using GenFont (active/inactive based on window state)
-        drawProjectMTitleText(in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
+        // Draw "PROJECTM" text using GenFont with dark background gap
+        drawGenFontTitleText("PROJECTM", in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
         
         // Close button pressed state
         if pressedButton == .close {
@@ -2297,12 +2345,10 @@ class SkinRenderer {
         let titleHeight = SkinElements.Playlist.titleHeight
         let leftCornerWidth: CGFloat = 25
         let rightCornerWidth: CGFloat = 25
-        let titleSpriteWidth: CGFloat = 100
         let tileWidth: CGFloat = 25
         
         // Get the correct sprite set for active/inactive state
         let leftCorner = isActive ? SkinElements.Playlist.TitleBarActive.leftCorner : SkinElements.Playlist.TitleBarInactive.leftCorner
-        let titleSprite = isActive ? SkinElements.Playlist.TitleBarActive.title : SkinElements.Playlist.TitleBarInactive.title
         let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
         let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
         
@@ -2340,7 +2386,8 @@ class SkinRenderer {
                   to: NSRect(x: bounds.width - rightCornerWidth - cornerOverlap, y: 0, width: rightCornerWidth + cornerOverlap, height: titleHeight), in: context)
         
         // Draw "NULLPLAYER PLAYLIST" text CENTERED over the tiles (instead of skin sprite with baked-in text)
-        drawGenFontTitleText("NULLPLAYER PLAYLIST", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        // fontScale: 1.0 because the view already applies context scaling
+        drawGenFontTitleText("NULLPLAYER PLAYLIST", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
         
         // Draw window control button pressed states if needed
         if pressedButton == .close {
