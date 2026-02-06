@@ -1,13 +1,58 @@
 # AdAmp Visualization Systems
 
-AdAmp features three distinct visualization systems for audio-reactive visual effects.
+AdAmp features multiple visualization systems for audio-reactive visual effects.
 
 ## Table of Contents
 
-1. [Album Art Visualizer](#album-art-visualizer)
-2. [ProjectM/Milkdrop Visualizer](#projectmmilkdrop-visualizer)
-3. [Spectrum Analyzer Window](#spectrum-analyzer-window)
-4. [Comparison](#comparison)
+1. [Main Window Visualization](#main-window-visualization)
+2. [Album Art Visualizer](#album-art-visualizer)
+3. [ProjectM/Milkdrop Visualizer](#projectmmilkdrop-visualizer)
+4. [Spectrum Analyzer Window](#spectrum-analyzer-window)
+5. [Comparison](#comparison)
+
+---
+
+## Main Window Visualization
+
+The main window's built-in visualization area (76x16 pixels in Winamp coordinates) supports two rendering modes.
+
+### Modes
+
+| Mode | Description |
+|------|-------------|
+| **Spectrum** | Classic 19-bar spectrum analyzer drawn with skin colors (default) |
+| **Fire** | GPU flame simulation using Metal compute shaders, same engine as the Spectrum Analyzer window's Fire mode |
+
+### Switching Modes
+
+- **Double-click** the visualization area in the main window to cycle between Spectrum and Fire (single-click toggles the Spectrum Analyzer window)
+- **Right-click** → Options → Main Visualization to select mode and flame style
+- Setting is persisted across app restarts (UserDefaults key: `mainWindowVisMode`)
+
+### Fire Mode Details
+
+When Fire mode is active, a Metal-based `SpectrumAnalyzerView` overlay is positioned precisely over the visualization area. It uses the same flame simulation engine as the standalone Spectrum Analyzer window:
+
+- 128x96 simulation grid with per-column propagation
+- 11x11 Gaussian blur for smooth output
+- Audio-reactive: bass drives heat, mids drive sway, treble adds sparks
+- Supports all 4 flame styles: Inferno, Aurora, Electric, Ocean
+- Flame style is shared with the Spectrum Analyzer window (same UserDefaults key: `flameStyle`)
+
+### Technical Details
+
+- **Implementation**: Metal overlay (`SpectrumAnalyzerView`) added as subview of `MainWindowView`
+- **Positioning**: Converted from Winamp coordinates (top-left origin) to macOS view coordinates (bottom-left origin), accounting for window scaling
+- **Lifecycle**: Overlay is created lazily on first Fire mode activation, display link starts/stops with mode changes and window visibility
+- **CPU Efficiency**: Display link pauses when window is minimized, occluded, or in Spectrum mode
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `Windows/MainWindow/MainWindowView.swift` | Mode switching, overlay management, click cycling |
+| `Visualization/SpectrumAnalyzerView.swift` | Metal flame rendering (shared with Spectrum window) |
+| `Visualization/FlameShaders.metal` | GPU compute + render shaders |
 
 ---
 
@@ -355,6 +400,10 @@ Right-click on the window for:
 - Classic Winamp nostalgia
 - Parties and ambient displays
 - When you want maximum visual variety
+
+**Main Window Fire Mode**
+- Quick ambient flame visuals without opening a separate window
+- Click the vis area to toggle between spectrum bars and fire
 
 **Spectrum Analyzer**
 - When you want detailed frequency visualization (Winamp/Enhanced/Ultra modes)

@@ -404,6 +404,8 @@ A standalone Metal-based spectrum analyzer visualization window that provides a 
 - Context Menu → Spectrum Analyzer
 - Window menu → Spectrum Analyzer
 
+**Note:** Double-clicking the visualization area cycles the main window vis mode (Spectrum → Fire) instead of opening this window.
+
 ### Window Docking
 
 The Spectrum Analyzer participates in the docking system alongside Main, EQ, and Playlist:

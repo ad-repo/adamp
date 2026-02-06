@@ -167,10 +167,18 @@ class SpectrumAnalyzerView: NSView {
     
     // MARK: - Configuration
     
+    /// When true, this view is embedded in another window (e.g., main window flame overlay).
+    /// Embedded views do NOT persist quality/decay mode to UserDefaults and do NOT
+    /// respond to SpectrumSettingsChanged notifications for quality mode changes.
+    /// This prevents cross-contamination between the standalone spectrum window and the overlay.
+    var isEmbedded: Bool = false
+    
     /// Quality mode (Winamp discrete vs Enhanced smooth vs Ultra high-quality)
     var qualityMode: SpectrumQualityMode = .winamp {
         didSet {
-            UserDefaults.standard.set(qualityMode.rawValue, forKey: "spectrumQualityMode")
+            if !isEmbedded {
+                UserDefaults.standard.set(qualityMode.rawValue, forKey: "spectrumQualityMode")
+            }
             let mode = qualityMode
             dataLock.withLock {
                 renderQualityMode = mode
@@ -322,6 +330,7 @@ class SpectrumAnalyzerView: NSView {
     nonisolated(unsafe) private var cosmicFlareIntensity: Float = 0
     nonisolated(unsafe) private var cosmicFlareCooldown: Int = 0  // Frames until next flare allowed
     nonisolated(unsafe) private var cosmicFlareScrollSnapshot: Float = 0  // Scroll position when giant fired
+    nonisolated(unsafe) private var cosmicFlareLPF: Float = 0  // Low-pass filtered energy for giant detection
     
     // Flame mode state
     nonisolated(unsafe) private var renderFlameStyle: FlameStyle = .inferno
@@ -463,15 +472,25 @@ class SpectrumAnalyzerView: NSView {
     }
     
     @objc private func spectrumSettingsChanged(_ notification: Notification) {
-        // Reload settings from UserDefaults
-        if let savedQuality = UserDefaults.standard.string(forKey: "spectrumQualityMode"),
-           let mode = SpectrumQualityMode(rawValue: savedQuality) {
-            qualityMode = mode
+        // Embedded views (e.g., main window flame overlay) keep their own quality/decay mode
+        // and only respond to flame style changes (which are shared)
+        if !isEmbedded {
+            // Reload settings from UserDefaults
+            if let savedQuality = UserDefaults.standard.string(forKey: "spectrumQualityMode"),
+               let mode = SpectrumQualityMode(rawValue: savedQuality) {
+                qualityMode = mode
+            }
+            
+            if let savedDecay = UserDefaults.standard.string(forKey: "spectrumDecayMode"),
+               let mode = SpectrumDecayMode(rawValue: savedDecay) {
+                decayMode = mode
+            }
         }
         
-        if let savedDecay = UserDefaults.standard.string(forKey: "spectrumDecayMode"),
-           let mode = SpectrumDecayMode(rawValue: savedDecay) {
-            decayMode = mode
+        // Reload flame style (shared between spectrum window and main window overlay)
+        if let savedStyle = UserDefaults.standard.string(forKey: "flameStyle"),
+           let style = FlameStyle(rawValue: savedStyle) {
+            flameStyle = style
         }
         
         // Note: We no longer reset state arrays on mode switch since pre-allocated
@@ -1141,11 +1160,20 @@ class SpectrumAnalyzerView: NSView {
             if cosmicFlareCooldown > 0 {
                 cosmicFlareCooldown -= 1
             }
-            if bass > cosmicSmoothBass + 0.25 && cosmicFlareCooldown == 0 && cosmicFlareIntensity < 0.05 {
-                // Big peak detected — fire the flare, lock position
+            // Giant flare detection with low-pass filter
+            // LPF tracks a very slow-moving average of total energy.
+            // When instantaneous energy exceeds LPF by a threshold, fire.
+            // The slow LPF (alpha=0.02) prevents the reference from chasing
+            // transients, so real peaks reliably exceed it.
+            let instantEnergy = (bass + mid + treble) / 3.0
+            cosmicFlareLPF += (instantEnergy - cosmicFlareLPF) * 0.02  // Very slow follower
+            let flareDelta = instantEnergy - cosmicFlareLPF
+            
+            if flareDelta > 0.10 && cosmicFlareCooldown == 0 && cosmicFlareIntensity < 0.05 {
+                // Energy spike above low-pass baseline — fire the giant
                 cosmicFlareIntensity = 1.0
                 cosmicFlareScrollSnapshot = cosmicScrollOffset
-                cosmicFlareCooldown = 360  // ~6 seconds cooldown at 60fps
+                cosmicFlareCooldown = 420  // ~7 seconds cooldown at 60fps
             }
             // Very slow decay: ~5.5 seconds to fade from 1.0 to ~0.05
             // 0.991^330 ≈ 0.05 → 330 frames = 5.5 seconds
