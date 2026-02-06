@@ -511,13 +511,24 @@ class SpectrumAnalyzerView: NSView {
     }
     
     @objc private func handlePlaybackStateChange(_ notification: Notification) {
-        // When playback starts, ensure the display link is running
-        // This handles race conditions where the display link stopped but playback resumed
         guard let userInfo = notification.userInfo,
               let state = userInfo["state"] as? PlaybackState else { return }
         
-        if state == .playing && !isRendering {
-            startRendering()
+        switch state {
+        case .playing:
+            // Ensure the display link is running when playback starts
+            if !isRendering {
+                startRendering()
+            }
+        case .paused:
+            // Freeze the display - stop rendering but keep current frame visible
+            stopRendering()
+        case .stopped:
+            // Clear all data, flame textures, and render a final black frame
+            resetState()
+            clearFlameTextures()
+            stopRendering()
+            renderBlackFrame()
         }
     }
     
@@ -1734,6 +1745,41 @@ class SpectrumAnalyzerView: NSView {
     }
     
     // MARK: - Public API
+    
+    /// Clear flame simulation textures to zero (makes fire go black immediately)
+    func clearFlameTextures() {
+        guard let device = device, let simA = flameSimTextureA, let simB = flameSimTextureB else { return }
+        if let cb = commandQueue?.makeCommandBuffer(), let be = cb.makeBlitCommandEncoder() {
+            let size = MTLSize(width: flameGridWidth, height: flameGridHeight, depth: 1)
+            let bpr = flameGridWidth * 4 * MemoryLayout<Float>.stride
+            let zeros = [UInt8](repeating: 0, count: bpr * flameGridHeight)
+            if let buf = device.makeBuffer(bytes: zeros, length: zeros.count, options: .storageModeShared) {
+                let origin = MTLOrigin(x: 0, y: 0, z: 0)
+                be.copy(from: buf, sourceOffset: 0, sourceBytesPerRow: bpr, sourceBytesPerImage: zeros.count, sourceSize: size, to: simA, destinationSlice: 0, destinationLevel: 0, destinationOrigin: origin)
+                be.copy(from: buf, sourceOffset: 0, sourceBytesPerRow: bpr, sourceBytesPerImage: zeros.count, sourceSize: size, to: simB, destinationSlice: 0, destinationLevel: 0, destinationOrigin: origin)
+            }
+            be.endEncoding(); cb.commit()
+        }
+    }
+    
+    /// Render a single black frame to clear the display after stopping
+    private func renderBlackFrame() {
+        guard let metalLayer = metalLayer,
+              let drawable = metalLayer.nextDrawable(),
+              let commandBuffer = commandQueue?.makeCommandBuffer() else { return }
+        
+        let rpd = MTLRenderPassDescriptor()
+        rpd.colorAttachments[0].texture = drawable.texture
+        rpd.colorAttachments[0].loadAction = .clear
+        rpd.colorAttachments[0].storeAction = .store
+        rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        
+        if let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: rpd) {
+            encoder.endEncoding()
+        }
+        commandBuffer.present(drawable)
+        commandBuffer.commit()
+    }
     
     /// Reset all spectrum state - call when switching audio sources
     func resetState() {

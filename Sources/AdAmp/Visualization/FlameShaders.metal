@@ -70,7 +70,7 @@ kernel void propagate_fire(
         float bass = 0.0;
         for (int i = 0; i < 16; i++) bass += spectrum[i];
         bass /= 16.0;
-        float energy = max(bass, 0.15);
+        float energy = bass;
 
         // Random per-pixel heat
         float rng = hash21(float2(float(x) * 0.37 + params.time * 41.0,

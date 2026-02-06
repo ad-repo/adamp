@@ -190,6 +190,10 @@ class MainWindowView: NSView {
         // Observe main window visualization settings changes
         NotificationCenter.default.addObserver(self, selector: #selector(mainVisSettingsChanged),
                                                name: NSNotification.Name("MainWindowVisChanged"), object: nil)
+        
+        // Observe playback state changes to clear/freeze spectrum on stop/pause
+        NotificationCenter.default.addObserver(self, selector: #selector(playbackStateDidChange),
+                                               name: .audioPlaybackStateChanged, object: nil)
     }
     
     // MARK: - Accessibility
@@ -570,6 +574,23 @@ class MainWindowView: NSView {
     
     @objc private func castingStateDidChange() {
         needsDisplay = true
+    }
+    
+    @objc private func playbackStateDidChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let state = userInfo["state"] as? PlaybackState else { return }
+        
+        switch state {
+        case .stopped:
+            // Clear spectrum bars immediately
+            spectrumLevels = Array(repeating: Float(0), count: spectrumLevels.count)
+            needsDisplay = true
+        case .paused:
+            // Freeze - just stop updating (no more updateSpectrum calls will arrive)
+            break
+        case .playing:
+            break
+        }
     }
     
     @objc private func castLoadingStateDidChange(_ notification: Notification) {
