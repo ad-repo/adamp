@@ -30,7 +30,7 @@ public enum ButtonType: CaseIterable, Sendable {
     case minimize
     case shade
     case unshade  // Used in shade mode to return to normal
-    case menu     // Top-left menu icon - opens Milkdrop
+    case menu     // Top-left menu icon - opens ProjectM
     
     // Toggle buttons
     case shuffle

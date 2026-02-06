@@ -78,8 +78,8 @@ extension VisualizationEngine {
 ///
 /// Used to identify and switch between different visualization engines.
 enum VisualizationType: String, CaseIterable, Codable {
-    /// ProjectM engine (Milkdrop/WinAmp presets)
-    case projectM = "ProjectM (Milkdrop)"
+    /// ProjectM engine (ProjectM/WinAmp presets)
+    case projectM = "ProjectM (ProjectM)"
 
     /// Human-readable display name
     var displayName: String {

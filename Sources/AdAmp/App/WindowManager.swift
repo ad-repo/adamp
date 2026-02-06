@@ -78,8 +78,8 @@ class WindowManager {
     /// Video player window controller
     private var videoPlayerWindowController: VideoPlayerWindowController?
     
-    /// Milkdrop visualization window controller
-    private var milkdropWindowController: MilkdropWindowController?
+    /// ProjectM visualization window controller
+    private var projectMWindowController: ProjectMWindowController?
     
     /// Spectrum analyzer window controller
     private var spectrumWindowController: SpectrumWindowController?
@@ -390,9 +390,9 @@ class WindowManager {
         return window.frame
     }
     
-    /// Get the Milkdrop window frame (for state saving)
-    var milkdropWindowFrame: NSRect? {
-        return milkdropWindowController?.window?.frame
+    /// Get the ProjectM window frame (for state saving)
+    var projectMWindowFrame: NSRect? {
+        return projectMWindowController?.window?.frame
     }
     
     func togglePlexBrowser() {
@@ -785,18 +785,18 @@ class WindowManager {
         return controller.isPlaying ? .playing : .paused
     }
     
-    // MARK: - Milkdrop Visualization Window
+    // MARK: - ProjectM Visualization Window
     
-    func showMilkdrop(at restoredFrame: NSRect? = nil) {
-        let isNewWindow = milkdropWindowController == nil
+    func showProjectM(at restoredFrame: NSRect? = nil) {
+        let isNewWindow = projectMWindowController == nil
         if isNewWindow {
-            milkdropWindowController = MilkdropWindowController()
+            projectMWindowController = ProjectMWindowController()
         }
-        milkdropWindowController?.showWindow(nil)
-        applyAlwaysOnTopToWindow(milkdropWindowController?.window)
+        projectMWindowController?.showWindow(nil)
+        applyAlwaysOnTopToWindow(projectMWindowController?.window)
         
         // Position newly created windows
-        if isNewWindow, let window = milkdropWindowController?.window {
+        if isNewWindow, let window = projectMWindowController?.window {
             if let frame = restoredFrame, frame != .zero {
                 // Use restored frame from state restoration
                 window.setFrame(frame, display: true)
@@ -829,18 +829,18 @@ class WindowManager {
         }
     }
     
-    var isMilkdropVisible: Bool {
-        milkdropWindowController?.window?.isVisible == true
+    var isProjectMVisible: Bool {
+        projectMWindowController?.window?.isVisible == true
     }
     
-    /// Whether Milkdrop is in fullscreen mode
-    var isMilkdropFullscreen: Bool {
-        milkdropWindowController?.isFullscreen ?? false
+    /// Whether ProjectM is in fullscreen mode
+    var isProjectMFullscreen: Bool {
+        projectMWindowController?.isFullscreen ?? false
     }
     
-    /// Toggle Milkdrop fullscreen
-    func toggleMilkdropFullscreen() {
-        milkdropWindowController?.toggleFullscreen()
+    /// Toggle ProjectM fullscreen
+    func toggleProjectMFullscreen() {
+        projectMWindowController?.toggleFullscreen()
     }
     
     /// Whether the debug console window is visible
@@ -848,13 +848,13 @@ class WindowManager {
         debugWindowController?.window?.isVisible == true
     }
     
-    func toggleMilkdrop() {
-        if let controller = milkdropWindowController, controller.window?.isVisible == true {
+    func toggleProjectM() {
+        if let controller = projectMWindowController, controller.window?.isVisible == true {
             // Stop rendering before hiding to save CPU (orderOut doesn't trigger windowWillClose)
             controller.stopRenderingForHide()
             controller.window?.orderOut(nil)
         } else {
-            showMilkdrop()
+            showProjectM()
         }
     }
     
@@ -926,32 +926,32 @@ class WindowManager {
     
     /// Whether projectM visualization is available
     var isProjectMAvailable: Bool {
-        milkdropWindowController?.isProjectMAvailable ?? false
+        projectMWindowController?.isProjectMAvailable ?? false
     }
     
     /// Total number of visualization presets
     var visualizationPresetCount: Int {
-        milkdropWindowController?.presetCount ?? 0
+        projectMWindowController?.presetCount ?? 0
     }
     
     /// Current visualization preset index
     var visualizationPresetIndex: Int? {
-        milkdropWindowController?.currentPresetIndex
+        projectMWindowController?.currentPresetIndex
     }
     
     /// Get information about loaded presets (bundled count, custom count, custom path)
     var visualizationPresetsInfo: (bundledCount: Int, customCount: Int, customPath: String?) {
-        milkdropWindowController?.presetsInfo ?? (0, 0, nil)
+        projectMWindowController?.presetsInfo ?? (0, 0, nil)
     }
     
     /// Reload all visualization presets from bundled and custom folders
     func reloadVisualizationPresets() {
-        milkdropWindowController?.reloadPresets()
+        projectMWindowController?.reloadPresets()
     }
     
     /// Select a visualization preset by index
     func selectVisualizationPreset(at index: Int) {
-        milkdropWindowController?.selectPreset(at: index)
+        projectMWindowController?.selectPreset(at: index)
     }
 
     func notifyMainWindowVisibilityChanged() {
@@ -960,20 +960,20 @@ class WindowManager {
     
     // MARK: - Skin Management
     
-    /// When true, Browser and Milkdrop windows always use default skin (default: false - follow skin changes)
-    var lockBrowserMilkdropSkin: Bool {
+    /// When true, Browser and ProjectM windows always use default skin (default: false - follow skin changes)
+    var lockBrowserProjectMSkin: Bool {
         get {
             // Default to false (unlocked) - windows follow skin changes by default
-            if UserDefaults.standard.object(forKey: "lockBrowserMilkdropSkin") == nil {
+            if UserDefaults.standard.object(forKey: "lockBrowserProjectMSkin") == nil {
                 return false
             }
-            return UserDefaults.standard.bool(forKey: "lockBrowserMilkdropSkin")
+            return UserDefaults.standard.bool(forKey: "lockBrowserProjectMSkin")
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: "lockBrowserMilkdropSkin")
+            UserDefaults.standard.set(newValue, forKey: "lockBrowserProjectMSkin")
             // Refresh these windows when setting changes
             plexBrowserWindowController?.skinDidChange()
-            milkdropWindowController?.skinDidChange()
+            projectMWindowController?.skinDidChange()
         }
     }
     
@@ -1039,7 +1039,7 @@ class WindowManager {
         playlistWindowController?.skinDidChange()
         equalizerWindowController?.skinDidChange()
         plexBrowserWindowController?.skinDidChange()
-        milkdropWindowController?.skinDidChange()
+        projectMWindowController?.skinDidChange()
         spectrumWindowController?.skinDidChange()
     }
     
@@ -1154,7 +1154,7 @@ class WindowManager {
         playlistWindowController?.window?.level = level
         plexBrowserWindowController?.window?.level = level
         videoPlayerWindowController?.window?.level = level
-        milkdropWindowController?.window?.level = level
+        projectMWindowController?.window?.level = level
         spectrumWindowController?.window?.level = level
     }
     
@@ -1173,7 +1173,7 @@ class WindowManager {
             playlistWindowController?.window,
             plexBrowserWindowController?.window,
             videoPlayerWindowController?.window,
-            milkdropWindowController?.window,
+            projectMWindowController?.window,
             spectrumWindowController?.window
         ]
         
@@ -1277,12 +1277,12 @@ class WindowManager {
             height: stackHeight
         )
         
-        // Milkdrop goes to the left of main, matching stack height
-        let milkdropWidth = milkdropWindowController?.window?.frame.width ?? SkinElements.Milkdrop.defaultSize.width
-        let milkdropFrame = NSRect(
-            x: mainFrame.minX - milkdropWidth,
+        // ProjectM goes to the left of main, matching stack height
+        let projectMWidth = projectMWindowController?.window?.frame.width ?? SkinElements.ProjectM.defaultSize.width
+        let projectMFrame = NSRect(
+            x: mainFrame.minX - projectMWidth,
             y: stackBottomY,
-            width: milkdropWidth,
+            width: projectMWidth,
             height: stackHeight
         )
         
@@ -1291,7 +1291,7 @@ class WindowManager {
         defaults.removeObject(forKey: "EqualizerWindowFrame")
         defaults.removeObject(forKey: "PlaylistWindowFrame")
         defaults.removeObject(forKey: "PlexBrowserWindowFrame")
-        defaults.removeObject(forKey: "MilkdropWindowFrame")
+        defaults.removeObject(forKey: "ProjectMWindowFrame")
         defaults.removeObject(forKey: "VideoPlayerWindowFrame")
         defaults.removeObject(forKey: "ArtVisualizerWindowFrame")
         defaults.removeObject(forKey: "SpectrumWindowFrame")
@@ -1319,8 +1319,8 @@ class WindowManager {
         if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
             plexWindow.setFrame(browserFrame, display: true, animate: false)
         }
-        if let milkdropWindow = milkdropWindowController?.window, milkdropWindow.isVisible {
-            milkdropWindow.setFrame(milkdropFrame, display: true, animate: false)
+        if let projectMWindow = projectMWindowController?.window, projectMWindow.isVisible {
+            projectMWindow.setFrame(projectMFrame, display: true, animate: false)
         }
         if let videoWindow = videoPlayerWindowController?.window, videoWindow.isVisible {
             videoWindow.center()
@@ -1755,7 +1755,7 @@ class WindowManager {
         if let w = equalizerWindowController?.window, w.isVisible { windows.append(w) }
         if let w = plexBrowserWindowController?.window, w.isVisible { windows.append(w) }
         if let w = videoPlayerWindowController?.window, w.isVisible { windows.append(w) }
-        if let w = milkdropWindowController?.window, w.isVisible { windows.append(w) }
+        if let w = projectMWindowController?.window, w.isVisible { windows.append(w) }
         if let w = spectrumWindowController?.window, w.isVisible { windows.append(w) }
         return windows
     }
@@ -1803,8 +1803,8 @@ class WindowManager {
         if let frame = videoPlayerWindowController?.window?.frame {
             defaults.set(NSStringFromRect(frame), forKey: "VideoPlayerWindowFrame")
         }
-        if let frame = milkdropWindowController?.window?.frame {
-            defaults.set(NSStringFromRect(frame), forKey: "MilkdropWindowFrame")
+        if let frame = projectMWindowController?.window?.frame {
+            defaults.set(NSStringFromRect(frame), forKey: "ProjectMWindowFrame")
         }
         if let frame = spectrumWindowController?.window?.frame {
             defaults.set(NSStringFromRect(frame), forKey: "SpectrumWindowFrame")
@@ -1839,8 +1839,8 @@ class WindowManager {
             let frame = NSRectFromString(frameString)
             window.setFrame(frame, display: true)
         }
-        if let frameString = defaults.string(forKey: "MilkdropWindowFrame"),
-           let window = milkdropWindowController?.window {
+        if let frameString = defaults.string(forKey: "ProjectMWindowFrame"),
+           let window = projectMWindowController?.window {
             let frame = NSRectFromString(frameString)
             window.setFrame(frame, display: true)
         }

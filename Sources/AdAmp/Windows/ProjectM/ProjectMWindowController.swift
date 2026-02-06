@@ -1,11 +1,11 @@
 import AppKit
 
-/// Controller for the Milkdrop visualization window
-class MilkdropWindowController: NSWindowController {
+/// Controller for the ProjectM visualization window
+class ProjectMWindowController: NSWindowController {
     
     // MARK: - Properties
     
-    private var milkdropView: MilkdropView!
+    private var projectMView: ProjectMView!
     
     /// Whether the window is in shade mode
     private(set) var isShadeMode = false
@@ -23,7 +23,7 @@ class MilkdropWindowController: NSWindowController {
     convenience init() {
         // Create borderless window with manual resize handling
         let window = ResizableWindow(
-            contentRect: NSRect(origin: .zero, size: SkinElements.Milkdrop.defaultSize),
+            contentRect: NSRect(origin: .zero, size: SkinElements.ProjectM.defaultSize),
             styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
@@ -45,8 +45,8 @@ class MilkdropWindowController: NSWindowController {
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = true
-        window.minSize = SkinElements.Milkdrop.minSize
-        window.title = "Milkdrop"
+        window.minSize = SkinElements.ProjectM.minSize
+        window.title = "ProjectM"
         
         // Prevent window from being released when closed - we reuse the same controller
         window.isReleasedWhenClosed = false
@@ -57,7 +57,7 @@ class MilkdropWindowController: NSWindowController {
         window.delegate = self
         
         // Set accessibility identifier for UI testing
-        window.setAccessibilityIdentifier("MilkdropWindow")
+        window.setAccessibilityIdentifier("ProjectMWindow")
         window.setAccessibilityLabel("Visualization Window")
     }
     
@@ -68,13 +68,13 @@ class MilkdropWindowController: NSWindowController {
         // Position after window is shown to ensure correct frame dimensions
         positionWindow()
         // Restart rendering (may have been stopped by windowWillClose or hide)
-        milkdropView.startRendering()
+        projectMView.startRendering()
     }
     
     /// Stop rendering when window is hidden via orderOut() (not close)
     /// This saves CPU since orderOut() doesn't trigger windowWillClose
     func stopRenderingForHide() {
-        milkdropView.stopRendering()
+        projectMView.stopRendering()
     }
     
     /// Position the window to the LEFT of the main window
@@ -94,16 +94,16 @@ class MilkdropWindowController: NSWindowController {
     }
     
     private func setupView() {
-        milkdropView = MilkdropView(frame: NSRect(origin: .zero, size: SkinElements.Milkdrop.defaultSize))
-        milkdropView.controller = self
-        milkdropView.autoresizingMask = [.width, .height]
-        window?.contentView = milkdropView
+        projectMView = ProjectMView(frame: NSRect(origin: .zero, size: SkinElements.ProjectM.defaultSize))
+        projectMView.controller = self
+        projectMView.autoresizingMask = [.width, .height]
+        window?.contentView = projectMView
     }
     
     // MARK: - Public Methods
     
     func skinDidChange() {
-        milkdropView.skinDidChange()
+        projectMView.skinDidChange()
     }
     
     // MARK: - Shade Mode
@@ -119,7 +119,7 @@ class MilkdropWindowController: NSWindowController {
             normalModeFrame = window.frame
             
             // Calculate new shade mode frame (keep width, reduce height)
-            let shadeHeight = SkinElements.Milkdrop.shadeHeight
+            let shadeHeight = SkinElements.ProjectM.shadeHeight
             let newFrame = NSRect(
                 x: window.frame.origin.x,
                 y: window.frame.origin.y + window.frame.height - shadeHeight,
@@ -129,7 +129,7 @@ class MilkdropWindowController: NSWindowController {
             
             // Resize window
             window.setFrame(newFrame, display: true, animate: true)
-            milkdropView.frame = NSRect(origin: .zero, size: newFrame.size)
+            projectMView.frame = NSRect(origin: .zero, size: newFrame.size)
         } else {
             // Restore normal mode frame
             let newFrame: NSRect
@@ -137,7 +137,7 @@ class MilkdropWindowController: NSWindowController {
             if let storedFrame = normalModeFrame {
                 newFrame = storedFrame
             } else {
-                let normalSize = SkinElements.Milkdrop.defaultSize
+                let normalSize = SkinElements.ProjectM.defaultSize
                 newFrame = NSRect(
                     x: window.frame.origin.x,
                     y: window.frame.origin.y + window.frame.height - normalSize.height,
@@ -148,11 +148,11 @@ class MilkdropWindowController: NSWindowController {
             
             // Resize window
             window.setFrame(newFrame, display: true, animate: true)
-            milkdropView.frame = NSRect(origin: .zero, size: newFrame.size)
+            projectMView.frame = NSRect(origin: .zero, size: newFrame.size)
             normalModeFrame = nil
         }
         
-        milkdropView.setShadeMode(enabled)
+        projectMView.setShadeMode(enabled)
     }
     
     // MARK: - Fullscreen
@@ -186,7 +186,7 @@ class MilkdropWindowController: NSWindowController {
         preFullscreenLevel = window.level
         
         // Hide window chrome
-        milkdropView.setFullscreen(true)
+        projectMView.setFullscreen(true)
         
         // Set window to fullscreen
         isCustomFullscreen = true
@@ -199,7 +199,7 @@ class MilkdropWindowController: NSWindowController {
         // Hide menu bar and dock
         NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
         
-        NSLog("MilkdropWindowController: Entered custom fullscreen")
+        NSLog("ProjectMWindowController: Entered custom fullscreen")
     }
     
     /// Exit custom fullscreen mode
@@ -215,7 +215,7 @@ class MilkdropWindowController: NSWindowController {
         NSApp.presentationOptions = []
         
         // Show window chrome
-        milkdropView.setFullscreen(false)
+        projectMView.setFullscreen(false)
         
         // Restore pre-fullscreen frame
         if let frame = preFullscreenFrame {
@@ -224,7 +224,7 @@ class MilkdropWindowController: NSWindowController {
         
         preFullscreenFrame = nil
         
-        NSLog("MilkdropWindowController: Exited custom fullscreen")
+        NSLog("ProjectMWindowController: Exited custom fullscreen")
     }
     
     /// Whether the window is in custom fullscreen mode
@@ -237,13 +237,13 @@ class MilkdropWindowController: NSWindowController {
     /// Go to next preset
     /// - Parameter hardCut: If true, switch immediately without blending
     func nextPreset(hardCut: Bool = false) {
-        milkdropView.visualizationGLView?.nextPreset(hardCut: hardCut)
+        projectMView.visualizationGLView?.nextPreset(hardCut: hardCut)
     }
     
     /// Go to previous preset
     /// - Parameter hardCut: If true, switch immediately without blending
     func previousPreset(hardCut: Bool = false) {
-        milkdropView.visualizationGLView?.previousPreset(hardCut: hardCut)
+        projectMView.visualizationGLView?.previousPreset(hardCut: hardCut)
     }
     
     /// Select preset at specific index
@@ -251,13 +251,13 @@ class MilkdropWindowController: NSWindowController {
     ///   - index: The preset index to select
     ///   - hardCut: If true, switch immediately without blending
     func selectPreset(at index: Int, hardCut: Bool = false) {
-        milkdropView.visualizationGLView?.selectPreset(at: index, hardCut: hardCut)
+        projectMView.visualizationGLView?.selectPreset(at: index, hardCut: hardCut)
     }
     
     /// Select a random preset
     /// - Parameter hardCut: If true, switch immediately without blending
     func randomPreset(hardCut: Bool = false) {
-        milkdropView.visualizationGLView?.randomPreset(hardCut: hardCut)
+        projectMView.visualizationGLView?.randomPreset(hardCut: hardCut)
     }
     
     /// Set specific preset by index
@@ -265,49 +265,49 @@ class MilkdropWindowController: NSWindowController {
     ///   - index: The preset index to select
     ///   - hardCut: If true, switch immediately without blending
     func setPreset(_ index: Int, hardCut: Bool = false) {
-        milkdropView.visualizationGLView?.selectPreset(at: index, hardCut: hardCut)
+        projectMView.visualizationGLView?.selectPreset(at: index, hardCut: hardCut)
     }
     
     /// Lock or unlock the current preset
     var isPresetLocked: Bool {
-        get { milkdropView.visualizationGLView?.isPresetLocked ?? false }
-        set { milkdropView.visualizationGLView?.isPresetLocked = newValue }
+        get { projectMView.visualizationGLView?.isPresetLocked ?? false }
+        set { projectMView.visualizationGLView?.isPresetLocked = newValue }
     }
     
     /// Whether projectM is available
     var isProjectMAvailable: Bool {
-        return milkdropView.visualizationGLView?.isProjectMAvailable ?? false
+        return projectMView.visualizationGLView?.isProjectMAvailable ?? false
     }
     
     /// Current preset name
     var currentPresetName: String {
-        return milkdropView.visualizationGLView?.currentPresetName ?? ""
+        return projectMView.visualizationGLView?.currentPresetName ?? ""
     }
     
     /// Current preset index
     var currentPresetIndex: Int {
-        return milkdropView.visualizationGLView?.currentPresetIndex ?? 0
+        return projectMView.visualizationGLView?.currentPresetIndex ?? 0
     }
     
     /// Total number of presets
     var presetCount: Int {
-        return milkdropView.visualizationGLView?.presetCount ?? 0
+        return projectMView.visualizationGLView?.presetCount ?? 0
     }
     
     /// Reload all presets from bundled and custom folders
     func reloadPresets() {
-        milkdropView.visualizationGLView?.reloadPresets()
+        projectMView.visualizationGLView?.reloadPresets()
     }
     
     /// Get information about loaded presets
     var presetsInfo: (bundledCount: Int, customCount: Int, customPath: String?) {
-        return milkdropView.visualizationGLView?.presetsInfo ?? (0, 0, nil)
+        return projectMView.visualizationGLView?.presetsInfo ?? (0, 0, nil)
     }
 }
 
 // MARK: - NSWindowDelegate
 
-extension MilkdropWindowController: NSWindowDelegate {
+extension ProjectMWindowController: NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard let window = window else { return }
         let newOrigin = WindowManager.shared.windowWillMove(window, to: window.frame.origin)
@@ -315,8 +315,8 @@ extension MilkdropWindowController: NSWindowDelegate {
     }
     
     func windowDidResize(_ notification: Notification) {
-        milkdropView.needsDisplay = true
-        milkdropView.updateVisualizationFrame()
+        projectMView.needsDisplay = true
+        projectMView.updateVisualizationFrame()
     }
     
     func windowWillClose(_ notification: Notification) {
@@ -326,35 +326,35 @@ extension MilkdropWindowController: NSWindowDelegate {
         }
         
         // Stop rendering when window closes
-        milkdropView.stopRendering()
+        projectMView.stopRendering()
         WindowManager.shared.notifyMainWindowVisibilityChanged()
     }
     
     func windowDidBecomeKey(_ notification: Notification) {
-        milkdropView.needsDisplay = true
+        projectMView.needsDisplay = true
         // Bring all app windows to front when this window gets focus
         WindowManager.shared.bringAllWindowsToFront()
     }
     
     func windowDidResignKey(_ notification: Notification) {
-        milkdropView.needsDisplay = true
+        projectMView.needsDisplay = true
     }
     
     func windowWillEnterFullScreen(_ notification: Notification) {
         // Hide window chrome in fullscreen
-        milkdropView.needsDisplay = true
+        projectMView.needsDisplay = true
     }
     
     func windowDidExitFullScreen(_ notification: Notification) {
         // Restore window chrome after fullscreen
-        milkdropView.needsDisplay = true
+        projectMView.needsDisplay = true
     }
     
     func windowDidMiniaturize(_ notification: Notification) {
-        milkdropView.stopRendering()
+        projectMView.stopRendering()
     }
     
     func windowDidDeminiaturize(_ notification: Notification) {
-        milkdropView.startRendering()
+        projectMView.startRendering()
     }
 }

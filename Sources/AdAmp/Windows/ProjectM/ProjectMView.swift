@@ -1,7 +1,7 @@
 import AppKit
 
 // =============================================================================
-// MILKDROP VIEW - Visualization window with skin sprite support
+// PROJECTM VIEW - Visualization window with skin sprite support
 // =============================================================================
 // Follows the same pattern as EQView and PlaylistView for:
 // - Coordinate transformation (Winamp top-down system)
@@ -9,12 +9,12 @@ import AppKit
 // - Window dragging support
 // =============================================================================
 
-/// Milkdrop visualization view with full skin support
-class MilkdropView: NSView {
+/// ProjectM visualization view with full skin support
+class ProjectMView: NSView {
     
     // MARK: - Properties
     
-    weak var controller: MilkdropWindowController?
+    weak var controller: ProjectMWindowController?
     
     /// The OpenGL visualization view
     private(set) var visualizationGLView: VisualizationGLView?
@@ -26,7 +26,7 @@ class MilkdropView: NSView {
     private(set) var isFullscreen = false
     
     /// Button being pressed (for visual feedback)
-    private var pressedButton: SkinRenderer.MilkdropButtonType?
+    private var pressedButton: SkinRenderer.ProjectMButtonType?
     
     /// Window dragging state
     private var isDraggingWindow = false
@@ -58,10 +58,10 @@ class MilkdropView: NSView {
     private var presetCycleInterval: TimeInterval = 30.0
     
     // MARK: - Layout Constants
-    // Reference to SkinElements.Milkdrop.Layout for consistency
+    // Reference to SkinElements.ProjectM.Layout for consistency
     
-    private var Layout: SkinElements.Milkdrop.Layout.Type {
-        SkinElements.Milkdrop.Layout.self
+    private var Layout: SkinElements.ProjectM.Layout.Type {
+        SkinElements.ProjectM.Layout.self
     }
     
     // MARK: - Initialization
@@ -197,7 +197,7 @@ class MilkdropView: NSView {
         
         // Use default skin if locked, otherwise use current skin
         let skin: Skin
-        if WindowManager.shared.lockBrowserMilkdropSkin {
+        if WindowManager.shared.lockBrowserProjectMSkin {
             skin = SkinLoader.shared.loadDefault()
         } else {
             skin = WindowManager.shared.currentSkin ?? SkinLoader.shared.loadDefault()
@@ -211,7 +211,7 @@ class MilkdropView: NSView {
         context.scaleBy(x: 1, y: -1)
         
         // Draw window chrome at actual window bounds (no scaling - chrome tiles to fill)
-        renderer.drawMilkdropWindow(in: context, bounds: bounds, isActive: isActive,
+        renderer.drawProjectMWindow(in: context, bounds: bounds, isActive: isActive,
                                     pressedButton: pressedButton, isShadeMode: isShadeMode)
         
         context.restoreGState()
@@ -541,7 +541,7 @@ class MilkdropView: NSView {
         case 37: // L key - toggle preset lock
             if let vis = visualizationGLView {
                 vis.isPresetLocked = !vis.isPresetLocked
-                NSLog("MilkdropView: Preset lock %@", vis.isPresetLocked ? "enabled" : "disabled")
+                NSLog("ProjectMView: Preset lock %@", vis.isPresetLocked ? "enabled" : "disabled")
             }
             
         case 8: // C key - toggle cycle mode
@@ -549,15 +549,15 @@ class MilkdropView: NSView {
             case .off:
                 presetCycleMode = .cycle
                 startPresetCycleTimer()
-                NSLog("MilkdropView: Auto-cycle enabled")
+                NSLog("ProjectMView: Auto-cycle enabled")
             case .cycle:
                 presetCycleMode = .random
                 startPresetCycleTimer()
-                NSLog("MilkdropView: Auto-random enabled")
+                NSLog("ProjectMView: Auto-random enabled")
             case .random:
                 presetCycleMode = .off
                 stopPresetCycleTimer()
-                NSLog("MilkdropView: Auto-cycle disabled")
+                NSLog("ProjectMView: Auto-cycle disabled")
             }
             
         default:

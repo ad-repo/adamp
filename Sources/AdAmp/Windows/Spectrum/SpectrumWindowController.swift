@@ -44,7 +44,7 @@ class SpectrumWindowController: NSWindowController {
         window.isOpaque = false
         window.hasShadow = true
         window.minSize = SkinElements.SpectrumWindow.minSize
-        window.title = "Spectrum Analyzer"
+        window.title = "NullPlayer Analyzer"
         
         // Prevent window from being released when closed - we reuse the same controller
         window.isReleasedWhenClosed = false
@@ -56,7 +56,7 @@ class SpectrumWindowController: NSWindowController {
         
         // Set accessibility identifier for UI testing
         window.setAccessibilityIdentifier("SpectrumWindow")
-        window.setAccessibilityLabel("Spectrum Analyzer Window")
+        window.setAccessibilityLabel("NullPlayer Analyzer Window")
     }
     
     private func setupView() {

@@ -37,7 +37,7 @@ enum ButtonType: CaseIterable {
     case minimize
     case shade
     case unshade  // Used in shade mode to return to normal
-    case menu     // Top-left menu icon - opens Milkdrop
+    case menu     // Top-left menu icon - opens ProjectM
     
     // Toggle buttons
     case shuffle
@@ -867,7 +867,7 @@ struct SkinElements {
             /// Right corner - contains close button area
             static let rightCorner = NSRect(x: 475, y: 0, width: 25, height: 18)
             
-            /// Title sprite containing "WINAMP LIBRARY" text - extracted from center of title bar
+            /// Title sprite containing "NULLPLAYER LIBRARY" text - extracted from center of title bar
             /// This is the actual rendered title text from the PNG, not a tile
             static let titleSprite = NSRect(x: 175, y: 0, width: 150, height: 18)
         }
@@ -935,10 +935,10 @@ struct SkinElements {
         }
     }
     
-    // MARK: - Milkdrop Visualization Window
+    // MARK: - ProjectM Visualization Window
     // Uses PLEDIT.BMP title bar style with GenFont text
     
-    struct Milkdrop {
+    struct ProjectM {
         /// Minimum window size
         static let minSize = NSSize(width: 275, height: 150)
         
@@ -989,7 +989,7 @@ struct SkinElements {
     
     // MARK: - Art Visualizer Window
     // Audio-reactive album art visualization window
-    // Uses same chrome style as Milkdrop window
+    // Uses same chrome style as ProjectM window
     
     struct ArtVisualizer {
         /// Minimum window size
@@ -998,7 +998,7 @@ struct SkinElements {
         /// Default window size - square for album art
         static let defaultSize = NSSize(width: 500, height: 500)
         
-        /// Title bar height (same as Milkdrop/playlist)
+        /// Title bar height (same as ProjectM/playlist)
         static let titleBarHeight: CGFloat = 20
         
         /// Shade mode height (title bar only)
@@ -1014,7 +1014,7 @@ struct SkinElements {
         
         /// Window control button positions in title bar
         struct TitleBarButtons {
-            // Relative to right edge of window (same as Milkdrop)
+            // Relative to right edge of window (same as ProjectM)
             static let closeOffset: CGFloat = 11
             static let shadeOffset: CGFloat = 20
         }
@@ -1022,7 +1022,7 @@ struct SkinElements {
     
     // MARK: - Spectrum Analyzer Window
     // Standalone spectrum analyzer visualization window
-    // Uses same chrome style as Milkdrop window
+    // Uses same chrome style as ProjectM window
     
     struct SpectrumWindow {
         /// Window size matches main window dimensions (scaled by Skin.scaleFactor for consistency)
@@ -1031,7 +1031,7 @@ struct SkinElements {
         /// Minimum window size (scaled)
         static let minSize = NSSize(width: 275 * Skin.scaleFactor, height: 116 * Skin.scaleFactor)
         
-        /// Title bar height (same as playlist/Milkdrop, scaled)
+        /// Title bar height (same as playlist/ProjectM, scaled)
         static let titleBarHeight: CGFloat = 20 * Skin.scaleFactor
         
         /// Shade mode height (title bar only, scaled)
@@ -1058,15 +1058,15 @@ struct SkinElements {
         
         /// Window control button positions in title bar (scaled)
         struct TitleBarButtons {
-            // Relative to right edge of window (same as Milkdrop)
+            // Relative to right edge of window (same as ProjectM)
             static let closeOffset: CGFloat = 11 * Skin.scaleFactor
             static let shadeOffset: CGFloat = 20
         }
     }
     
-    // MARK: - GEN.BMP (Generic/AVS/Milkdrop window)
+    // MARK: - GEN.BMP (Generic/AVS/ProjectM window)
     
-    /// Sprites from GEN.BMP - used for AVS/Milkdrop window chrome
+    /// Sprites from GEN.BMP - used for AVS/ProjectM window chrome
     /// GEN.BMP layout (194x109):
     /// - Y=0-19: Active title bar (20px) - left corner (25px), tile (29px at x=26), right corner (41px at x=153)
     /// - Y=21-40: Inactive title bar (20px) - same structure as active
@@ -1123,7 +1123,7 @@ struct SkinElements {
         }
     }
     
-    /// Font sprites from GEN.BMP - used for AVS/Milkdrop window titles
+    /// Font sprites from GEN.BMP - used for AVS/ProjectM window titles
     /// Gen.gif layout: 194x109 pixels - VARIABLE WIDTH FONT
     /// Y=89-94: Active alphabet A-Z (white/bright, 6px tall, variable width)
     /// Y=97-102: Inactive alphabet A-Z (muted/darker, 6px tall, variable width)
@@ -1212,7 +1212,7 @@ struct SkinElements {
     
     /// Character sources for title bar text
     /// Characters can come from:
-    /// - PLEDIT.BMP title sprite (26,0 - 100x20): "WINAMP PLAYLIST"
+    /// - PLEDIT.BMP title sprite (26,0 - 100x20): "NULLPLAYER PLAYLIST"
     /// - EQMAIN.BMP title bar (0, 134 - 275x14): "EQUALIZER"
     struct TitleBarFont {
         static let charWidth: CGFloat = 5
@@ -1227,7 +1227,7 @@ struct SkinElements {
         }
         
         /// Get the source for a character
-        /// PLEDIT title sprite: "WINAMP PLAYLIST" at (26,0), text starts ~x=33, y=5
+        /// PLEDIT title sprite: "NULLPLAYER PLAYLIST" at (26,0), text starts ~x=33, y=5
         /// EQMAIN title bar: "EQUALIZER" at (0,134), text starts ~x=108, y=5
         static func charSource(for char: Character) -> CharSource {
             // Offsets within the respective sprites

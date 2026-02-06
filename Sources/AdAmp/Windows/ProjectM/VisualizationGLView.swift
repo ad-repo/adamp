@@ -18,7 +18,7 @@ private class VisualizationDisplayLinkContext {
 
 /// OpenGL view for real-time audio visualization
 /// Uses CVDisplayLink for 60fps updates
-/// Supports projectM for Milkdrop preset rendering with fallback to built-in visualizations
+/// Supports projectM for ProjectM preset rendering with fallback to built-in visualizations
 class VisualizationGLView: NSOpenGLView {
     
     // MARK: - Properties
@@ -56,7 +56,7 @@ class VisualizationGLView: NSOpenGLView {
     /// User-configurable via context menu, persisted in UserDefaults
     private(set) var normalBeatSensitivity: Float = 1.0 {
         didSet {
-            UserDefaults.standard.set(normalBeatSensitivity, forKey: "milkdropBeatSensitivity")
+            UserDefaults.standard.set(normalBeatSensitivity, forKey: "projectMBeatSensitivity")
         }
     }
     
@@ -80,7 +80,7 @@ class VisualizationGLView: NSOpenGLView {
     /// Saved to UserDefaults for persistence
     private(set) var isLowPowerMode: Bool = true {
         didSet {
-            UserDefaults.standard.set(isLowPowerMode, forKey: "milkdropLowPowerMode")
+            UserDefaults.standard.set(isLowPowerMode, forKey: "projectMLowPowerMode")
         }
     }
     
@@ -89,7 +89,7 @@ class VisualizationGLView: NSOpenGLView {
     /// Range: 0.5 to 3.0, default 1.0 (unity gain)
     private(set) var pcmGain: Float = 1.0 {
         didSet {
-            UserDefaults.standard.set(pcmGain, forKey: "milkdropPCMGain")
+            UserDefaults.standard.set(pcmGain, forKey: "projectMPCMGain")
         }
     }
     
@@ -126,18 +126,18 @@ class VisualizationGLView: NSOpenGLView {
         }
         
         // Load saved performance mode preference (defaults to low power / 30fps)
-        if UserDefaults.standard.object(forKey: "milkdropLowPowerMode") != nil {
-            isLowPowerMode = UserDefaults.standard.bool(forKey: "milkdropLowPowerMode")
+        if UserDefaults.standard.object(forKey: "projectMLowPowerMode") != nil {
+            isLowPowerMode = UserDefaults.standard.bool(forKey: "projectMLowPowerMode")
         }
         
         // Load saved PCM gain preference (defaults to 1.0 / unity gain)
-        if UserDefaults.standard.object(forKey: "milkdropPCMGain") != nil {
-            pcmGain = UserDefaults.standard.float(forKey: "milkdropPCMGain")
+        if UserDefaults.standard.object(forKey: "projectMPCMGain") != nil {
+            pcmGain = UserDefaults.standard.float(forKey: "projectMPCMGain")
         }
         
         // Load saved beat sensitivity preference (defaults to 1.0 / normal)
-        if UserDefaults.standard.object(forKey: "milkdropBeatSensitivity") != nil {
-            normalBeatSensitivity = UserDefaults.standard.float(forKey: "milkdropBeatSensitivity")
+        if UserDefaults.standard.object(forKey: "projectMBeatSensitivity") != nil {
+            normalBeatSensitivity = UserDefaults.standard.float(forKey: "projectMBeatSensitivity")
         }
 
         // Set up OpenGL context
@@ -157,18 +157,18 @@ class VisualizationGLView: NSOpenGLView {
         }
         
         // Load saved performance mode preference (defaults to low power / 30fps)
-        if UserDefaults.standard.object(forKey: "milkdropLowPowerMode") != nil {
-            isLowPowerMode = UserDefaults.standard.bool(forKey: "milkdropLowPowerMode")
+        if UserDefaults.standard.object(forKey: "projectMLowPowerMode") != nil {
+            isLowPowerMode = UserDefaults.standard.bool(forKey: "projectMLowPowerMode")
         }
         
         // Load saved PCM gain preference (defaults to 1.0 / unity gain)
-        if UserDefaults.standard.object(forKey: "milkdropPCMGain") != nil {
-            pcmGain = UserDefaults.standard.float(forKey: "milkdropPCMGain")
+        if UserDefaults.standard.object(forKey: "projectMPCMGain") != nil {
+            pcmGain = UserDefaults.standard.float(forKey: "projectMPCMGain")
         }
         
         // Load saved beat sensitivity preference (defaults to 1.0 / normal)
-        if UserDefaults.standard.object(forKey: "milkdropBeatSensitivity") != nil {
-            normalBeatSensitivity = UserDefaults.standard.float(forKey: "milkdropBeatSensitivity")
+        if UserDefaults.standard.object(forKey: "projectMBeatSensitivity") != nil {
+            normalBeatSensitivity = UserDefaults.standard.float(forKey: "projectMBeatSensitivity")
         }
 
         setupOpenGL()

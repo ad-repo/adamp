@@ -707,7 +707,7 @@ Both local and streaming playback use **identical FFT processing** for consisten
 
 ### Volume-Independent Visualizations
 
-Spectrum analyzer and MilkDrop visualizations display audio levels independently of the user's volume setting. This ensures visualizations show consistent audio levels whether volume is at 10% or 100%.
+Spectrum analyzer and ProjectM visualizations display audio levels independently of the user's volume setting. This ensures visualizations show consistent audio levels whether volume is at 10% or 100%.
 
 **Local Playback Implementation:**
 - Audio tap installed on `mixerNode` at bus 0 (captures combined audio from both player nodes)
@@ -775,9 +775,9 @@ Ultra mode provides the smoothest and most visually impressive spectrum visualiz
 - `Windows/Spectrum/SpectrumWindowController.swift` - Window controller
 - `Windows/Spectrum/SpectrumView.swift` - Container view with skin chrome
 
-## Milkdrop Visualization
+## ProjectM Visualization
 
-AdAmp includes a Milkdrop visualization window powered by projectM (libprojectM-4).
+AdAmp includes a ProjectM visualization window powered by projectM (libprojectM-4).
 
 ### Low-Latency PCM Delivery
 
@@ -815,14 +815,14 @@ This prevents the visualization from appearing overly active when no music is pl
 
 ### Fullscreen Mode
 
-The Milkdrop window supports fullscreen mode:
+The ProjectM window supports fullscreen mode:
 
 - Press **F** to toggle fullscreen
 - Press **Escape** to exit fullscreen
 - Menu bar and dock auto-hide in fullscreen
 - Window chrome is hidden for immersive viewing
 
-Note: The Milkdrop window uses a custom fullscreen implementation (rather than macOS native fullscreen) because it's a borderless window for authentic Winamp styling.
+Note: The ProjectM window uses a custom fullscreen implementation (rather than macOS native fullscreen) because it's a borderless window for authentic Winamp styling.
 
 ### Keyboard Controls
 

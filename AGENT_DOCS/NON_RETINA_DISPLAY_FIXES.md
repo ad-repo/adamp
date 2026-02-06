@@ -6,7 +6,7 @@ This document details the work done to fix rendering artifacts on non-Retina (1x
 
 Three main issues were identified on non-Retina displays:
 1. **Blue line artifacts** - Blue-tinted pixels in the skin became visible as harsh lines/artifacts
-2. **Lines under titles** - Horizontal lines appearing below window titles (Library Browser, Milkdrop)
+2. **Lines under titles** - Horizontal lines appearing below window titles (Library Browser, ProjectM)
 3. **Tile seam artifacts** - Visible vertical and horizontal lines at sprite tile boundaries (Playlist window title bar, side borders, scrollbar)
 
 ## Root Causes
@@ -188,18 +188,18 @@ if backingScale >= 1.5 {
 
 **Approach**: Use NSImage-based sprite drawing instead of CGImage with `interpolationQuality = .none` for title bars.
 
-**Problem**: The Library Browser title bar had visible horizontal lines while Milkdrop's title bar looked clean. The difference was:
+**Problem**: The Library Browser title bar had visible horizontal lines while ProjectM's title bar looked clean. The difference was:
 - Library Browser used `CGImage`-based `drawSprite` with `context.interpolationQuality = .none`
-- Milkdrop used `NSImage`-based `drawSprite` without forcing interpolation off
+- ProjectM used `NSImage`-based `drawSprite` without forcing interpolation off
 
-**Solution**: Changed `drawPlexBrowserTitleBarFromPledit` to use the same NSImage-based rendering approach as Milkdrop:
+**Solution**: Changed `drawPlexBrowserTitleBarFromPledit` to use the same NSImage-based rendering approach as ProjectM:
 
 ```swift
 // Before (caused horizontal lines):
 drawSprite(from: cgImage, sourceRect: leftCorner,
           destRect: NSRect(...), in: context)
 
-// After (matches Milkdrop - no lines):
+// After (matches ProjectM - no lines):
 drawSprite(from: pleditImage, sourceRect: leftCorner,
           to: NSRect(...), in: context)
 ```
@@ -342,7 +342,7 @@ self.setNeedsDisplay(listRect)
 
 2. **`Sources/AdAmp/Skin/SkinRenderer.swift`**
    - Skip certain highlight lines on non-Retina displays
-   - Use NSImage-based rendering for Library Browser title bar (matches Milkdrop)
+   - Use NSImage-based rendering for Library Browser title bar (matches ProjectM)
    - Playlist title bar: background fill + tile overlap + corners drawn on top (wider)
    - Playlist side borders: background fill + bottom-to-top tiling
    - Playlist scrollbar track: background fill + bottom-to-top tiling
@@ -377,7 +377,7 @@ self.setNeedsDisplay(listRect)
 
 **Symptoms**:
 - Window content disappears from the original monitor before fully appearing on the new monitor
-- Affects all windows (main, EQ, playlist, browser, milkdrop)
+- Affects all windows (main, EQ, playlist, browser, projectM)
 - More noticeable when crossing between Retina and non-Retina displays
 
 **Likely Causes**:

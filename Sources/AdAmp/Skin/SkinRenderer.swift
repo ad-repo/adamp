@@ -23,7 +23,7 @@ class SkinRenderer {
     /// Scale factor for Retina displays (renders at 1x then scales)
     var scaleFactor: CGFloat = 2.0
 
-    private let plexTitleText = "WINAMP LIBRARY"
+    private let plexTitleText = "NULLPLAYER LIBRARY"
     
     /// Cached white-tinted version of the text font image
     private var _whiteTextImage: NSImage?
@@ -72,6 +72,9 @@ class SkinRenderer {
                               width: bounds.width, height: SkinElements.titleBarHeight)
         
         drawSprite(from: titlebarImage, sourceRect: sourceRect, to: destRect, in: context)
+        
+        // Override baked-in title text with "NULLPLAYER" using GenFont
+        drawGenFontTitleText("NULLPLAYER", in: context, bounds: bounds, titleHeight: SkinElements.titleBarHeight, isActive: isActive)
     }
     
     // MARK: - Button Rendering
@@ -1264,6 +1267,9 @@ class SkinRenderer {
             let titleSource = isActive ? SkinElements.Equalizer.titleActive : SkinElements.Equalizer.titleInactive
             let titleDest = NSRect(x: 0, y: 0, width: bounds.width, height: 14)
             drawSprite(from: eqImage, sourceRect: titleSource, to: titleDest, in: context)
+            
+            // Override baked-in title text with "NULLPLAYER EQUALIZER" using GenFont
+            drawGenFontTitleText("NULLPLAYER EQUALIZER", in: context, bounds: bounds, titleHeight: 14, isActive: isActive)
         } else {
             // Fallback EQ background
             drawFallbackEQBackground(in: context, bounds: bounds)
@@ -1398,35 +1404,35 @@ class SkinRenderer {
         context.stroke(knobRect)
     }
     
-    // MARK: - Milkdrop Visualization Window
+    // MARK: - ProjectM Visualization Window
     
-    /// Milkdrop button types
-    enum MilkdropButtonType {
+    /// ProjectM button types
+    enum ProjectMButtonType {
         case close, shade
     }
     
-    /// Draw the complete Milkdrop window chrome (title bar, borders)
+    /// Draw the complete ProjectM window chrome (title bar, borders)
     /// The visualization area itself is handled by the OpenGL view
-    func drawMilkdropWindow(in context: CGContext, bounds: NSRect, isActive: Bool,
-                            pressedButton: MilkdropButtonType?, isShadeMode: Bool) {
+    func drawProjectMWindow(in context: CGContext, bounds: NSRect, isActive: Bool,
+                            pressedButton: ProjectMButtonType?, isShadeMode: Bool) {
         if isShadeMode {
-            drawMilkdropShade(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
+            drawProjectMShade(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
         } else {
-            drawMilkdropNormal(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
+            drawProjectMNormal(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
         }
     }
     
-    /// Draw normal mode Milkdrop window chrome
-    /// Uses PLEDIT.BMP title bar sprites (same style as playlist) with "MILKDROP" text
-    private func drawMilkdropNormal(in context: CGContext, bounds: NSRect, isActive: Bool,
-                                    pressedButton: MilkdropButtonType?) {
+    /// Draw normal mode ProjectM window chrome
+    /// Uses PLEDIT.BMP title bar sprites (same style as playlist) with "PROJECTM" text
+    private func drawProjectMNormal(in context: CGContext, bounds: NSRect, isActive: Bool,
+                                    pressedButton: ProjectMButtonType?) {
         // Fill background with black for visualization area
         NSColor.black.setFill()
         context.fill(bounds)
         
         let titleHeight = SkinElements.Playlist.titleHeight  // 20px like playlist
-        let borderWidth = SkinElements.Milkdrop.Layout.leftBorder
-        let bottomHeight = SkinElements.Milkdrop.Layout.bottomBorder
+        let borderWidth = SkinElements.ProjectM.Layout.leftBorder
+        let bottomHeight = SkinElements.ProjectM.Layout.bottomBorder
         
         // Draw dark borders
         let borderColor = NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.12, alpha: 1.0)
@@ -1442,13 +1448,13 @@ class SkinRenderer {
         context.fill(NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: bottomHeight))
         
         // Draw title bar using PLEDIT.BMP sprites (same style as playlist window)
-        drawMilkdropTitleBarFromPledit(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
+        drawProjectMTitleBarFromPledit(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
     }
     
-    /// Draw Milkdrop title bar using PLEDIT.BMP sprites with "MILKDROP" text overlay
-    private func drawMilkdropTitleBarFromPledit(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: MilkdropButtonType?) {
+    /// Draw ProjectM title bar using PLEDIT.BMP sprites with "PROJECTM" text overlay
+    private func drawProjectMTitleBarFromPledit(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: ProjectMButtonType?) {
         guard let pleditImage = skin.pledit else {
-            drawFallbackMilkdropTitleBar(in: context, bounds: bounds, isActive: isActive)
+            drawFallbackProjectMTitleBar(in: context, bounds: bounds, isActive: isActive)
             return
         }
         
@@ -1481,8 +1487,8 @@ class SkinRenderer {
             x += tileWidth
         }
         
-        // Draw "MILKDROP" text using GenFont (active/inactive based on window state)
-        drawMilkdropTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        // Draw "PROJECTM" text using GenFont (active/inactive based on window state)
+        drawProjectMTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw close button pressed state if needed
         if pressedButton == .close {
@@ -1493,9 +1499,9 @@ class SkinRenderer {
         }
     }
     
-    /// Draw "MILKDROP" text using GenFont from gen.png
+    /// Draw "PROJECTM" text using GenFont from gen.png
     /// Creates a solid background gap in the title bar decorations for the text
-    private func drawMilkdropTitleText(in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
+    private func drawProjectMTitleText(in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
         // Load gen.png from skin or bundle
         let genImage = skin.gen ?? Skin.genWindowImage
         guard let genImage = genImage,
@@ -1503,7 +1509,7 @@ class SkinRenderer {
             return  // GenFont required - no fallback
         }
         
-        let text = "MILKDROP"
+        let text = "PROJECTM"
         let scale = Skin.scaleFactor  // 1.25 - match other windows
         let charHeight = SkinElements.GenFont.charHeight * scale  // 6px * 1.25 = 7.5px
         let charSpacing: CGFloat = 0  // No extra spacing between letters
@@ -1592,9 +1598,9 @@ class SkinRenderer {
     // MARK: - Spectrum Analyzer Window
     
     /// Draw spectrum analyzer window chrome
-    /// Uses same style as Milkdrop window but with "SPECTRUM ANALYZER" title
+    /// Uses same style as ProjectM window but with "SPECTRUM ANALYZER" title
     func drawSpectrumAnalyzerWindow(in context: CGContext, bounds: NSRect, isActive: Bool,
-                                    pressedButton: MilkdropButtonType?, isShadeMode: Bool) {
+                                    pressedButton: ProjectMButtonType?, isShadeMode: Bool) {
         if isShadeMode {
             drawSpectrumAnalyzerShade(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
         } else {
@@ -1604,14 +1610,14 @@ class SkinRenderer {
     
     /// Draw normal mode spectrum analyzer window chrome
     private func drawSpectrumAnalyzerNormal(in context: CGContext, bounds: NSRect, isActive: Bool,
-                                            pressedButton: MilkdropButtonType?) {
+                                            pressedButton: ProjectMButtonType?) {
         // Fill background with black for visualization area
         NSColor.black.setFill()
         context.fill(bounds)
         
         let titleHeight = SkinElements.Playlist.titleHeight  // 20px like playlist
-        let borderWidth = SkinElements.Milkdrop.Layout.leftBorder
-        let bottomHeight = SkinElements.Milkdrop.Layout.bottomBorder
+        let borderWidth = SkinElements.ProjectM.Layout.leftBorder
+        let bottomHeight = SkinElements.ProjectM.Layout.bottomBorder
         
         // Draw dark borders
         let borderColor = NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.12, alpha: 1.0)
@@ -1630,10 +1636,10 @@ class SkinRenderer {
         drawSpectrumAnalyzerTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
     }
     
-    /// Draw spectrum analyzer title bar using PLEDIT.BMP sprites with "SPECTRUM ANALYZER" text
-    private func drawSpectrumAnalyzerTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: MilkdropButtonType?) {
+    /// Draw spectrum analyzer title bar using PLEDIT.BMP sprites with "NULLPLAYER ANALYZER" text
+    private func drawSpectrumAnalyzerTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: ProjectMButtonType?) {
         guard let pleditImage = skin.pledit else {
-            drawFallbackMilkdropTitleBar(in: context, bounds: bounds, isActive: isActive)
+            drawFallbackProjectMTitleBar(in: context, bounds: bounds, isActive: isActive)
             return
         }
         
@@ -1666,7 +1672,7 @@ class SkinRenderer {
             x += tileWidth
         }
         
-        // Draw "SPECTRUM ANALYZER" text using GenFont
+        // Draw "NULLPLAYER ANALYZER" text using GenFont
         drawSpectrumAnalyzerTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw close button pressed state if needed
@@ -1678,7 +1684,7 @@ class SkinRenderer {
         }
     }
     
-    /// Draw "SPECTRUM ANALYZER" text using GenFont from gen.png
+    /// Draw "NULLPLAYER ANALYZER" text using GenFont from gen.png
     private func drawSpectrumAnalyzerTitleText(in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
         // Load gen.png from skin or bundle
         let genImage = skin.gen ?? Skin.genWindowImage
@@ -1687,7 +1693,7 @@ class SkinRenderer {
             return  // GenFont required - no fallback
         }
         
-        let text = "SPECTRUM ANALYZER"
+        let text = "NULLPLAYER ANALYZER"
         let scale = Skin.scaleFactor  // 1.25 - match other windows
         let charHeight = SkinElements.GenFont.charHeight * scale  // 6px * 1.25 = 7.5px
         let charSpacing: CGFloat = 0  // No extra spacing between letters
@@ -1785,7 +1791,7 @@ class SkinRenderer {
     }
     
     /// Draw spectrum analyzer shade mode
-    private func drawSpectrumAnalyzerShade(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: MilkdropButtonType?) {
+    private func drawSpectrumAnalyzerShade(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: ProjectMButtonType?) {
         guard let pleditImage = skin.pledit else {
             // Simple fallback
             NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.22, alpha: 1.0).setFill()
@@ -1818,7 +1824,7 @@ class SkinRenderer {
             x += tile.width
         }
         
-        // Draw "SPECTRUM ANALYZER" text (smaller for shade mode)
+        // Draw "NULLPLAYER ANALYZER" text (smaller for shade mode)
         drawSpectrumAnalyzerTitleText(in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
         
         // Close button pressed state
@@ -1829,9 +1835,14 @@ class SkinRenderer {
         }
     }
     
-    /// Draw "WINAMP LIBRARY" text using GenFont from gen.png
-    /// Creates a solid background gap in the title bar decorations for the text
+    /// Draw "NULLPLAYER LIBRARY" text using GenFont from gen.png
     private func drawLibraryTitleText(in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
+        drawGenFontTitleText("NULLPLAYER LIBRARY", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+    }
+    
+    /// Draw title text using GenFont from gen.png with a dark background gap
+    /// Reusable across all window title bars (main, playlist, EQ, library)
+    private func drawGenFontTitleText(_ text: String, in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
         // Load gen.png from skin or bundle
         let genImage = skin.gen ?? Skin.genWindowImage
         guard let genImage = genImage,
@@ -1839,11 +1850,10 @@ class SkinRenderer {
             return  // GenFont required - no fallback
         }
         
-        let text = "WINAMP LIBRARY"
-        let scale: CGFloat = 1.15  // Slightly smaller than other windows
+        let scale: CGFloat = 1.15
         let charHeight = SkinElements.GenFont.charHeight * scale
-        let charSpacing: CGFloat = 0  // No extra spacing between letters
-        let spaceWidth: CGFloat = 4  // Space between words
+        let charSpacing: CGFloat = 0
+        let spaceWidth: CGFloat = 4
         
         // Calculate total text width (scaled width, tight spacing)
         var totalWidth: CGFloat = 0
@@ -2095,12 +2105,12 @@ class SkinRenderer {
         context.restoreGState()
     }
     
-    /// Draw Milkdrop window in shade mode (title bar only)
-    private func drawMilkdropShade(in context: CGContext, bounds: NSRect, isActive: Bool,
-                                   pressedButton: MilkdropButtonType?) {
+    /// Draw ProjectM window in shade mode (title bar only)
+    private func drawProjectMShade(in context: CGContext, bounds: NSRect, isActive: Bool,
+                                   pressedButton: ProjectMButtonType?) {
         // In shade mode, use playlist shade sprites
         guard let pleditImage = skin.pledit else {
-            drawFallbackMilkdropTitleBar(in: context, bounds: bounds, isActive: isActive)
+            drawFallbackProjectMTitleBar(in: context, bounds: bounds, isActive: isActive)
             return
         }
         
@@ -2129,8 +2139,8 @@ class SkinRenderer {
             x += tile.width
         }
         
-        // Draw "MILKDROP" text using GenFont (active/inactive based on window state)
-        drawMilkdropTitleText(in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
+        // Draw "PROJECTM" text using GenFont (active/inactive based on window state)
+        drawProjectMTitleText(in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
         
         // Close button pressed state
         if pressedButton == .close {
@@ -2141,8 +2151,8 @@ class SkinRenderer {
     }
     
     /// Fallback chrome drawing when GEN.BMP is not available
-    private func drawFallbackMilkdropChrome(in context: CGContext, bounds: NSRect, isActive: Bool,
-                                            pressedButton: MilkdropButtonType?) {
+    private func drawFallbackProjectMChrome(in context: CGContext, bounds: NSRect, isActive: Bool,
+                                            pressedButton: ProjectMButtonType?) {
         let titleHeight = SkinElements.GenWindow.titleBarHeight
         let borderWidth: CGFloat = 11
         let bottomHeight: CGFloat = 14
@@ -2151,7 +2161,7 @@ class SkinRenderer {
         let borderColor = NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0)
         
         // Draw title bar background
-        drawFallbackMilkdropTitleBar(in: context, bounds: bounds, isActive: isActive)
+        drawFallbackProjectMTitleBar(in: context, bounds: bounds, isActive: isActive)
         
         // Draw side borders
         borderColor.setFill()
@@ -2169,8 +2179,8 @@ class SkinRenderer {
         }
     }
     
-    /// Fallback title bar for Milkdrop window when image not available
-    private func drawFallbackMilkdropTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool) {
+    /// Fallback title bar for ProjectM window when image not available
+    private func drawFallbackProjectMTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool) {
         let titleHeight = SkinElements.GenWindow.titleBarHeight
         let titleRect = NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight)
         
@@ -2181,8 +2191,8 @@ class SkinRenderer {
         ])
         gradient?.draw(in: titleRect, angle: 90)
         
-        // Draw "MILKDROP" text using fallback pixel patterns
-        drawFallbackMilkdropTitleText(centeredIn: titleRect, isActive: isActive, in: context)
+        // Draw "PROJECTM" text using fallback pixel patterns
+        drawFallbackProjectMTitleText(centeredIn: titleRect, isActive: isActive, in: context)
         
         // Draw close button (X) in the top-right corner
         let closeX = bounds.width - 15
@@ -2197,8 +2207,8 @@ class SkinRenderer {
         context.strokePath()
     }
     
-    /// Draw Milkdrop title text using pixel patterns (fallback only)
-    private func drawFallbackMilkdropTitleText(centeredIn rect: NSRect, isActive: Bool, in context: CGContext) {
+    /// Draw ProjectM title text using pixel patterns (fallback only)
+    private func drawFallbackProjectMTitleText(centeredIn rect: NSRect, isActive: Bool, in context: CGContext) {
         let charWidth: CGFloat = 5
         let charHeight: CGFloat = 6
         let letterSpacing: CGFloat = 1
@@ -2208,7 +2218,7 @@ class SkinRenderer {
         context.setShouldAntialias(false)
         context.interpolationQuality = .none
         
-        let titleText = "MILKDROP"
+        let titleText = "PROJECTM"
         let chars = Array(titleText)
         let totalWidth = CGFloat(chars.count) * charWidth + CGFloat(chars.count - 1) * letterSpacing
         let startX = rect.midX - totalWidth / 2
@@ -2228,11 +2238,11 @@ class SkinRenderer {
     }
     
     /// Get the visualization area rect (the area where OpenGL renders)
-    func getMilkdropVisualizationArea(bounds: NSRect) -> NSRect {
-        let titleHeight = SkinElements.Milkdrop.titleBarHeight
-        let leftBorder = SkinElements.Milkdrop.Layout.leftBorder
-        let rightBorder = SkinElements.Milkdrop.Layout.rightBorder
-        let bottomBorder = SkinElements.Milkdrop.Layout.bottomBorder
+    func getProjectMVisualizationArea(bounds: NSRect) -> NSRect {
+        let titleHeight = SkinElements.ProjectM.titleBarHeight
+        let leftBorder = SkinElements.ProjectM.Layout.leftBorder
+        let rightBorder = SkinElements.ProjectM.Layout.rightBorder
+        let bottomBorder = SkinElements.ProjectM.Layout.bottomBorder
         
         return NSRect(
             x: leftBorder,
@@ -2329,10 +2339,8 @@ class SkinRenderer {
         drawSprite(from: pleditImage, sourceRect: rightCorner,
                   to: NSRect(x: bounds.width - rightCornerWidth - cornerOverlap, y: 0, width: rightCornerWidth + cornerOverlap, height: titleHeight), in: context)
         
-        // Draw title text sprite CENTERED over the tiles
-        let titleX = middleStart + (middleWidth - titleSpriteWidth) / 2
-        drawSprite(from: pleditImage, sourceRect: titleSprite,
-                  to: NSRect(x: titleX, y: 0, width: titleSpriteWidth, height: titleHeight), in: context)
+        // Draw "NULLPLAYER PLAYLIST" text CENTERED over the tiles (instead of skin sprite with baked-in text)
+        drawGenFontTitleText("NULLPLAYER PLAYLIST", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw window control button pressed states if needed
         if pressedButton == .close {
@@ -2531,7 +2539,7 @@ class SkinRenderer {
         context.translateBy(x: 0, y: titleHeight)
         context.scaleBy(x: 1, y: -1)
         
-        let title = "WINAMP PLAYLIST"
+        let title = "NULLPLAYER PLAYLIST"
         let attrs: [NSAttributedString.Key: Any] = [
             .foregroundColor: NSColor.white,
             .font: NSFont.boldSystemFont(ofSize: 8)
@@ -2658,7 +2666,7 @@ class SkinRenderer {
         let borderWidth: CGFloat = 3
         let statusHeight = layout.statusBarHeight
         
-        // Fill background with black first (like Milkdrop does)
+        // Fill background with black first (like ProjectM does)
         // This ensures any gaps between sprites show black, not skin colors
         NSColor.black.setFill()
         context.fill(bounds)
@@ -2674,14 +2682,14 @@ class SkinRenderer {
         skin.playlistColors.normalBackground.setFill()
         context.fill(contentArea)
         
-        // Draw side borders BEFORE title bar (like Milkdrop does)
+        // Draw side borders BEFORE title bar (like ProjectM does)
         // This creates a clean background for the title bar to draw on top of
         drawPlexBrowserSideBorders(in: context, bounds: bounds)
         
         // Draw status bar at bottom
         drawPlexBrowserStatusBar(in: context, bounds: bounds)
         
-        // Draw title bar LAST so it draws on top of borders (like Milkdrop)
+        // Draw title bar LAST so it draws on top of borders (like ProjectM)
         drawPlexBrowserTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
         
         // Draw scrollbar
@@ -2691,9 +2699,9 @@ class SkinRenderer {
     }
     
     /// Draw Plex browser title bar with skin sprites
-    /// Uses PLEDIT.BMP for skin following (same approach as Milkdrop window)
+    /// Uses PLEDIT.BMP for skin following (same approach as ProjectM window)
     func drawPlexBrowserTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlexBrowserButtonType?) {
-        // Use PLEDIT sprites for skin-following (matches Milkdrop window approach)
+        // Use PLEDIT sprites for skin-following (matches ProjectM window approach)
         guard let pleditImage = skin.pledit else {
             // Fall back to library-window.png if no skin loaded
             if let libraryImage = Skin.libraryWindowImage {
@@ -2709,19 +2717,19 @@ class SkinRenderer {
     }
     
     /// Draw Plex browser title bar using PLEDIT.BMP sprites
-    /// Draw Plex browser title bar using PLEDIT.BMP sprites (same approach as Milkdrop)
+    /// Draw Plex browser title bar using PLEDIT.BMP sprites (same approach as ProjectM)
     private func drawPlexBrowserTitleBarFromPledit(_ pleditImage: NSImage, in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlexBrowserButtonType?) {
         let titleHeight = SkinElements.Playlist.titleHeight
         let leftCornerWidth: CGFloat = 25
         let rightCornerWidth: CGFloat = 25
         let tileWidth: CGFloat = 25
         
-        // Get the correct sprite set for active/inactive state (same as playlist/milkdrop)
+        // Get the correct sprite set for active/inactive state (same as playlist/projectM)
         let leftCorner = isActive ? SkinElements.Playlist.TitleBarActive.leftCorner : SkinElements.Playlist.TitleBarInactive.leftCorner
         let tileSprite = isActive ? SkinElements.Playlist.TitleBarActive.tile : SkinElements.Playlist.TitleBarInactive.tile
         let rightCorner = isActive ? SkinElements.Playlist.TitleBarActive.rightCorner : SkinElements.Playlist.TitleBarInactive.rightCorner
         
-        // Use NSImage-based drawing (same as Milkdrop) to avoid interpolation artifacts
+        // Use NSImage-based drawing (same as ProjectM) to avoid interpolation artifacts
         drawSprite(from: pleditImage, sourceRect: leftCorner,
                   to: NSRect(x: 0, y: 0, width: leftCornerWidth, height: titleHeight), in: context)
         
@@ -2782,7 +2790,7 @@ class SkinRenderer {
         NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0).setFill()
         context.fill(NSRect(x: tileEnd, y: 0, width: buttonAreaWidth, height: titleHeight))
         
-        // Draw "WINAMP LIBRARY" text using GenFont with proper active/inactive colors
+        // Draw "NULLPLAYER LIBRARY" text using GenFont with proper active/inactive colors
         drawLibraryTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw window control buttons using skin titlebar sprites (same style as main window)
@@ -2993,13 +3001,13 @@ class SkinRenderer {
             "X": [0b10001, 0b01010, 0b00100, 0b00100, 0b01010, 0b10001],
             "B": [0b11110, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
             "O": [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-            // Additional letters for "WINAMP LIBRARY"
+            // Additional letters for "NULLPLAYER LIBRARY"
             "I": [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
             "N": [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001],
             "A": [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001],
             "M": [0b10001, 0b11011, 0b10101, 0b10001, 0b10001, 0b10001],
             "Y": [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100],
-            // Additional letters for "MILKDROP"
+            // Additional letters for "PROJECTM"
             "K": [0b10001, 0b10010, 0b11100, 0b10010, 0b10001, 0b10001],
             "D": [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
         ]

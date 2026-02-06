@@ -6,9 +6,9 @@ import OpenGL.GL3
 import CProjectM
 #endif
 
-/// Swift wrapper around libprojectM v4 for Milkdrop visualization
+/// Swift wrapper around libprojectM v4 for ProjectM visualization
 ///
-/// This class manages a projectM instance for rendering Milkdrop presets
+/// This class manages a projectM instance for rendering ProjectM presets
 /// with real-time audio visualization.
 class ProjectMWrapper: VisualizationEngine {
     
@@ -29,7 +29,7 @@ class ProjectMWrapper: VisualizationEngine {
 
     /// Display name for the visualization engine
     var displayName: String {
-        return "ProjectM (Milkdrop)"
+        return "ProjectM (ProjectM)"
     }
 
     /// Current viewport dimensions

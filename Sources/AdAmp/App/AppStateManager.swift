@@ -92,7 +92,7 @@ class AppStateManager {
         var isPlaylistVisible: Bool
         var isEqualizerVisible: Bool
         var isPlexBrowserVisible: Bool
-        var isMilkdropVisible: Bool
+        var isProjectMVisible: Bool
         var isSpectrumVisible: Bool = false
         
         // Window frames (as strings for NSRect compatibility)
@@ -100,9 +100,9 @@ class AppStateManager {
         var playlistWindowFrame: String?
         var equalizerWindowFrame: String?
         var plexBrowserWindowFrame: String?
-        var milkdropWindowFrame: String?
+        var projectMWindowFrame: String?
         var spectrumWindowFrame: String?
-        var isMilkdropFullscreen: Bool = false
+        var isProjectMFullscreen: Bool = false
         
         // Audio settings
         var volume: Float
@@ -138,8 +138,8 @@ class AppStateManager {
         var customSkinPath: String?
         var baseSkinIndex: Int?  // 1, 2, or 3 for base skins; nil for custom skin
         
-        // Milkdrop preset
-        var milkdropPresetIndex: Int?
+        // ProjectM preset
+        var projectMPresetIndex: Int?
         
         // Version for future compatibility
         var stateVersion: Int = 1
@@ -147,15 +147,15 @@ class AppStateManager {
         // MARK: - Custom Decoding for Backward Compatibility
         
         enum CodingKeys: String, CodingKey {
-            case isPlaylistVisible, isEqualizerVisible, isPlexBrowserVisible, isMilkdropVisible, isSpectrumVisible
-            case mainWindowFrame, playlistWindowFrame, equalizerWindowFrame, plexBrowserWindowFrame, milkdropWindowFrame, spectrumWindowFrame, isMilkdropFullscreen
+            case isPlaylistVisible, isEqualizerVisible, isPlexBrowserVisible, isProjectMVisible, isSpectrumVisible
+            case mainWindowFrame, playlistWindowFrame, equalizerWindowFrame, plexBrowserWindowFrame, projectMWindowFrame, spectrumWindowFrame, isProjectMFullscreen
             case volume, balance, shuffleEnabled, repeatEnabled, gaplessPlaybackEnabled, volumeNormalizationEnabled
             case sweetFadeEnabled, sweetFadeDuration
             case eqEnabled, eqAutoEnabled, eqPreamp, eqBands
             case playlistTracks, playlistURLs, currentTrackIndex, playbackPosition, wasPlaying
             case timeDisplayMode, isAlwaysOnTop
             case customSkinPath, baseSkinIndex
-            case milkdropPresetIndex
+            case projectMPresetIndex
             case stateVersion
         }
         
@@ -166,7 +166,7 @@ class AppStateManager {
             isPlaylistVisible = try container.decode(Bool.self, forKey: .isPlaylistVisible)
             isEqualizerVisible = try container.decode(Bool.self, forKey: .isEqualizerVisible)
             isPlexBrowserVisible = try container.decode(Bool.self, forKey: .isPlexBrowserVisible)
-            isMilkdropVisible = try container.decode(Bool.self, forKey: .isMilkdropVisible)
+            isProjectMVisible = try container.decode(Bool.self, forKey: .isProjectMVisible)
             isSpectrumVisible = try container.decodeIfPresent(Bool.self, forKey: .isSpectrumVisible) ?? false
             
             // Window frames
@@ -174,9 +174,9 @@ class AppStateManager {
             playlistWindowFrame = try container.decodeIfPresent(String.self, forKey: .playlistWindowFrame)
             equalizerWindowFrame = try container.decodeIfPresent(String.self, forKey: .equalizerWindowFrame)
             plexBrowserWindowFrame = try container.decodeIfPresent(String.self, forKey: .plexBrowserWindowFrame)
-            milkdropWindowFrame = try container.decodeIfPresent(String.self, forKey: .milkdropWindowFrame)
+            projectMWindowFrame = try container.decodeIfPresent(String.self, forKey: .projectMWindowFrame)
             spectrumWindowFrame = try container.decodeIfPresent(String.self, forKey: .spectrumWindowFrame)
-            isMilkdropFullscreen = try container.decodeIfPresent(Bool.self, forKey: .isMilkdropFullscreen) ?? false
+            isProjectMFullscreen = try container.decodeIfPresent(Bool.self, forKey: .isProjectMFullscreen) ?? false
             
             // Audio settings
             volume = try container.decode(Float.self, forKey: .volume)
@@ -220,8 +220,8 @@ class AppStateManager {
             customSkinPath = try container.decodeIfPresent(String.self, forKey: .customSkinPath)
             baseSkinIndex = try container.decodeIfPresent(Int.self, forKey: .baseSkinIndex)
             
-            // Milkdrop preset - nil for backward compatibility with older saved states
-            milkdropPresetIndex = try container.decodeIfPresent(Int.self, forKey: .milkdropPresetIndex)
+            // ProjectM preset - nil for backward compatibility with older saved states
+            projectMPresetIndex = try container.decodeIfPresent(Int.self, forKey: .projectMPresetIndex)
             
             // Version
             stateVersion = try container.decodeIfPresent(Int.self, forKey: .stateVersion) ?? 1
@@ -232,15 +232,15 @@ class AppStateManager {
             isPlaylistVisible: Bool,
             isEqualizerVisible: Bool,
             isPlexBrowserVisible: Bool,
-            isMilkdropVisible: Bool,
+            isProjectMVisible: Bool,
             isSpectrumVisible: Bool = false,
             mainWindowFrame: String?,
             playlistWindowFrame: String?,
             equalizerWindowFrame: String?,
             plexBrowserWindowFrame: String?,
-            milkdropWindowFrame: String?,
+            projectMWindowFrame: String?,
             spectrumWindowFrame: String? = nil,
-            isMilkdropFullscreen: Bool = false,
+            isProjectMFullscreen: Bool = false,
             volume: Float,
             balance: Float,
             shuffleEnabled: Bool,
@@ -261,21 +261,21 @@ class AppStateManager {
             isAlwaysOnTop: Bool,
             customSkinPath: String? = nil,
             baseSkinIndex: Int? = nil,
-            milkdropPresetIndex: Int? = nil,
+            projectMPresetIndex: Int? = nil,
             stateVersion: Int = 1
         ) {
             self.isPlaylistVisible = isPlaylistVisible
             self.isEqualizerVisible = isEqualizerVisible
             self.isPlexBrowserVisible = isPlexBrowserVisible
-            self.isMilkdropVisible = isMilkdropVisible
+            self.isProjectMVisible = isProjectMVisible
             self.isSpectrumVisible = isSpectrumVisible
             self.mainWindowFrame = mainWindowFrame
             self.playlistWindowFrame = playlistWindowFrame
             self.equalizerWindowFrame = equalizerWindowFrame
             self.plexBrowserWindowFrame = plexBrowserWindowFrame
-            self.milkdropWindowFrame = milkdropWindowFrame
+            self.projectMWindowFrame = projectMWindowFrame
             self.spectrumWindowFrame = spectrumWindowFrame
-            self.isMilkdropFullscreen = isMilkdropFullscreen
+            self.isProjectMFullscreen = isProjectMFullscreen
             self.volume = volume
             self.balance = balance
             self.shuffleEnabled = shuffleEnabled
@@ -297,7 +297,7 @@ class AppStateManager {
             self.isAlwaysOnTop = isAlwaysOnTop
             self.customSkinPath = customSkinPath
             self.baseSkinIndex = baseSkinIndex
-            self.milkdropPresetIndex = milkdropPresetIndex
+            self.projectMPresetIndex = projectMPresetIndex
             self.stateVersion = stateVersion
         }
     }
@@ -342,7 +342,7 @@ class AppStateManager {
             isPlaylistVisible: wm.isPlaylistVisible,
             isEqualizerVisible: wm.isEqualizerVisible,
             isPlexBrowserVisible: wm.isPlexBrowserVisible,
-            isMilkdropVisible: wm.isMilkdropVisible,
+            isProjectMVisible: wm.isProjectMVisible,
             isSpectrumVisible: wm.isSpectrumVisible,
             
             // Window frames
@@ -351,9 +351,9 @@ class AppStateManager {
             equalizerWindowFrame: wm.equalizerWindowController?.window.map { NSStringFromRect($0.frame) },
             plexBrowserWindowFrame: wm.plexBrowserWindowFrame.map { NSStringFromRect($0) },
             // Don't save frame when fullscreen (it would be screen bounds)
-            milkdropWindowFrame: wm.isMilkdropVisible && !wm.isMilkdropFullscreen ? wm.milkdropWindowFrame.map { NSStringFromRect($0) } : nil,
+            projectMWindowFrame: wm.isProjectMVisible && !wm.isProjectMFullscreen ? wm.projectMWindowFrame.map { NSStringFromRect($0) } : nil,
             spectrumWindowFrame: wm.spectrumWindowFrame.map { NSStringFromRect($0) },
-            isMilkdropFullscreen: wm.isMilkdropFullscreen,
+            isProjectMFullscreen: wm.isProjectMFullscreen,
             
             // Audio settings
             volume: engine.volume,
@@ -389,8 +389,8 @@ class AppStateManager {
             customSkinPath: getCustomSkinPath(),
             baseSkinIndex: wm.currentBaseSkinIndex,
             
-            // Milkdrop preset
-            milkdropPresetIndex: wm.visualizationPresetIndex
+            // ProjectM preset
+            projectMPresetIndex: wm.visualizationPresetIndex
         )
         
         // Encode and save
@@ -534,10 +534,10 @@ class AppStateManager {
         let playlistFrame = state.playlistWindowFrame.flatMap { NSRectFromString($0) }
         let equalizerFrame = state.equalizerWindowFrame.flatMap { NSRectFromString($0) }
         let browserFrame = state.plexBrowserWindowFrame.flatMap { NSRectFromString($0) }
-        let milkdropFrame = state.milkdropWindowFrame.flatMap { NSRectFromString($0) }
+        let projectMFrame = state.projectMWindowFrame.flatMap { NSRectFromString($0) }
         let spectrumFrame = state.spectrumWindowFrame.flatMap { NSRectFromString($0) }
-        let milkdropPresetIndex = state.milkdropPresetIndex
-        let milkdropFullscreen = state.isMilkdropFullscreen
+        let projectMPresetIndex = state.projectMPresetIndex
+        let projectMFullscreen = state.isProjectMFullscreen
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if state.isEqualizerVisible {
@@ -552,20 +552,20 @@ class AppStateManager {
             if state.isPlexBrowserVisible {
                 wm.showPlexBrowser(at: browserFrame)
             }
-            if state.isMilkdropVisible {
-                wm.showMilkdrop(at: milkdropFrame)
+            if state.isProjectMVisible {
+                wm.showProjectM(at: projectMFrame)
                 
                 // Restore fullscreen state BEFORE preset
-                if milkdropFullscreen {
-                    wm.toggleMilkdropFullscreen()
+                if projectMFullscreen {
+                    wm.toggleProjectMFullscreen()
                 }
                 
-                // Restore Milkdrop preset after engine is initialized on render thread
+                // Restore ProjectM preset after engine is initialized on render thread
                 // The engine setup is deferred and takes ~200ms to complete
-                if let presetIndex = milkdropPresetIndex {
+                if let presetIndex = projectMPresetIndex {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         wm.selectVisualizationPreset(at: presetIndex)
-                        NSLog("AppStateManager: Restored Milkdrop preset index: %d", presetIndex)
+                        NSLog("AppStateManager: Restored ProjectM preset index: %d", presetIndex)
                     }
                 }
             }
@@ -731,10 +731,10 @@ class AppStateManager {
         let playlistFrame = state.playlistWindowFrame.flatMap { NSRectFromString($0) }
         let equalizerFrame = state.equalizerWindowFrame.flatMap { NSRectFromString($0) }
         let browserFrame = state.plexBrowserWindowFrame.flatMap { NSRectFromString($0) }
-        let milkdropFrame = state.milkdropWindowFrame.flatMap { NSRectFromString($0) }
+        let projectMFrame = state.projectMWindowFrame.flatMap { NSRectFromString($0) }
         let spectrumFrame = state.spectrumWindowFrame.flatMap { NSRectFromString($0) }
-        let milkdropPresetIndex = state.milkdropPresetIndex
-        let milkdropFullscreen = state.isMilkdropFullscreen
+        let projectMPresetIndex = state.projectMPresetIndex
+        let projectMFullscreen = state.isProjectMFullscreen
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if state.isEqualizerVisible {
@@ -749,20 +749,20 @@ class AppStateManager {
             if state.isPlexBrowserVisible {
                 wm.showPlexBrowser(at: browserFrame)
             }
-            if state.isMilkdropVisible {
-                wm.showMilkdrop(at: milkdropFrame)
+            if state.isProjectMVisible {
+                wm.showProjectM(at: projectMFrame)
                 
                 // Restore fullscreen state BEFORE preset
-                if milkdropFullscreen {
-                    wm.toggleMilkdropFullscreen()
+                if projectMFullscreen {
+                    wm.toggleProjectMFullscreen()
                 }
                 
-                // Restore Milkdrop preset after engine is initialized on render thread
+                // Restore ProjectM preset after engine is initialized on render thread
                 // The engine setup is deferred and takes ~200ms to complete
-                if let presetIndex = milkdropPresetIndex {
+                if let presetIndex = projectMPresetIndex {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         wm.selectVisualizationPreset(at: presetIndex)
-                        NSLog("AppStateManager: Restored Milkdrop preset index: %d", presetIndex)
+                        NSLog("AppStateManager: Restored ProjectM preset index: %d", presetIndex)
                     }
                 }
             }
@@ -773,7 +773,7 @@ class AppStateManager {
     
     /// Restore window frames from saved state
     /// Note: Only the main window frame is restored here since it exists at restore time.
-    /// Playlist, EQ, Browser, and Milkdrop frames are passed to their show methods
+    /// Playlist, EQ, Browser, and ProjectM frames are passed to their show methods
     /// in applyState() since those windows are created lazily.
     private func restoreWindowFrames(_ state: AppState) {
         let wm = WindowManager.shared
@@ -787,7 +787,7 @@ class AppStateManager {
             }
         }
         
-        // Note: Playlist, EQ, Browser, and Milkdrop frames are passed directly to their
+        // Note: Playlist, EQ, Browser, and ProjectM frames are passed directly to their
         // show methods in applyState() since those windows are created lazily and don't
         // exist yet when this function is called.
     }

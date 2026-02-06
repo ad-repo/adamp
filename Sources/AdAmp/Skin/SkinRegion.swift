@@ -211,7 +211,7 @@ class RegionManager {
             cursor: .hResize
         ))
         
-        // Winamp logo (bottom-right corner) - opens Plex browser
+        // Logo area (bottom-right corner) - opens Plex browser
         regions.append(ClickableRegion(
             rect: NSRect(x: 248, y: 91, width: 20, height: 20),
             action: .openPlexBrowser,

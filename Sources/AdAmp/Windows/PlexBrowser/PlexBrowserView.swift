@@ -1294,7 +1294,7 @@ class PlexBrowserView: NSView {
         
         // Use default skin if locked, otherwise use current skin
         let skin: Skin
-        if WindowManager.shared.lockBrowserMilkdropSkin {
+        if WindowManager.shared.lockBrowserProjectMSkin {
             skin = SkinLoader.shared.loadDefault()
         } else {
             skin = WindowManager.shared.currentSkin ?? SkinLoader.shared.loadDefault()

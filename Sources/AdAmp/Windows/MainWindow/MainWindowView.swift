@@ -1549,7 +1549,7 @@ class MainWindowView: NSView {
         case .logo:
             WindowManager.shared.togglePlexBrowser()
         case .menu:
-            WindowManager.shared.toggleMilkdrop()
+            WindowManager.shared.toggleProjectM()
         default:
             break
         }

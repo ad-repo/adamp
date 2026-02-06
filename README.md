@@ -96,7 +96,7 @@ open Package.swift
 | [KSPlayer](https://github.com/kingslay/KSPlayer) | Video playback with FFmpeg backend |
 | [AudioStreaming](https://github.com/dimitris-c/AudioStreaming) | HTTP audio streaming for Plex |
 | [FlyingFox](https://github.com/swhitty/FlyingFox) | Embedded HTTP server for local file casting |
-| [libprojectM](https://github.com/projectM-visualizer/projectm) | visualizations |
+| [libprojectM](https://github.com/projectM-visualizer/projectm) | ProjectM visualizations |
 
 ## Media Library
 
@@ -129,7 +129,7 @@ AdAmp supports classic Winamp 2.x skins (.wsz files)
 This project is open source and uses the following licensed components:
 
 - **KSPlayer** (GPL-3.0) - Video playback with FFmpeg backend
-- **libprojectM** (LGPL-2.1) - Milkdrop visualizations
+- **libprojectM** (LGPL-2.1) - ProjectM visualizations
 
 
 

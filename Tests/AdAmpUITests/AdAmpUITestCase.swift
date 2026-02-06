@@ -145,7 +145,7 @@ class AdAmpUITestCase: XCTestCase {
     
     /// Get the visualization window
     var visualizationWindow: XCUIElement {
-        return app.windows["MilkdropWindow"]
+        return app.windows["ProjectMWindow"]
     }
     
     // MARK: - Navigation Helpers

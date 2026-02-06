@@ -189,7 +189,7 @@ And set in the source views:
 - `Sources/AdAmp/Windows/Playlist/PlaylistView.swift`
 - `Sources/AdAmp/Windows/Equalizer/EQView.swift`
 - `Sources/AdAmp/Windows/PlexBrowser/PlexBrowserView.swift`
-- `Sources/AdAmp/Windows/Milkdrop/MilkdropView.swift`
+- `Sources/AdAmp/Windows/ProjectM/ProjectMView.swift`
 
 **Custom Drawn UI:**
 

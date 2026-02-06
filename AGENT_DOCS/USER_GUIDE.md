@@ -1,6 +1,6 @@
 # AdAmp User Guide
 
-A faithful recreation of Winamp 2.x for macOS with Plex Media Server integration, Milkdrop visualizations, and casting support.
+A faithful recreation of Winamp 2.x for macOS with Plex Media Server integration, ProjectM visualizations, and casting support.
 
 ## Table of Contents
 
@@ -10,7 +10,7 @@ A faithful recreation of Winamp 2.x for macOS with Plex Media Server integration
 - [Playlist Editor](#playlist-editor)
 - [Equalizer](#equalizer)
 - [Library Browser](#library-browser)
-- [Milkdrop Visualizations](#milkdrop-visualizations)
+- [ProjectM Visualizations](#projectm-visualizations)
 - [Art Visualizer](#art-visualizer)
 - [Video Player](#video-player)
 - [Plex Integration](#plex-integration)
@@ -57,7 +57,7 @@ AdAmp consists of several windows that can be shown/hidden:
 | **Equalizer** | 10-band graphic EQ with presets | EQ button or context menu |
 | **Spectrum Analyzer** | Large spectrum visualization | Context menu or Window menu |
 | **Library Browser** | Browse Plex and local media | Logo button or context menu |
-| **Milkdrop** | Real-time audio visualizations | Menu button or context menu |
+| **ProjectM** | Real-time audio visualizations | Menu button or context menu |
 
 ### Window Snapping & Docking
 
@@ -67,7 +67,7 @@ Windows automatically snap together when dragged near each other:
 - **Group movement**: Docked windows (Main, Playlist, EQ, Spectrum) move together when dragged
 - **Vertical stacking**: Opening EQ, Playlist, or Spectrum places them below the existing stack
 
-**Snap to Default** (context menu) resets all windows to their default positions. Side windows (Milkdrop, Library Browser) resize to match the vertical stack height.
+**Snap to Default** (context menu) resets all windows to their default positions. Side windows (ProjectM, Library Browser) resize to match the vertical stack height.
 
 ---
 
@@ -121,7 +121,7 @@ The main window provides core playback controls and track information.
 | Button | Function |
 |--------|----------|
 | **Logo (top-left)** | Open Library Browser |
-| **Menu** | Open Milkdrop visualizations |
+| **Menu** | Open ProjectM visualizations |
 | **Minimize** | Minimize to dock |
 | **Shade** | Toggle compact "shade" mode |
 | **Close** | Quit AdAmp |
@@ -314,14 +314,14 @@ When viewing album art, click the **VIS** button to open the Art Visualizer with
 
 ---
 
-## Milkdrop Visualizations
+## ProjectM Visualizations
 
-AdAmp includes projectM-powered Milkdrop visualizations with 100+ bundled presets.
+AdAmp includes projectM-powered ProjectM visualizations with 100+ bundled presets.
 
-### Opening Milkdrop
+### Opening ProjectM
 
 - Click the **Menu button** (hamburger icon) on the main window
-- Or use the context menu: **Milkdrop**
+- Or use the context menu: **ProjectM**
 - Or keyboard: **F** to toggle fullscreen when focused
 
 ### Keyboard Controls
@@ -340,7 +340,7 @@ AdAmp includes projectM-powered Milkdrop visualizations with 100+ bundled preset
 
 ### Custom Presets
 
-Add your own MilkDrop/projectM presets (.milk files):
+Add your own projectM presets (.milk files):
 
 1. **Visualizations > Add Presets Folder...**
 2. Select a folder containing .milk files
@@ -828,9 +828,9 @@ Downloaded skins appear in the Skins menu if placed in:
 ~/Library/Application Support/AdAmp/Skins/
 ```
 
-### Lock Browser/Milkdrop to Default
+### Lock Browser/ProjectM to Default
 
-Enable this option to keep the Library Browser and Milkdrop windows using the default skin regardless of main player skin.
+Enable this option to keep the Library Browser and ProjectM windows using the default skin regardless of main player skin.
 
 ---
 
@@ -881,7 +881,7 @@ Enable this option to keep the Library Browser and Milkdrop windows using the de
 | **A** | Cycle audio tracks |
 | **Cmd+S** | Open track selection panel |
 
-### Milkdrop
+### ProjectM
 
 | Key | Action |
 |-----|--------|
@@ -937,13 +937,13 @@ Shows detailed metadata for the currently playing track or video. This option is
 - Equalizer
 - Playlist Editor
 - Library Browser
-- Milkdrop
+- ProjectM
 
 ### Skins
 - Load Skin...
 - Get More Skins...
 - Base skins (1, 2, 3)
-- Lock Browser/Milkdrop to Default
+- Lock Browser/ProjectM to Default
 - Available skins list
 
 ### Visualizations
@@ -1116,12 +1116,12 @@ The standalone Spectrum Analyzer window provides a larger, more detailed view wi
 **Playback Options > Remember State on Quit** saves and restores the complete app state:
 
 When enabled, the following is saved on quit and restored on launch:
-- **Window positions and visibility** (Main, EQ, Playlist, Spectrum, Browser, Milkdrop)
-- **Milkdrop fullscreen state** (restores to fullscreen if it was fullscreen)
+- **Window positions and visibility** (Main, EQ, Playlist, Spectrum, Browser, ProjectM)
+- **ProjectM fullscreen state** (restores to fullscreen if it was fullscreen)
 - **Audio settings** (volume, balance, shuffle, repeat, gapless, normalization, Sweet Fades)
 - **Equalizer settings** (enabled state, preamp, all band values)
 - **Playlist** (local files AND streaming tracks from Plex/Subsonic)
-- **Milkdrop preset** (restores the last-used visualization preset)
+- **ProjectM preset** (restores the last-used visualization preset)
 - **Library Browser source** (remembers which library was selected)
 - **Custom skin** (if a non-default skin was loaded)
 - **UI preferences** (time display mode, always on top)
@@ -1170,7 +1170,7 @@ When enabled, the following is saved on quit and restored on launch:
 
 ### Visualizations
 
-- MilkDrop presets (.milk)
+- ProjectM presets (.milk)
 
 ---
 
@@ -1228,7 +1228,7 @@ When enabled, the following is saved on quit and restored on launch:
 
 - [Webamp](https://github.com/captbaritone/webamp) - Skin parsing reference
 - [Winamp Skin Museum](https://skins.webamp.org/) - Skin archive
-- [projectM](https://github.com/projectM-visualizer/projectm) - Milkdrop visualizations
+- [projectM](https://github.com/projectM-visualizer/projectm) - ProjectM visualizations
 - [KSPlayer](https://github.com/kingslay/KSPlayer) - Video playback
 - [AudioStreaming](https://github.com/dimitris-c/AudioStreaming) - HTTP audio streaming
 - Original Winamp by Nullsoft

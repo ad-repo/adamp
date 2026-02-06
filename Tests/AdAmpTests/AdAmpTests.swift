@@ -1355,10 +1355,10 @@ final class AdAmpTests: XCTestCase {
         XCTAssertEqual(SkinElements.Playlist.bottomHeight, 38)
     }
     
-    func testSkinElementsMilkdropSizes() {
-        XCTAssertEqual(SkinElements.Milkdrop.minSize.width, 275)
-        XCTAssertEqual(SkinElements.Milkdrop.titleBarHeight, 20)
-        XCTAssertEqual(SkinElements.Milkdrop.shadeHeight, 14)
+    func testSkinElementsProjectMSizes() {
+        XCTAssertEqual(SkinElements.ProjectM.minSize.width, 275)
+        XCTAssertEqual(SkinElements.ProjectM.titleBarHeight, 20)
+        XCTAssertEqual(SkinElements.ProjectM.shadeHeight, 14)
     }
     
     // MARK: - AudioOutputDevice Tests
@@ -2444,12 +2444,12 @@ final class AdAmpTests: XCTestCase {
             isPlaylistVisible: true,
             isEqualizerVisible: false,
             isPlexBrowserVisible: true,
-            isMilkdropVisible: false,
+            isProjectMVisible: false,
             mainWindowFrame: "{{100, 200}, {275, 145}}",
             playlistWindowFrame: "{{100, 50}, {275, 200}}",
             equalizerWindowFrame: nil,
             plexBrowserWindowFrame: nil,
-            milkdropWindowFrame: nil,
+            projectMWindowFrame: nil,
             volume: 0.75,
             balance: 0.0,
             shuffleEnabled: true,
@@ -2504,7 +2504,7 @@ final class AdAmpTests: XCTestCase {
             "isPlaylistVisible": true,
             "isEqualizerVisible": false,
             "isPlexBrowserVisible": false,
-            "isMilkdropVisible": false,
+            "isProjectMVisible": false,
             "volume": 0.5,
             "balance": 0.0,
             "shuffleEnabled": false,
@@ -2538,12 +2538,12 @@ final class AdAmpTests: XCTestCase {
             isPlaylistVisible: false,
             isEqualizerVisible: false,
             isPlexBrowserVisible: false,
-            isMilkdropVisible: false,
+            isProjectMVisible: false,
             mainWindowFrame: nil,
             playlistWindowFrame: nil,
             equalizerWindowFrame: nil,
             plexBrowserWindowFrame: nil,
-            milkdropWindowFrame: nil,
+            projectMWindowFrame: nil,
             volume: 1.0,
             balance: 0.0,
             shuffleEnabled: false,

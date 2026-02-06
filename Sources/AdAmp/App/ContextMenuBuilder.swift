@@ -25,7 +25,7 @@ class ContextMenuBuilder {
         menu.addItem(buildWindowItem("Equalizer", visible: wm.isEqualizerVisible, action: #selector(MenuActions.toggleEQ)))
         menu.addItem(buildWindowItem("Playlist Editor", visible: wm.isPlaylistVisible, action: #selector(MenuActions.togglePlaylist)))
         menu.addItem(buildWindowItem("Library Browser", visible: wm.isPlexBrowserVisible, action: #selector(MenuActions.togglePlexBrowser)))
-        menu.addItem(buildWindowItem("Milkdrop", visible: wm.isMilkdropVisible, action: #selector(MenuActions.toggleMilkdrop)))
+        menu.addItem(buildWindowItem("ProjectM", visible: wm.isProjectMVisible, action: #selector(MenuActions.toggleProjectM)))
         menu.addItem(buildWindowItem("Spectrum Analyzer", visible: wm.isSpectrumVisible, action: #selector(MenuActions.toggleSpectrum)))
         menu.addItem(buildWindowItem("Debug Console", visible: wm.isDebugWindowVisible, action: #selector(MenuActions.toggleDebugConsole)))
         
@@ -130,10 +130,10 @@ class ContextMenuBuilder {
         
         menu.addItem(NSMenuItem.separator())
         
-        // Lock Browser/Milkdrop toggle
-        let lockToggle = NSMenuItem(title: "Lock Browser/Milkdrop to Default", action: #selector(MenuActions.toggleLockBrowserMilkdrop(_:)), keyEquivalent: "")
+        // Lock Browser/ProjectM toggle
+        let lockToggle = NSMenuItem(title: "Lock Browser/ProjectM to Default", action: #selector(MenuActions.toggleLockBrowserProjectM(_:)), keyEquivalent: "")
         lockToggle.target = MenuActions.shared
-        lockToggle.state = WindowManager.shared.lockBrowserMilkdropSkin ? .on : .off
+        lockToggle.state = WindowManager.shared.lockBrowserProjectMSkin ? .on : .off
         menu.addItem(lockToggle)
         
         menu.addItem(NSMenuItem.separator())
@@ -176,7 +176,7 @@ class ContextMenuBuilder {
             let infoItem = NSMenuItem(title: infoText, action: nil, keyEquivalent: "")
             visMenu.addItem(infoItem)
             visMenu.addItem(NSMenuItem.separator())
-        } else if wm.isMilkdropVisible && !wm.isProjectMAvailable {
+        } else if wm.isProjectMVisible && !wm.isProjectMAvailable {
             // Only show error if window is open but projectM failed to initialize
             let unavailableItem = NSMenuItem(title: "projectM not available", action: nil, keyEquivalent: "")
             visMenu.addItem(unavailableItem)
@@ -1133,8 +1133,8 @@ class MenuActions: NSObject {
         WindowManager.shared.togglePlexBrowser()
     }
     
-    @objc func toggleMilkdrop() {
-        WindowManager.shared.toggleMilkdrop()
+    @objc func toggleProjectM() {
+        WindowManager.shared.toggleProjectM()
     }
     
     @objc func toggleSpectrum() {
@@ -1592,8 +1592,8 @@ class MenuActions: NSObject {
         WindowManager.shared.loadSkin(from: url)
     }
     
-    @objc func toggleLockBrowserMilkdrop(_ sender: NSMenuItem) {
-        WindowManager.shared.lockBrowserMilkdropSkin.toggle()
+    @objc func toggleLockBrowserProjectM(_ sender: NSMenuItem) {
+        WindowManager.shared.lockBrowserProjectMSkin.toggle()
     }
     
     @objc func getMoreSkins() {
@@ -2408,7 +2408,7 @@ class MenuActions: NSObject {
             if milkCount == 0 {
                 let alert = NSAlert()
                 alert.messageText = "No Presets Found"
-                alert.informativeText = "The selected folder doesn't contain any .milk preset files. Please choose a folder with MilkDrop/projectM presets."
+                alert.informativeText = "The selected folder doesn't contain any .milk preset files. Please choose a folder with projectM presets."
                 alert.alertStyle = .warning
                 alert.runModal()
                 return

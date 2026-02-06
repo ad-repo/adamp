@@ -4,7 +4,7 @@ import AppKit
 // SPECTRUM VIEW - Standalone spectrum analyzer window with skin chrome
 // =============================================================================
 // Container view that draws skin-styled window chrome around the Metal-based
-// SpectrumAnalyzerView. Follows the same pattern as MilkdropView.
+// SpectrumAnalyzerView. Follows the same pattern as ProjectMView.
 // =============================================================================
 
 /// Spectrum analyzer container view with full skin support
@@ -21,7 +21,7 @@ class SpectrumView: NSView {
     private(set) var isShadeMode = false
     
     /// Button being pressed (for visual feedback)
-    private var pressedButton: SkinRenderer.MilkdropButtonType?
+    private var pressedButton: SkinRenderer.ProjectMButtonType?
     
     /// Window dragging state
     private var isDraggingWindow = false
@@ -116,7 +116,7 @@ class SpectrumView: NSView {
     private func setupAccessibility() {
         setAccessibilityIdentifier("spectrumView")
         setAccessibilityRole(.group)
-        setAccessibilityLabel("Spectrum Analyzer")
+        setAccessibilityLabel("NullPlayer Analyzer")
     }
     
     // MARK: - Coordinate Conversion
@@ -133,7 +133,7 @@ class SpectrumView: NSView {
         
         // Use default skin if locked, otherwise use current skin
         let skin: Skin
-        if WindowManager.shared.lockBrowserMilkdropSkin {
+        if WindowManager.shared.lockBrowserProjectMSkin {
             skin = SkinLoader.shared.loadDefault()
         } else {
             skin = WindowManager.shared.currentSkin ?? SkinLoader.shared.loadDefault()
@@ -146,7 +146,7 @@ class SpectrumView: NSView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
         
-        // Draw window chrome with "SPECTRUM ANALYZER" title
+        // Draw window chrome with "NULLPLAYER ANALYZER" title
         renderer.drawSpectrumAnalyzerWindow(in: context, bounds: bounds, isActive: isActive,
                                             pressedButton: pressedButton, isShadeMode: isShadeMode)
         

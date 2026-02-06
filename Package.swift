@@ -32,7 +32,7 @@ let package = Package(
             dependencies: [],
             path: "Sources/AdAmpCore"
         ),
-        // System library target for libprojectM (Milkdrop visualization)
+        // System library target for libprojectM (ProjectM visualization)
         // To enable projectM support:
         // 1. Build libprojectM v4.1.6+ as a universal binary
         // 2. Place libprojectM-4.dylib in Frameworks/

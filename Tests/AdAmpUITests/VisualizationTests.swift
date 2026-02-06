@@ -1,6 +1,6 @@
 import XCTest
 
-/// Tests for the visualization (Milkdrop) window
+/// Tests for the visualization (ProjectM) window
 /// Consolidated to minimize app launches for faster CI execution
 final class VisualizationTests: AdAmpUITestCase {
     

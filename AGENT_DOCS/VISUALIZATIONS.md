@@ -6,7 +6,7 @@ AdAmp features multiple visualization systems for audio-reactive visual effects.
 
 1. [Main Window Visualization](#main-window-visualization)
 2. [Album Art Visualizer](#album-art-visualizer)
-3. [ProjectM/Milkdrop Visualizer](#projectmmilkdrop-visualizer)
+3. [ProjectM/ProjectM Visualizer](#projectmprojectM-visualizer)
 4. [Spectrum Analyzer Window](#spectrum-analyzer-window)
 5. [Comparison](#comparison)
 
@@ -164,25 +164,25 @@ All effects use Core Image filters for GPU acceleration and respond to audio lev
 
 ---
 
-## ProjectM/Milkdrop Visualizer
+## ProjectM/ProjectM Visualizer
 
-The ProjectM visualizer renders classic Milkdrop presets - the legendary visualization system from Winamp. It uses OpenGL for real-time procedural graphics synchronized to music.
+The ProjectM visualizer renders classic ProjectM presets - the legendary visualization system from Winamp. It uses OpenGL for real-time procedural graphics synchronized to music.
 
 ### Accessing the Visualizer
 
-1. **Context Menu** → Visualizations → Milkdrop Window
-2. Or use the main menu: Window → Milkdrop
+1. **Context Menu** → Visualizations → ProjectM Window
+2. Or use the main menu: Window → ProjectM
 
-### What is Milkdrop/ProjectM?
+### What is ProjectM/ProjectM?
 
-- **Milkdrop** was the iconic visualization plugin for Winamp, created by Ryan Geiss
-- **ProjectM** is the open-source reimplementation that runs Milkdrop presets
+- **ProjectM** was the iconic visualization plugin for Winamp, created by Ryan Geiss
+- **ProjectM** is the open-source reimplementation that runs ProjectM presets
 - Presets are shader-based programs that create infinite visual variety
 - Each preset defines equations for motion, color, and waveform rendering
 
 ### Presets
 
-AdAmp includes bundled Milkdrop presets. You can also add custom presets:
+AdAmp includes bundled ProjectM presets. You can also add custom presets:
 
 **Custom Preset Location:**
 ```
@@ -256,7 +256,7 @@ Controls the amplitude of audio samples fed to the visualization engine. Higher 
 | **Intense** | 2.0x | Very reactive, strong waveform motion |
 | **Max** | 3.0x | Maximum reactivity, dramatic visual response |
 
-Setting is persisted across app restarts (UserDefaults key: `milkdropPCMGain`).
+Setting is persisted across app restarts (UserDefaults key: `projectMPCMGain`).
 
 ### Beat Sensitivity
 
@@ -273,7 +273,7 @@ The active beat sensitivity is configurable via the context menu:
 | **High** | 1.5 | More frequent beat-triggered effects |
 | **Max** | 2.0 | Maximum beat reactivity |
 
-Setting is persisted across app restarts (UserDefaults key: `milkdropBeatSensitivity`).
+Setting is persisted across app restarts (UserDefaults key: `projectMBeatSensitivity`).
 
 ---
 
@@ -428,7 +428,7 @@ Right-click on the window for:
 
 ## Comparison
 
-| Feature | Album Art Visualizer | ProjectM/Milkdrop | Spectrum Analyzer |
+| Feature | Album Art Visualizer | ProjectM/ProjectM | Spectrum Analyzer |
 |---------|---------------------|-------------------|-------------------|
 | **Visual Style** | Transformed album artwork | Procedural graphics | Frequency bars / Fire / Deep space |
 | **Effect Count** | 30 built-in effects | 100s of presets available | 5 modes (Winamp, Enhanced, Ultra, Fire, JWST) |
@@ -444,7 +444,7 @@ Right-click on the window for:
 - For a more subtle, integrated experience
 - When browsing your music library
 
-**ProjectM/Milkdrop**
+**ProjectM/ProjectM**
 - For full-screen immersive visualizations
 - Classic Winamp nostalgia
 - Parties and ambient displays
@@ -478,7 +478,7 @@ Right-click on the window for:
 - Some effects (like Feedback) are more demanding
 - Ensure your Mac supports Metal
 
-### ProjectM/Milkdrop
+### ProjectM/ProjectM
 
 **Black screen:**
 - ProjectM requires OpenGL 4.1 support

@@ -6,14 +6,14 @@ public struct AppState: Codable, Sendable {
     public var isPlaylistVisible: Bool
     public var isEqualizerVisible: Bool
     public var isPlexBrowserVisible: Bool
-    public var isMilkdropVisible: Bool
+    public var isProjectMVisible: Bool
     
     // Window frames (as strings for NSRect compatibility)
     public var mainWindowFrame: String?
     public var playlistWindowFrame: String?
     public var equalizerWindowFrame: String?
     public var plexBrowserWindowFrame: String?
-    public var milkdropWindowFrame: String?
+    public var projectMWindowFrame: String?
     
     // Audio settings
     public var volume: Float
@@ -53,8 +53,8 @@ public struct AppState: Codable, Sendable {
     // MARK: - Custom Decoding for Backward Compatibility
     
     enum CodingKeys: String, CodingKey {
-        case isPlaylistVisible, isEqualizerVisible, isPlexBrowserVisible, isMilkdropVisible
-        case mainWindowFrame, playlistWindowFrame, equalizerWindowFrame, plexBrowserWindowFrame, milkdropWindowFrame
+        case isPlaylistVisible, isEqualizerVisible, isPlexBrowserVisible, isProjectMVisible
+        case mainWindowFrame, playlistWindowFrame, equalizerWindowFrame, plexBrowserWindowFrame, projectMWindowFrame
         case volume, balance, shuffleEnabled, repeatEnabled, gaplessPlaybackEnabled, volumeNormalizationEnabled
         case sweetFadeEnabled, sweetFadeDuration
         case eqEnabled, eqPreamp, eqBands
@@ -71,14 +71,14 @@ public struct AppState: Codable, Sendable {
         isPlaylistVisible = try container.decode(Bool.self, forKey: .isPlaylistVisible)
         isEqualizerVisible = try container.decode(Bool.self, forKey: .isEqualizerVisible)
         isPlexBrowserVisible = try container.decode(Bool.self, forKey: .isPlexBrowserVisible)
-        isMilkdropVisible = try container.decode(Bool.self, forKey: .isMilkdropVisible)
+        isProjectMVisible = try container.decode(Bool.self, forKey: .isProjectMVisible)
         
         // Window frames
         mainWindowFrame = try container.decodeIfPresent(String.self, forKey: .mainWindowFrame)
         playlistWindowFrame = try container.decodeIfPresent(String.self, forKey: .playlistWindowFrame)
         equalizerWindowFrame = try container.decodeIfPresent(String.self, forKey: .equalizerWindowFrame)
         plexBrowserWindowFrame = try container.decodeIfPresent(String.self, forKey: .plexBrowserWindowFrame)
-        milkdropWindowFrame = try container.decodeIfPresent(String.self, forKey: .milkdropWindowFrame)
+        projectMWindowFrame = try container.decodeIfPresent(String.self, forKey: .projectMWindowFrame)
         
         // Audio settings
         volume = try container.decode(Float.self, forKey: .volume)
@@ -120,12 +120,12 @@ public struct AppState: Codable, Sendable {
         isPlaylistVisible: Bool,
         isEqualizerVisible: Bool,
         isPlexBrowserVisible: Bool,
-        isMilkdropVisible: Bool,
+        isProjectMVisible: Bool,
         mainWindowFrame: String?,
         playlistWindowFrame: String?,
         equalizerWindowFrame: String?,
         plexBrowserWindowFrame: String?,
-        milkdropWindowFrame: String?,
+        projectMWindowFrame: String?,
         volume: Float,
         balance: Float,
         shuffleEnabled: Bool,
@@ -150,12 +150,12 @@ public struct AppState: Codable, Sendable {
         self.isPlaylistVisible = isPlaylistVisible
         self.isEqualizerVisible = isEqualizerVisible
         self.isPlexBrowserVisible = isPlexBrowserVisible
-        self.isMilkdropVisible = isMilkdropVisible
+        self.isProjectMVisible = isProjectMVisible
         self.mainWindowFrame = mainWindowFrame
         self.playlistWindowFrame = playlistWindowFrame
         self.equalizerWindowFrame = equalizerWindowFrame
         self.plexBrowserWindowFrame = plexBrowserWindowFrame
-        self.milkdropWindowFrame = milkdropWindowFrame
+        self.projectMWindowFrame = projectMWindowFrame
         self.volume = volume
         self.balance = balance
         self.shuffleEnabled = shuffleEnabled
