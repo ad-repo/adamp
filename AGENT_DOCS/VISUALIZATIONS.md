@@ -303,12 +303,19 @@ The Spectrum Analyzer window participates in the docking system:
 | **Window Size** | 275x116 pixels (matches main window) |
 | **Color Source** | Skin's `viscolor.txt` (24-color palette) |
 
+### Switching Modes
+
+- **Double-click** the spectrum analyzer window to cycle through modes (Winamp → Enhanced → Ultra → Fire → JWST)
+- **Right-click** → Mode to select a specific mode
+- **Left/Right arrow keys** cycle flame styles when in Fire mode
+
 ### Quality Modes
 
 | Mode | Description |
 |------|-------------|
 | **Winamp** | Discrete color bands from skin's 24-color palette with floating peak indicators, 3D bar shading, and band gaps for an authentic segmented LED look (default) |
 | **Enhanced** | Rainbow LED matrix with gravity-bouncing peaks, warm amber fade trails, 3D inner glow cells, and anti-aliased rounded corners |
+| **Ultra** | Maximum fidelity seamless gradient with smooth exponential decay, perceptual gamma, warm color trails, physics-based bouncing peaks, and reflection effect |
 | **Fire** | GPU fire simulation with audio-reactive flame tongues (see below) |
 | **JWST** | Deep space flythrough with 3D perspective star field, JWST diffraction flares as intensity indicators, and vivid celestial bodies (see below) |
 
@@ -397,7 +404,7 @@ Controls how quickly spectrum bars fall after peaks:
 ### Context Menu
 
 Right-click on the window for:
-- **Mode** - Switch between Winamp/Enhanced/Fire/JWST rendering
+- **Mode** - Switch between Winamp/Enhanced/Ultra/Fire/JWST rendering
 - **Responsiveness** - Adjust decay behavior (bar modes)
 - **Flame Style** - Choose flame color preset (Flame mode only)
 - **Fire Intensity** - Choose Mellow or Intense reactivity (Flame mode only)
