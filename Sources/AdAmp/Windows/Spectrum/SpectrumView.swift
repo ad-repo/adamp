@@ -257,7 +257,13 @@ class SpectrumView: NSView {
             return
         }
         
-        // Content area - allow window dragging
+        // Content area - double-click cycles visualization mode
+        if event.clickCount == 2 {
+            cycleQualityMode()
+            return
+        }
+        
+        // Content area - single click allows window dragging
         isDraggingWindow = true
         windowDragStartPoint = event.locationInWindow
         if let window = window {
@@ -374,6 +380,16 @@ class SpectrumView: NSView {
         default:
             super.keyDown(with: event)
         }
+    }
+    
+    private func cycleQualityMode() {
+        guard let view = spectrumAnalyzerView else { return }
+        let modes = SpectrumQualityMode.allCases
+        guard let idx = modes.firstIndex(of: view.qualityMode) else { return }
+        let newIdx = (idx + 1) % modes.count
+        let newMode = modes[newIdx]
+        view.qualityMode = newMode
+        UserDefaults.standard.set(newMode.rawValue, forKey: "spectrumQualityMode")
     }
     
     private func cycleFlameStyle(forward: Bool) {
