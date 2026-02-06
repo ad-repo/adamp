@@ -216,6 +216,8 @@ Place `.milk` preset files in this folder and use "Reload Presets" from the cont
 - **Auto-Random** - Random preset on timer
 - **Cycle Interval** - 5s, 10s, 20s, 30s, 60s, 2min
 - **Presets** - Submenu listing all available presets
+- **Audio Sensitivity** - PCM gain multiplier: Low (0.5x), Normal (1.0x), High (1.5x), Intense (2.0x), Max (3.0x)
+- **Beat Sensitivity** - ProjectM beat detection: Low (0.5), Normal (1.0), High (1.5), Max (2.0)
 - **Fullscreen** - Enter/exit fullscreen mode
 
 ### Modes
@@ -242,11 +244,36 @@ Place `.milk` preset files in this folder and use "Reload Presets" from the cont
 - **Beat Detection**: Built-in projectM beat sensitivity (adjustable)
 - **Resolution**: Renders at window/screen resolution
 
+### Audio Sensitivity (PCM Gain)
+
+Controls the amplitude of audio samples fed to the visualization engine. Higher values make visuals more reactive to audio; lower values produce calmer visuals. The gain is applied as a multiplier on PCM samples before they reach projectM, clamped to the [-1.0, 1.0] range to prevent distortion.
+
+| Preset | Gain | Effect |
+|--------|------|--------|
+| **Low** | 0.5x | Subdued visuals, good for loud/busy tracks |
+| **Normal** | 1.0x | Unity gain, original signal strength (default) |
+| **High** | 1.5x | More reactive, good for quieter tracks |
+| **Intense** | 2.0x | Very reactive, strong waveform motion |
+| **Max** | 3.0x | Maximum reactivity, dramatic visual response |
+
+Setting is persisted across app restarts (UserDefaults key: `milkdropPCMGain`).
+
 ### Beat Sensitivity
 
 ProjectM adjusts its visuals based on detected beats. AdAmp uses two sensitivity levels:
-- **Idle**: Lower sensitivity when audio is quiet/stopped
-- **Active**: Higher sensitivity during playback
+- **Idle**: Lower sensitivity (0.2) when audio is quiet/stopped
+- **Active**: User-configurable sensitivity during playback (default 1.0)
+
+The active beat sensitivity is configurable via the context menu:
+
+| Preset | Value | Effect |
+|--------|-------|--------|
+| **Low** | 0.5 | Fewer beat-triggered effects |
+| **Normal** | 1.0 | Default projectM behavior |
+| **High** | 1.5 | More frequent beat-triggered effects |
+| **Max** | 2.0 | Maximum beat reactivity |
+
+Setting is persisted across app restarts (UserDefaults key: `milkdropBeatSensitivity`).
 
 ---
 
