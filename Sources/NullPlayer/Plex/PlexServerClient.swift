@@ -316,7 +316,11 @@ class PlexServerClient {
         }
         
         let response: PlexResponse<PlexMetadataResponse> = try await performRequest(request)
-        return response.mediaContainer.metadata?.map { $0.toAlbum() } ?? []
+        let albums = response.mediaContainer.metadata?.map { $0.toAlbum() } ?? []
+        if albums.isEmpty {
+            NSLog("PlexServerClient: fetchAlbums(forArtist: %@) returned empty - metadata count: %d", artistID, response.mediaContainer.metadata?.count ?? 0)
+        }
+        return albums
     }
     
     // MARK: - Track Operations
