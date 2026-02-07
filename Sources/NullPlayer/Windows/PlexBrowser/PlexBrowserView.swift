@@ -5658,24 +5658,9 @@ class PlexBrowserView: NSView {
         return nil
     }
     
-    /// Check if point hits the scrollbar
+    /// Check if point hits the scrollbar (disabled - no scrollbar widget)
     private func hitTestScrollbar(at skinPoint: NSPoint) -> Bool {
-        var listY = Layout.titleBarHeight + Layout.serverBarHeight + Layout.tabBarHeight
-        if browseMode == .search {
-            listY += Layout.searchBarHeight
-        }
-        let listHeight = originalWindowSize.height - listY - Layout.statusBarHeight
-        
-        // Scrollbar hit area: scrollbar (10px) + right border (6px) = 16px
-        // Must not overlap with alphabet index area (which is to the left of scrollbar)
-        let scrollbarRect = NSRect(
-            x: originalWindowSize.width - Layout.rightBorder - Layout.scrollbarWidth,
-            y: listY,
-            width: Layout.rightBorder + Layout.scrollbarWidth,
-            height: listHeight
-        )
-        
-        return scrollbarRect.contains(skinPoint)
+        return false
     }
     
     // MARK: - Cursor Tracking

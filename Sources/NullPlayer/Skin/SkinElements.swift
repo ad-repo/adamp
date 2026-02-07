@@ -822,7 +822,7 @@ struct SkinElements {
             static let serverBarHeight: CGFloat = 24
             static let searchBarHeight: CGFloat = 26
             static let statusBarHeight: CGFloat = 6  // Bottom padding
-            static let scrollbarWidth: CGFloat = 10
+            static let scrollbarWidth: CGFloat = 0   // No scrollbar - users scroll with trackpad/wheel
             static let alphabetWidth: CGFloat = 16
             static let leftBorder: CGFloat = 6
             static let rightBorder: CGFloat = 6
@@ -920,9 +920,9 @@ struct SkinElements {
             static let searchBarHeight: CGFloat = 24
             static let columnHeaderHeight: CGFloat = 22
             static let statusBarHeight: CGFloat = 3   // Thin bottom border
-            static let scrollbarWidth: CGFloat = 8    // Match playlist scrollbar
+            static let scrollbarWidth: CGFloat = 0    // No scrollbar - users scroll with trackpad/wheel
             static let leftBorder: CGFloat = 3        // Thin side borders
-            static let rightBorder: CGFloat = 11      // Scrollbar (8) + edge (3)
+            static let rightBorder: CGFloat = 3       // Edge only (no scrollbar)
             static let padding: CGFloat = 3
         }
         

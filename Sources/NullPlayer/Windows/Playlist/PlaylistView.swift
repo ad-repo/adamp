@@ -70,9 +70,9 @@ class PlaylistView: NSView {
     private struct Layout {
         static let titleBarHeight: CGFloat = 20
         static let bottomBarHeight: CGFloat = 3  // Thin decorative border (no control bar)
-        static let scrollbarWidth: CGFloat = 20
+        static let scrollbarWidth: CGFloat = 0   // No scrollbar - users scroll with trackpad/wheel
         static let leftBorder: CGFloat = 12
-        static let rightBorder: CGFloat = 20
+        static let rightBorder: CGFloat = 2      // Minimal edge (scrollbar track removed)
     }
     
     // MARK: - Initialization
@@ -861,20 +861,9 @@ class PlaylistView: NSView {
         return nil
     }
     
-    /// Check if point hits the scrollbar
+    /// Check if point hits the scrollbar (disabled - no scrollbar widget)
     private func hitTestScrollbar(at skinPoint: NSPoint) -> Bool {
-        let effectiveSize = effectiveWindowSize
-        let titleHeight = Layout.titleBarHeight
-        let bottomHeight = Layout.bottomBarHeight
-        
-        let scrollbarRect = NSRect(
-            x: effectiveSize.width - Layout.rightBorder,
-            y: titleHeight,
-            width: Layout.rightBorder,
-            height: effectiveSize.height - titleHeight - bottomHeight
-        )
-        
-        return scrollbarRect.contains(skinPoint)
+        return false
     }
     
     /// Check if point hits the track list

@@ -2354,9 +2354,7 @@ class SkinRenderer {
         NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0).setFill()
         context.fill(NSRect(x: 0, y: borderY, width: bounds.width, height: bottomHeight))
         
-        // Draw scrollbar
-        let contentHeight = bounds.height - titleHeight - bottomHeight
-        drawPlaylistScrollbar(in: context, bounds: bounds, scrollPosition: scrollPosition, contentHeight: contentHeight)
+        // Scrollbar removed - users scroll with trackpad/wheel
     }
     
     /// Draw playlist title bar with skin sprites
@@ -2446,7 +2444,7 @@ class SkinRenderer {
             // Use a dark color matching the border edge
             NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.10, alpha: 1.0).setFill()
             context.fill(NSRect(x: 0, y: titleHeight, width: 12, height: bounds.height - titleHeight - bottomHeight))
-            context.fill(NSRect(x: bounds.width - 20, y: titleHeight, width: 20, height: bounds.height - titleHeight - bottomHeight))
+            context.fill(NSRect(x: bounds.width - 2, y: titleHeight, width: 2, height: bounds.height - titleHeight - bottomHeight))
         }
         
         // Draw tiles from BOTTOM to TOP so any partial tile is at top (under title bar)
@@ -2465,17 +2463,9 @@ class SkinRenderer {
             y -= tileHeight
         }
         
-        // Right side border - start from bottom, work up
-        y = contentBottom - tileHeight
-        while y >= contentTop - tileHeight {
-            let drawY = max(contentTop, y)
-            let h = min(tileHeight, contentBottom - drawY)
-            if h > 0 {
-                drawSprite(from: pleditImage, sourceRect: SkinElements.Playlist.rightSideTile,
-                          to: NSRect(x: bounds.width - 20, y: drawY, width: 20, height: h), in: context)
-            }
-            y -= tileHeight
-        }
+        // Right edge - thin solid border (scrollbar track sprite removed)
+        NSColor(calibratedRed: 0.08, green: 0.08, blue: 0.10, alpha: 1.0).setFill()
+        context.fill(NSRect(x: bounds.width - 2, y: contentTop, width: 2, height: contentBottom - contentTop))
     }
     
     /// Draw playlist bottom bar with button areas
@@ -2764,10 +2754,7 @@ class SkinRenderer {
         // Draw title bar LAST so it draws on top of borders (like ProjectM)
         drawPlexBrowserTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
         
-        // Draw scrollbar
-        let contentTop = layout.titleBarHeight + layout.serverBarHeight + layout.tabBarHeight
-        let contentHeight = bounds.height - contentTop - layout.statusBarHeight
-        drawPlexBrowserScrollbar(in: context, bounds: bounds, scrollPosition: scrollPosition, contentHeight: contentHeight)
+        // Scrollbar removed - users scroll with trackpad/wheel
     }
     
     /// Draw Plex browser title bar with skin sprites
