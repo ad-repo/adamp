@@ -69,7 +69,7 @@ class PlaylistView: NSView {
     
     private struct Layout {
         static let titleBarHeight: CGFloat = 20
-        static let bottomBarHeight: CGFloat = 38
+        static let bottomBarHeight: CGFloat = 3  // Thin decorative border (no control bar)
         static let scrollbarWidth: CGFloat = 20
         static let leftBorder: CGFloat = 12
         static let rightBorder: CGFloat = 20
@@ -362,11 +362,7 @@ class PlaylistView: NSView {
             let colors = skin?.playlistColors ?? .default
             drawTrackList(in: context, colors: colors, drawBounds: drawBounds)
             
-            // Draw time/track info in bottom bar middle section using skin font
-            drawBottomBarInfo(in: context, drawBounds: drawBounds, renderer: renderer)
-            
-            // Draw playback time in the colon area using skin font
-            drawPlaybackTime(in: context, drawBounds: drawBounds, renderer: renderer)
+            // Bottom bar removed - no track info or playback time rendering needed
         }
         
         context.restoreGState()

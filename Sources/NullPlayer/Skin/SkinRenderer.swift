@@ -2337,7 +2337,7 @@ class SkinRenderer {
     func drawPlaylistWindow(in context: CGContext, bounds: NSRect, isActive: Bool,
                             pressedButton: PlaylistButtonType?, scrollPosition: CGFloat) {
         let titleHeight = SkinElements.Playlist.titleHeight
-        let bottomHeight = SkinElements.Playlist.bottomHeight
+        let bottomHeight = SkinElements.Playlist.bottomHeight  // 3px thin border
         
         // Fill background with playlist colors first
         skin.playlistColors.normalBackground.setFill()
@@ -2349,8 +2349,10 @@ class SkinRenderer {
         // Draw side borders
         drawPlaylistSideBorders(in: context, bounds: bounds)
         
-        // Draw bottom bar
-        drawPlaylistBottomBar(in: context, bounds: bounds, pressedButton: pressedButton)
+        // Draw thin bottom border (matching library window style)
+        let borderY = bounds.height - bottomHeight
+        NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0).setFill()
+        context.fill(NSRect(x: 0, y: borderY, width: bounds.width, height: bottomHeight))
         
         // Draw scrollbar
         let contentHeight = bounds.height - titleHeight - bottomHeight
