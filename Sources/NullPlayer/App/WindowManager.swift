@@ -1209,15 +1209,17 @@ class WindowManager {
     }
     
     /// Reset all windows to their default positions
+    /// Only stacks currently visible windows with no gaps, preserving their current sizes
     func snapToDefaultPositions() {
         let defaults = UserDefaults.standard
         
         // Get screen for positioning - use the screen the main window is on, or fall back to main screen
+        // Use full screen frame (not visibleFrame) so windows aren't constrained by menu bar/dock
         guard let screen = mainWindowController?.window?.screen ?? NSScreen.main else { return }
-        let screenFrame = screen.visibleFrame
+        let screenFrame = screen.frame
         
-        // Calculate centered main window position
-        let mainSize = Skin.mainWindowSize
+        // Use current main window size (preserves user scaling)
+        let mainSize = mainWindowController?.window?.frame.size ?? Skin.mainWindowSize
         let mainFrame = NSRect(
             x: screenFrame.midX - mainSize.width / 2,
             y: screenFrame.midY - mainSize.height / 2,
@@ -1225,66 +1227,53 @@ class WindowManager {
             height: mainSize.height
         )
         
-        // Calculate default positions for all windows based on main window
-        // EQ goes directly below main
-        let eqSize = Skin.eqWindowSize
-        let eqFrame = NSRect(
-            x: mainFrame.minX,
-            y: mainFrame.minY - eqSize.height,
-            width: mainSize.width,  // EQ width matches main
-            height: eqSize.height
-        )
+        // Build a tight vertical stack of only visible windows below main
+        // Each window preserves its current size and aligns left with main
+        var nextY = mainFrame.minY  // Bottom of previous window in stack
         
-        // Playlist goes below EQ (use actual current height)
-        let playlistCurrentHeight = playlistWindowController?.window?.frame.height ?? 116
-        let playlistFrame = NSRect(
-            x: mainFrame.minX,
-            y: eqFrame.minY - playlistCurrentHeight,
-            width: mainSize.width,  // Playlist width matches main
-            height: playlistCurrentHeight
-        )
+        // Collect frames for visible stack windows (order: EQ, Playlist, Spectrum)
+        var eqFrame: NSRect?
+        var playlistFrame: NSRect?
+        var spectrumFrame: NSRect?
         
-        // Spectrum goes below playlist
-        let spectrumCurrentSize = spectrumWindowController?.window?.frame.size ?? SkinElements.SpectrumWindow.windowSize
-        let spectrumFrame = NSRect(
-            x: mainFrame.minX,
-            y: playlistFrame.minY - spectrumCurrentSize.height,
-            width: spectrumCurrentSize.width,
-            height: spectrumCurrentSize.height
-        )
+        if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
+            let h = eqWindow.frame.height
+            let w = eqWindow.frame.width
+            nextY -= h
+            eqFrame = NSRect(x: mainFrame.minX, y: nextY, width: w, height: h)
+        }
         
-        // Calculate total stack height for side windows
-        // Stack: main -> EQ -> playlist -> spectrum (if visible)
+        if let playlistWindow = playlistWindowController?.window, playlistWindow.isVisible {
+            let h = playlistWindow.frame.height
+            let w = playlistWindow.frame.width
+            nextY -= h
+            playlistFrame = NSRect(x: mainFrame.minX, y: nextY, width: w, height: h)
+        }
+        
+        if let spectrumWindow = spectrumWindowController?.window, spectrumWindow.isVisible {
+            let h = spectrumWindow.frame.height
+            let w = spectrumWindow.frame.width
+            nextY -= h
+            spectrumFrame = NSRect(x: mainFrame.minX, y: nextY, width: w, height: h)
+        }
+        
+        // Side windows span the full stack height
         let stackTopY = mainFrame.maxY
-        var stackBottomY = mainFrame.minY
-        if equalizerWindowController?.window?.isVisible == true {
-            stackBottomY = eqFrame.minY
-        }
-        if playlistWindowController?.window?.isVisible == true {
-            stackBottomY = playlistFrame.minY
-        }
-        if spectrumWindowController?.window?.isVisible == true {
-            stackBottomY = spectrumFrame.minY
-        }
+        let stackBottomY = nextY
         let stackHeight = stackTopY - stackBottomY
         
-        // Browser goes to the right of main, matching stack height
-        let browserWidth = plexBrowserWindowController?.window?.frame.width ?? 550
-        let browserFrame = NSRect(
-            x: mainFrame.maxX,
-            y: stackBottomY,
-            width: browserWidth,
-            height: stackHeight
-        )
+        var browserFrame: NSRect?
+        var projectMFrame: NSRect?
         
-        // ProjectM goes to the left of main, matching stack height
-        let projectMWidth = projectMWindowController?.window?.frame.width ?? SkinElements.ProjectM.defaultSize.width
-        let projectMFrame = NSRect(
-            x: mainFrame.minX - projectMWidth,
-            y: stackBottomY,
-            width: projectMWidth,
-            height: stackHeight
-        )
+        if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
+            let w = plexWindow.frame.width
+            browserFrame = NSRect(x: mainFrame.maxX, y: stackBottomY, width: w, height: stackHeight)
+        }
+        
+        if let projectMWindow = projectMWindowController?.window, projectMWindow.isVisible {
+            let w = projectMWindow.frame.width
+            projectMFrame = NSRect(x: mainFrame.minX - w, y: stackBottomY, width: w, height: stackHeight)
+        }
         
         // Clear any saved positions (windows will be positioned relative to main on open)
         defaults.removeObject(forKey: "MainWindowFrame")
@@ -1296,31 +1285,28 @@ class WindowManager {
         defaults.removeObject(forKey: "ArtVisualizerWindowFrame")
         defaults.removeObject(forKey: "SpectrumWindowFrame")
         
-        // Apply positions to visible windows WITHOUT animation first to avoid race conditions
-        // when windows are on different screens. Then animate to final positions.
-        
         // Disable snapping during programmatic frame changes to prevent interference
         isSnappingWindow = true
         defer { isSnappingWindow = false }
         
-        // First pass: Move all windows to target screen instantly (no animation)
+        // Apply positions to visible windows
         if let mainWindow = mainWindowController?.window {
             mainWindow.setFrame(mainFrame, display: true, animate: false)
         }
-        if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
-            eqWindow.setFrame(eqFrame, display: true, animate: false)
+        if let frame = eqFrame, let window = equalizerWindowController?.window {
+            window.setFrame(frame, display: true, animate: false)
         }
-        if let playlistWindow = playlistWindowController?.window, playlistWindow.isVisible {
-            playlistWindow.setFrame(playlistFrame, display: true, animate: false)
+        if let frame = playlistFrame, let window = playlistWindowController?.window {
+            window.setFrame(frame, display: true, animate: false)
         }
-        if let spectrumWindow = spectrumWindowController?.window, spectrumWindow.isVisible {
-            spectrumWindow.setFrame(spectrumFrame, display: true, animate: false)
+        if let frame = spectrumFrame, let window = spectrumWindowController?.window {
+            window.setFrame(frame, display: true, animate: false)
         }
-        if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
-            plexWindow.setFrame(browserFrame, display: true, animate: false)
+        if let frame = browserFrame, let window = plexBrowserWindowController?.window {
+            window.setFrame(frame, display: true, animate: false)
         }
-        if let projectMWindow = projectMWindowController?.window, projectMWindow.isVisible {
-            projectMWindow.setFrame(projectMFrame, display: true, animate: false)
+        if let frame = projectMFrame, let window = projectMWindowController?.window {
+            window.setFrame(frame, display: true, animate: false)
         }
         if let videoWindow = videoPlayerWindowController?.window, videoWindow.isVisible {
             videoWindow.center()
