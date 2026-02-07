@@ -566,8 +566,8 @@ public struct SkinElements {
         /// Title bar height
         public static let titleHeight: CGFloat = 20
         
-        /// Bottom bar height
-        public static let bottomHeight: CGFloat = 38
+        /// Bottom border height (thin decorative border, no control bar)
+        public static let bottomHeight: CGFloat = 3
         
         // === TITLE BAR (active: y=0, inactive: y=21) ===
         // Total width: 25 + 100 + 25 + 25 = 175px (tiled to fill)

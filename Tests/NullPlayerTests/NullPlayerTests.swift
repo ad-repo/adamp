@@ -1352,7 +1352,7 @@ final class NullPlayerTests: XCTestCase {
     func testSkinElementsPlaylistSizes() {
         XCTAssertEqual(SkinElements.Playlist.minSize.width, 275)
         XCTAssertEqual(SkinElements.Playlist.titleHeight, 20)
-        XCTAssertEqual(SkinElements.Playlist.bottomHeight, 38)
+        XCTAssertEqual(SkinElements.Playlist.bottomHeight, 3)  // Thin border, no control bar
     }
     
     func testSkinElementsProjectMSizes() {
