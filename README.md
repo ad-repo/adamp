@@ -1,10 +1,9 @@
-# AdAmp
+# nullPlayer
 
-### A free, open-source music player for macOS, featuring modern Plex and Sonos integration.
+### A free, open-source music player for macOS, featuring modern Plex and Sonos integration
 
-###  This is a clean room project is not affiliated with Winamp, Winamp LLC, Radionomy Group or anyone else.
-
-**If you enjoy AdAmp, please ⭐ star ⭐ the project on GitHub!**
+**This is an independent, clean-room implementation built solely from publicly available specifications and APIs.
+It does not incorporate, reference, or derive from proprietary source code or confidential materials from VLC, Winamp, Plex, Sonos, Navidrome, ProjectM, Radionomy Group, or any related entities, and is not affiliated with or endorsed by them.**
 
 
 ## Features
@@ -35,6 +34,8 @@
 - macOS Now Playing integration (Control Center, Touch Bar, AirPods controls)
 - [Discord Music Presence](https://github.com/ungive/discord-music-presence) support
 
+**If you enjoy nullPlayer, please ⭐ star ⭐ the project on GitHub!**
+
 ## Installation
 
 Download the latest DMG from [Releases](https://github.com/ad-repo/adamp/releases).
@@ -48,16 +49,16 @@ Since the app is in beta testing and not code-signed (it costs $99 a year to sig
 
 **Option 1: Terminal (Recommended)**
 ```bash
-xattr -cr /Applications/AdAmp.app
+xattr -cr /Applications/nullPlayer.app
 ```
 
 **Option 2: System Settings**
 1. Try to open AdAmp (it will be blocked)
 2. Go to **System Settings → Privacy & Security**
-3. Scroll down and click **Open Anyway** next to the AdAmp message
+3. Scroll down and click **Open Anyway** next to the nullPlayer message
 4. Click **Open** in the confirmation dialog
 
-After either option, AdAmp will open normally.
+After either option, nullPlayer will open normally.
 
 ## Requirements
 
@@ -69,7 +70,7 @@ Requires Xcode 15.0+ with Command Line Tools and Swift 5.9+.
 
 ```bash
 # Clone the repository
-git clone https://github.com/ad-repo/adamp.git
+git clone https://github.com/ad-repo/nullPlayer.git
 cd adamp
 
 # Download required frameworks
@@ -91,16 +92,15 @@ open Package.swift
 
 | Library | Purpose |
 |---------|---------|
-| [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) | .wsz skin file extraction |
 | [SQLite.swift](https://github.com/stephencelis/SQLite.swift) | Media library storage |
 | [KSPlayer](https://github.com/kingslay/KSPlayer) | Video playback with FFmpeg backend |
 | [AudioStreaming](https://github.com/dimitris-c/AudioStreaming) | HTTP audio streaming for Plex |
 | [FlyingFox](https://github.com/swhitty/FlyingFox) | Embedded HTTP server for local file casting |
-| [libprojectM](https://github.com/projectM-visualizer/projectm) | Milkdrop visualizations |
+| [libprojectM](https://github.com/projectM-visualizer/projectm) | visualizations |
 
 ## Media Library
 
-Library data is stored as JSON at `~/Library/Application Support/AdAmp/library.json`.
+Library data is stored as JSON at `~/Library/Application Support/nullPlayer/library.json`.
 
 **Backup & Restore API** (`MediaLibrary.swift`):
 
@@ -111,7 +111,7 @@ Library data is stored as JSON at `~/Library/Application Support/AdAmp/library.j
 | `listBackups()` | Returns backup URLs sorted newest first |
 | `deleteBackup(at:)` | Deletes a backup file |
 
-Backups are stored in `~/Library/Application Support/AdAmp/Backups/`.
+Backups are stored in `~/Library/Application Support/nullPlayer/Backups/`.
 
 ## Development
 
