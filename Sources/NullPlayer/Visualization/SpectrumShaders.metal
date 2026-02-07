@@ -12,7 +12,7 @@ using namespace metal;
 
 // MARK: - Structures
 
-/// Parameters passed from Swift (40 bytes, 8-byte aligned)
+/// Parameters passed from Swift (44 bytes)
 struct LEDParams {
     float2 viewportSize;    // Width, height in pixels (offset 0)
     int columnCount;        // Number of columns (offset 8)
@@ -23,6 +23,7 @@ struct LEDParams {
     int qualityMode;        // 0 = classic, 1 = enhanced (offset 28)
     float maxHeight;        // Maximum bar height for classic mode (offset 32)
     float time;             // Animation time in seconds (offset 36)
+    float brightnessBoost;  // Brightness multiplier (1.0 default) (offset 40)
 };
 
 /// Vertex shader output for LED matrix mode
@@ -209,6 +210,9 @@ fragment float4 led_matrix_fragment(
     if (displayBrightness > 0.01 && displayBrightness < 0.15) {
         color = max(color, baseColor * 0.04);
     }
+    
+    // Brightness boost (for small embedded views)
+    color *= params.brightnessBoost;
     
     color = min(color, float3(1.0));
     
@@ -409,7 +413,7 @@ fragment float4 spectrum_fragment(
 // - Prominent floating peaks
 // =============================================================================
 
-/// Parameters for Ultra mode (64 bytes)
+/// Parameters for Ultra mode (56 bytes)
 struct UltraParams {
     float2 viewportSize;    // Width, height in pixels (offset 0)
     int columnCount;        // Number of columns (offset 8)
@@ -422,7 +426,8 @@ struct UltraParams {
     float reflectionHeight; // Height of reflection area (0-0.5) (offset 36)
     float reflectionAlpha;  // Reflection opacity (offset 40)
     float time;             // Animation time for subtle effects (offset 44)
-    float2 padding;         // Alignment padding (offset 48)
+    float brightnessBoost;  // Brightness multiplier (1.0 default) (offset 48)
+    float padding;          // Alignment padding (offset 52)
 };
 
 /// Vertex shader output for Ultra mode
@@ -572,6 +577,9 @@ fragment float4 ultra_matrix_fragment(
         float bloom = (displayBrightness - 0.85) * 3.0;  // 0 to 0.45
         color += baseColor * bloom * 0.2;
     }
+    
+    // Brightness boost (for small embedded views)
+    color *= params.brightnessBoost;
     
     color = min(color, float3(1.0));
     return float4(color, 1.0);

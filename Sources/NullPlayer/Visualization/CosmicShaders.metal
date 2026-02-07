@@ -20,7 +20,7 @@ struct CosmicParams {
     float beatIntensity;
     float flareIntensity;   // Big JWST flare (rare, on major peaks)
     float flareScroll;      // Scroll position frozen when giant fired
-    float padding;
+    float brightnessBoost;  // Brightness multiplier (1.0 = default, >1.0 = brighter)
 };
 
 // MARK: - Noise
@@ -434,6 +434,9 @@ fragment float4 cosmic_fragment(
     // Soft vignette
     float2 vig = (uv - 0.5) * 2.0;
     color *= 1.0 - dot(vig, vig) * 0.12;
+
+    // Brightness boost (for small embedded views)
+    color *= params.brightnessBoost;
 
     // Tone mapping
     color = color / (color + 0.55);

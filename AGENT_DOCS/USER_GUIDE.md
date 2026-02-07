@@ -85,7 +85,7 @@ The main window provides core playback controls and track information.
 | **Sample Rate** | Audio sample rate in kHz |
 | **Stereo Indicator** | Shows mono/stereo status |
 | **Cast Indicator** | Shows when casting to external device |
-| **Spectrum Analyzer** | Real-time frequency visualization (click to toggle Spectrum window, double-click to cycle Spectrum/Fire mode) |
+| **Spectrum Analyzer** | Real-time frequency visualization (click to toggle Spectrum window, double-click to cycle through all modes) |
 | **Playback Status** | Play/Pause/Stop indicator |
 
 ### Sliders
@@ -1100,10 +1100,10 @@ The main window displays real-time frequency analysis:
 - 512-point FFT (~11.6ms latency at 44.1kHz)
 - Fast attack, slow decay smoothing
 - **Click** the visualization area to toggle the Spectrum Analyzer window
-- **Double-click** the visualization area to switch between Spectrum and Fire mode
-- **Fire mode** renders a GPU flame simulation in the vis area with 4 flame styles (Inferno, Aurora, Electric, Ocean) and 2 intensity levels (Mellow, Intense)
-- Flame style and intensity can be changed via Right-click → Options → Main Visualization → Flame Style / Fire Intensity
-- Main window and Spectrum Analyzer window have independent flame style and intensity settings
+- **Double-click** the visualization area to cycle through all modes (Spectrum, Fire, Enhanced, Ultra, JWST, Lightning, Matrix)
+- GPU modes share the same rendering engine as the Spectrum Analyzer window, with brightness boost and bass attenuation tuned for the small display
+- Mode-specific settings (flame style, lightning style, matrix color, etc.) can be changed via Right-click → Spectrum Analyzer → Main Window
+- Main window and Spectrum Analyzer window have independent settings (separate UserDefaults keys with `mainWindow` prefix)
 
 The standalone Spectrum Analyzer window provides a larger, more detailed view with:
 - **Quality modes**: classic skin (skin colors with 3D shading), Enhanced (rainbow LED matrix), Ultra (maximum effects), Fire, JWST

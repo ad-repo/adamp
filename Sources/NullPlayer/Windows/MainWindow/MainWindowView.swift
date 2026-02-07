@@ -1,11 +1,32 @@
 import AppKit
 
 /// Visualization mode for the main window's built-in visualization area
-enum MainWindowVisMode: String {
-    case spectrum = "Spectrum"  // Classic 19-bar spectrum analyzer (CGContext)
-    case fire = "Fire"         // GPU flame simulation (Metal overlay)
+enum MainWindowVisMode: String, CaseIterable {
+    case spectrum = "Spectrum"       // Classic 19-bar spectrum analyzer (CGContext)
+    case fire = "Fire"               // GPU flame simulation (Metal overlay)
+    case enhanced = "Enhanced"       // LED matrix with rainbow (Metal overlay)
+    case ultra = "Ultra"             // Maximum visual quality (Metal overlay)
+    case cosmic = "JWST"             // Procedural nebula (Metal overlay)
+    case electricity = "Lightning"   // GPU lightning storm (Metal overlay)
+    case matrix = "Matrix"           // Falling digital rain (Metal overlay)
     
     var displayName: String { rawValue }
+    
+    /// Whether this mode uses the Metal overlay (all modes except spectrum)
+    var usesMetal: Bool { self != .spectrum }
+    
+    /// Map to the corresponding SpectrumQualityMode for the Metal overlay
+    var spectrumQualityMode: SpectrumQualityMode? {
+        switch self {
+        case .spectrum: return nil
+        case .fire: return .flame
+        case .enhanced: return .enhanced
+        case .ultra: return .ultra
+        case .cosmic: return .cosmic
+        case .electricity: return .electricity
+        case .matrix: return .matrix
+        }
+    }
 }
 
 /// Main window view - renders the skin main player interface using skin sprites
@@ -39,16 +60,16 @@ class MainWindowView: NSView {
     /// Spectrum analyzer levels
     private var spectrumLevels: [Float] = []
     
-    /// Main window visualization mode (spectrum bars vs fire)
+    /// Main window visualization mode (spectrum bars vs GPU-rendered modes)
     private var mainVisMode: MainWindowVisMode = .spectrum {
         didSet {
             UserDefaults.standard.set(mainVisMode.rawValue, forKey: "mainWindowVisMode")
-            updateFlameOverlayVisibility()
+            updateMetalOverlayVisibility()
         }
     }
     
-    /// Metal-based flame visualization overlay (created lazily on first use)
-    private var flameOverlay: SpectrumAnalyzerView?
+    /// Metal-based visualization overlay for all GPU modes (created lazily on first use)
+    private var metalOverlay: SpectrumAnalyzerView?
     
     /// Marquee scroll offset
     private var marqueeOffset: CGFloat = 0
@@ -141,9 +162,9 @@ class MainWindowView: NSView {
         // Setup layer-based marquee for normal mode
         setupMarqueeLayer()
         
-        // Setup flame overlay if fire mode is active
-        if mainVisMode == .fire {
-            setupFlameOverlay()
+        // Setup Metal overlay if a GPU-rendered mode is active
+        if mainVisMode.usesMetal {
+            setupMetalOverlay()
         }
         
         // Start timer for bitrate scrolling (and shade mode marquee)
@@ -232,7 +253,7 @@ class MainWindowView: NSView {
     /// Called when the skin changes (via MainWindowController.skinDidChange)
     func skinDidChange() {
         updateMarqueeContent()
-        flameOverlay?.skinDidChange()
+        metalOverlay?.skinDidChange()
     }
     
     @objc private func windowDidChangeBackingProperties(_ notification: Notification) {
@@ -293,17 +314,26 @@ class MainWindowView: NSView {
         marqueeLayer?.skinTextImage = WindowManager.shared.currentSkin?.text
     }
     
-    // MARK: - Flame Overlay (Metal-based fire visualization in main window vis area)
+    // MARK: - Metal Overlay (GPU-based visualization in main window vis area)
     
-    /// Create the Metal flame overlay view (lazy initialization)
-    private func setupFlameOverlay() {
-        guard flameOverlay == nil else { return }
+    /// Create the Metal visualization overlay view (lazy initialization)
+    private func setupMetalOverlay() {
+        guard metalOverlay == nil else { return }
         
         let overlay = SpectrumAnalyzerView(frame: .zero)
         // Mark as embedded BEFORE setting qualityMode to prevent UserDefaults contamination
         overlay.isEmbedded = true
-        overlay.qualityMode = .flame
-        // Restore flame style and intensity from main window's own UserDefaults keys
+        // Use main window's own normalization key to avoid cross-contamination with spectrum window
+        overlay.normalizationUserDefaultsKey = "mainWindowNormalizationMode"
+        // Boost brightness for the small main window visualization area
+        overlay.brightnessBoost = 2.0
+        // Attenuate bass to prevent it overwhelming the tiny display
+        overlay.bassAttenuation = 0.5
+        // Set quality mode based on current main window vis mode
+        if let qualityMode = mainVisMode.spectrumQualityMode {
+            overlay.qualityMode = qualityMode
+        }
+        // Restore all mode-specific settings from main window's own UserDefaults keys
         if let savedStyle = UserDefaults.standard.string(forKey: "mainWindowFlameStyle"),
            let style = FlameStyle(rawValue: savedStyle) {
             overlay.flameStyle = style
@@ -312,17 +342,33 @@ class MainWindowView: NSView {
            let intensity = FlameIntensity(rawValue: savedIntensity) {
             overlay.flameIntensity = intensity
         }
+        if let savedStyle = UserDefaults.standard.string(forKey: "mainWindowLightningStyle"),
+           let style = LightningStyle(rawValue: savedStyle) {
+            overlay.lightningStyle = style
+        }
+        if let savedScheme = UserDefaults.standard.string(forKey: "mainWindowMatrixColorScheme"),
+           let scheme = MatrixColorScheme(rawValue: savedScheme) {
+            overlay.matrixColorScheme = scheme
+        }
+        if let savedIntensity = UserDefaults.standard.string(forKey: "mainWindowMatrixIntensity"),
+           let intensity = MatrixIntensity(rawValue: savedIntensity) {
+            overlay.matrixIntensity = intensity
+        }
+        if let savedDecay = UserDefaults.standard.string(forKey: "mainWindowDecayMode"),
+           let mode = SpectrumDecayMode(rawValue: savedDecay) {
+            overlay.decayMode = mode
+        }
         overlay.isHidden = true
         addSubview(overlay)
-        flameOverlay = overlay
+        metalOverlay = overlay
         
-        updateFlameOverlayFrame()
+        updateMetalOverlayFrame()
     }
     
-    /// Update flame overlay position to match the visualization area in scaled skin coordinates
-    private func updateFlameOverlayFrame() {
-        guard let overlay = flameOverlay, !isShadeMode else {
-            flameOverlay?.isHidden = true
+    /// Update Metal overlay position to match the visualization area in scaled skin coordinates
+    private func updateMetalOverlayFrame() {
+        guard let overlay = metalOverlay, !isShadeMode else {
+            metalOverlay?.isHidden = true
             return
         }
         
@@ -348,42 +394,46 @@ class MainWindowView: NSView {
         overlay.frame = NSRect(x: macX, y: macY, width: width, height: height)
     }
     
-    /// Show/hide the flame overlay based on current vis mode
-    private func updateFlameOverlayVisibility() {
-        if mainVisMode == .fire && !isShadeMode {
+    /// Show/hide the Metal overlay based on current vis mode
+    private func updateMetalOverlayVisibility() {
+        if mainVisMode.usesMetal && !isShadeMode {
             // Create overlay if needed
-            if flameOverlay == nil {
-                setupFlameOverlay()
+            if metalOverlay == nil {
+                setupMetalOverlay()
             }
-            flameOverlay?.isHidden = false
-            flameOverlay?.startDisplayLink()
-            updateFlameOverlayFrame()
+            // Update quality mode on the overlay to match current vis mode
+            if let qualityMode = mainVisMode.spectrumQualityMode {
+                metalOverlay?.qualityMode = qualityMode
+            }
+            metalOverlay?.isHidden = false
+            metalOverlay?.startDisplayLink()
+            updateMetalOverlayFrame()
             
             // Force layout to ensure Metal layer gets sized properly
-            flameOverlay?.needsLayout = true
-            flameOverlay?.layoutSubtreeIfNeeded()
+            metalOverlay?.needsLayout = true
+            metalOverlay?.layoutSubtreeIfNeeded()
             
             // Feed current spectrum data
             if !spectrumLevels.isEmpty {
-                flameOverlay?.updateSpectrum(spectrumLevels)
+                metalOverlay?.updateSpectrum(spectrumLevels)
             }
             
-            
         } else {
-            flameOverlay?.isHidden = true
-            flameOverlay?.stopDisplayLink()
+            metalOverlay?.isHidden = true
+            metalOverlay?.stopDisplayLink()
         }
         needsDisplay = true
     }
     
-    /// Cycle the main window visualization mode
+    /// Cycle the main window visualization mode through all available modes
     private func cycleMainVisMode() {
-        switch mainVisMode {
-        case .spectrum:
-            mainVisMode = .fire
-        case .fire:
+        let allModes = MainWindowVisMode.allCases
+        guard let currentIndex = allModes.firstIndex(of: mainVisMode) else {
             mainVisMode = .spectrum
+            return
         }
+        let nextIndex = allModes.index(after: currentIndex)
+        mainVisMode = (nextIndex < allModes.endIndex) ? allModes[nextIndex] : allModes[allModes.startIndex]
     }
     
     @objc private func mainVisSettingsChanged() {
@@ -394,8 +444,13 @@ class MainWindowView: NSView {
                 mainVisMode = mode
             }
         }
-        // Reload flame style and intensity if overlay exists (uses main window's own keys)
-        if let overlay = flameOverlay {
+        // Reload all mode-specific settings if overlay exists (uses main window's own keys)
+        if let overlay = metalOverlay {
+            // Update quality mode to match current vis mode
+            if let qualityMode = mainVisMode.spectrumQualityMode {
+                overlay.qualityMode = qualityMode
+            }
+            // Flame settings
             if let savedStyle = UserDefaults.standard.string(forKey: "mainWindowFlameStyle"),
                let style = FlameStyle(rawValue: savedStyle) {
                 overlay.flameStyle = style
@@ -403,6 +458,25 @@ class MainWindowView: NSView {
             if let savedIntensity = UserDefaults.standard.string(forKey: "mainWindowFlameIntensity"),
                let intensity = FlameIntensity(rawValue: savedIntensity) {
                 overlay.flameIntensity = intensity
+            }
+            // Lightning settings
+            if let savedStyle = UserDefaults.standard.string(forKey: "mainWindowLightningStyle"),
+               let style = LightningStyle(rawValue: savedStyle) {
+                overlay.lightningStyle = style
+            }
+            // Matrix settings
+            if let savedScheme = UserDefaults.standard.string(forKey: "mainWindowMatrixColorScheme"),
+               let scheme = MatrixColorScheme(rawValue: savedScheme) {
+                overlay.matrixColorScheme = scheme
+            }
+            if let savedIntensity = UserDefaults.standard.string(forKey: "mainWindowMatrixIntensity"),
+               let intensity = MatrixIntensity(rawValue: savedIntensity) {
+                overlay.matrixIntensity = intensity
+            }
+            // Decay/responsiveness
+            if let savedDecay = UserDefaults.standard.string(forKey: "mainWindowDecayMode"),
+               let mode = SpectrumDecayMode(rawValue: savedDecay) {
+                overlay.decayMode = mode
             }
         }
     }
@@ -572,8 +646,8 @@ class MainWindowView: NSView {
         loadingAnimationTimer?.invalidate()
         visClickTimer?.invalidate()
         marqueeLayer?.removeFromSuperlayer()
-        flameOverlay?.stopDisplayLink()
-        flameOverlay?.removeFromSuperview()
+        metalOverlay?.stopDisplayLink()
+        metalOverlay?.removeFromSuperview()
         NotificationCenter.default.removeObserver(self)
     }
     
@@ -708,7 +782,7 @@ class MainWindowView: NSView {
     override func layout() {
         super.layout()
         updateMarqueeLayerFrame()
-        updateFlameOverlayFrame()
+        updateMetalOverlayFrame()
     }
     
     override func draw(_ dirtyRect: NSRect) {
@@ -863,11 +937,11 @@ class MainWindowView: NSView {
         // Draw sample rate display (e.g., "44" kHz)
         renderer.drawSampleRate(currentTrack?.sampleRate, in: context)
         
-        // Draw spectrum analyzer (only in spectrum mode; fire mode uses Metal overlay)
+        // Draw spectrum analyzer (only in spectrum mode; other modes use Metal overlay)
         if mainVisMode == .spectrum {
             renderer.drawSpectrumAnalyzer(levels: spectrumLevels, in: context)
         }
-        // Note: In fire mode, the Metal flame overlay renders on top of this area
+        // Note: In non-spectrum modes, the Metal overlay renders on top of this area
         
         // Draw position slider (seek bar)
         let positionValue: CGFloat
@@ -960,9 +1034,9 @@ class MainWindowView: NSView {
     func updateSpectrum(_ levels: [Float]) {
         self.spectrumLevels = levels
         
-        // Feed flame overlay when in fire mode
-        if mainVisMode == .fire {
-            flameOverlay?.updateSpectrum(levels)
+        // Feed Metal overlay when in a GPU-rendered mode
+        if mainVisMode.usesMetal {
+            metalOverlay?.updateSpectrum(levels)
         }
         
         // Only redraw the visualization area for performance (spectrum mode)
@@ -1060,8 +1134,8 @@ class MainWindowView: NSView {
         marqueeLayer?.pauseAnimation()
         loadingAnimationTimer?.invalidate()
         loadingAnimationTimer = nil
-        // Pause flame overlay rendering
-        if mainVisMode == .fire { flameOverlay?.stopDisplayLink() }
+        // Pause Metal overlay rendering
+        if mainVisMode.usesMetal { metalOverlay?.stopDisplayLink() }
     }
     
     /// Restart timers when window is restored from minimized state
@@ -1073,8 +1147,8 @@ class MainWindowView: NSView {
         if isCastingLocalFile {
             startLoadingAnimation()
         }
-        // Resume flame overlay rendering
-        if mainVisMode == .fire { flameOverlay?.startDisplayLink() }
+        // Resume Metal overlay rendering
+        if mainVisMode.usesMetal { metalOverlay?.startDisplayLink() }
     }
     
     /// Handle window occlusion state changes to pause/resume timers for CPU efficiency
@@ -1086,15 +1160,15 @@ class MainWindowView: NSView {
             if isCastingLocalFile {
                 startLoadingAnimation()
             }
-            // Resume flame overlay rendering
-            if mainVisMode == .fire { flameOverlay?.startDisplayLink() }
+            // Resume Metal overlay rendering
+            if mainVisMode.usesMetal { metalOverlay?.startDisplayLink() }
         } else {
             stopMarquee()
             marqueeLayer?.pauseAnimation()
             loadingAnimationTimer?.invalidate()
             loadingAnimationTimer = nil
-            // Pause flame overlay rendering
-            if mainVisMode == .fire { flameOverlay?.stopDisplayLink() }
+            // Pause Metal overlay rendering
+            if mainVisMode.usesMetal { metalOverlay?.stopDisplayLink() }
         }
     }
     
@@ -1577,7 +1651,7 @@ class MainWindowView: NSView {
     func setShadeMode(_ enabled: Bool) {
         isShadeMode = enabled
         updateMarqueeLayerFrame()  // Hide/show layer based on mode
-        updateFlameOverlayVisibility()  // Hide/show flame overlay based on mode
+        updateMetalOverlayVisibility()  // Hide/show Metal overlay based on mode
         if enabled {
             marqueeOffset = 0  // Reset shade mode marquee
             startMarquee()     // Start timer for shade mode

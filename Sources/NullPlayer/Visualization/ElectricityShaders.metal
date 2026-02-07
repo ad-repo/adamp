@@ -19,7 +19,7 @@ struct ElectricityParams {
     float beatIntensity;
     float dramaticIntensity;  // Rare dramatic strike (JWST-style, slow decay)
     int colorScheme;          // 0=classic, 1=plasma, 2=matrix, 3=ember, 4=arctic
-    float padding;
+    float brightnessBoost;    // Brightness multiplier (1.0 = default, >1.0 = brighter)
 };
 
 // MARK: - Noise
@@ -641,6 +641,9 @@ fragment float4 electricity_fragment(
     float2 vig = (uv - 0.5) * 2.0;
     color *= 1.0 - dot(vig, vig) * 0.18;
     
+    // Brightness boost (for small embedded views)
+    color *= params.brightnessBoost;
+
     color = color / (color + 0.55);
     color = pow(max(color, 0.0), float3(0.92));
     

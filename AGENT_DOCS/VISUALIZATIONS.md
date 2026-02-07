@@ -14,46 +14,58 @@ NullPlayer features multiple visualization systems for audio-reactive visual eff
 
 ## Main Window Visualization
 
-The main window's built-in visualization area (76x16 pixels in classic coordinates) supports two rendering modes.
+The main window's built-in visualization area (76x16 pixels in classic coordinates) supports seven rendering modes — the same GPU modes available in the Spectrum Analyzer window (except Classic, which is replaced by Spectrum).
 
 ### Modes
 
 | Mode | Description |
 |------|-------------|
-| **Spectrum** | Classic 19-bar spectrum analyzer drawn with skin colors (default) |
-| **Fire** | GPU flame simulation using Metal compute shaders, same engine as the Spectrum Analyzer window's Fire mode |
+| **Spectrum** | Classic 19-bar spectrum analyzer drawn with skin colors via CGContext (default) |
+| **Fire** | GPU flame simulation using Metal compute shaders |
+| **Enhanced** | LED matrix with rainbow gradient, gravity-bouncing peaks, and amber fade trails |
+| **Ultra** | Maximum fidelity seamless gradient with smooth decay, physics-based peaks, and reflections |
+| **JWST** | Deep space flythrough with 3D star field and JWST diffraction flares |
+| **Lightning** | GPU lightning storm with fractal bolts mapped to spectrum peaks |
+| **Matrix** | Falling digital rain with procedural glyphs mapped to spectrum bands |
 
 ### Switching Modes
 
-- **Double-click** the visualization area in the main window to cycle between Spectrum and Fire (single-click toggles the Spectrum Analyzer window)
-- **Right-click** → Options → Main Visualization to select mode and flame style
+- **Double-click** the visualization area in the main window to cycle through all modes (single-click toggles the Spectrum Analyzer window)
+- **Right-click** → Spectrum Analyzer → Main Window → Mode to select a specific mode
 - Setting is persisted across app restarts (UserDefaults key: `mainWindowVisMode`)
 
-### Fire Mode Details
+### Settings
 
-When Fire mode is active, a Metal-based `SpectrumAnalyzerView` overlay is positioned precisely over the visualization area. It uses the same flame simulation engine as the standalone Spectrum Analyzer window:
+All GPU modes share:
+- **Responsiveness**: Controls bar decay speed (Instant, Snappy, Balanced, Smooth) — UserDefaults key: `mainWindowDecayMode`
+- **Normalization**: Controls level scaling (Accurate, Adaptive, Dynamic) — UserDefaults key: `mainWindowNormalizationMode` (hidden for Fire mode)
 
-- 128x96 simulation grid with per-column propagation
-- 11x11 Gaussian blur for smooth output
-- Audio-reactive: bass drives heat, mids drive sway, treble adds sparks
-- Supports all 4 flame styles: Inferno, Aurora, Electric, Ocean
-- 2 intensity presets: Mellow (ambient) and Intense (beat-reactive)
-- Flame style and intensity are independent from the Spectrum Analyzer window (separate UserDefaults keys: `mainWindowFlameStyle`, `mainWindowFlameIntensity`)
+Mode-specific settings:
+- **Fire**: Flame Style (Inferno, Aurora, Electric, Ocean) and Fire Intensity (Mellow, Intense) — keys: `mainWindowFlameStyle`, `mainWindowFlameIntensity`
+- **Lightning**: Lightning Style (Classic, Plasma, Matrix, Ember, Arctic, Rainbow, Neon, Aurora) — key: `mainWindowLightningStyle`
+- **Matrix**: Matrix Color (Classic, Amber, Blue Pill, Bloodshot, Neon) and Matrix Intensity (Subtle, Intense) — keys: `mainWindowMatrixColorScheme`, `mainWindowMatrixIntensity`
+
+All main window settings are independent from the Spectrum Analyzer window (separate UserDefaults keys with `mainWindow` prefix).
 
 ### Technical Details
 
-- **Implementation**: Metal overlay (`SpectrumAnalyzerView`) added as subview of `MainWindowView`
+- **Implementation**: Metal overlay (`SpectrumAnalyzerView` with `isEmbedded = true`) added as subview of `MainWindowView`
 - **Positioning**: Converted from classic coordinates (top-left origin) to macOS view coordinates (bottom-left origin), accounting for window scaling
-- **Lifecycle**: Overlay is created lazily on first Fire mode activation, display link starts/stops with mode changes and window visibility
+- **Lifecycle**: Overlay is created lazily on first GPU mode activation, display link starts/stops with mode changes and window visibility
 - **CPU Efficiency**: Display link pauses when window is minimized, occluded, or in Spectrum mode
+- **Isolation**: Embedded overlay uses its own `normalizationUserDefaultsKey` and does not write to spectrum window UserDefaults keys
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
 | `Windows/MainWindow/MainWindowView.swift` | Mode switching, overlay management, click cycling |
-| `Visualization/SpectrumAnalyzerView.swift` | Metal flame rendering (shared with Spectrum window) |
-| `Visualization/FlameShaders.metal` | GPU compute + render shaders |
+| `Visualization/SpectrumAnalyzerView.swift` | Metal rendering for all GPU modes (shared with Spectrum window) |
+| `Visualization/FlameShaders.metal` | Fire mode GPU compute + render shaders |
+| `Visualization/CosmicShaders.metal` | JWST mode fragment shaders |
+| `Visualization/ElectricityShaders.metal` | Lightning mode fragment shaders |
+| `Visualization/MatrixShaders.metal` | Matrix mode fragment shaders |
+| `Visualization/SpectrumShaders.metal` | Enhanced/Ultra mode shaders |
 
 ---
 
@@ -500,15 +512,16 @@ Right-click on the window for:
 - Parties and ambient displays
 - When you want maximum visual variety
 
-**Main Window Fire Mode**
-- Quick ambient flame visuals without opening a separate window
-- Click the vis area to toggle between spectrum bars and fire
+**Main Window Visualization Modes**
+- Quick access to all GPU visualization modes without opening a separate window
+- Double-click the vis area to cycle through all modes (Spectrum, Fire, Enhanced, Ultra, JWST, Lightning, Matrix)
+- Each mode has its own settings independent from the Spectrum Analyzer window
 
-**Spectrum Analyzer**
-- When you want detailed frequency visualization (classic/Enhanced/Ultra modes)
+**Spectrum Analyzer Window**
+- When you want detailed frequency visualization (Classic/Enhanced/Ultra modes)
 - For monitoring audio levels
 - Classic classic spectrum aesthetic
-- Complements the main window's smaller analyzer
+- Larger display area (275x116 pixels, 55 bars) complements the main window's smaller analyzer
 - Fire mode for ambient flame visuals
 - JWST mode for a chill deep space drift with music-reactive diffraction flares
 - Lightning mode for dramatic storm visuals mapped to spectrum peaks

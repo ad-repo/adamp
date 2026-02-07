@@ -23,7 +23,7 @@ struct MatrixParams {
     float scrollOffset;         // offset 36
     int colorScheme;            // offset 40 - 0=classic,1=amber,2=blue,3=red,4=neon
     float intensity;            // offset 44 - 1.0=subtle, 2.0=intense
-    float padding;              // offset 48 → total 52 (pad to 56 for 8-byte align)
+    float brightnessBoost;      // offset 48 - brightness multiplier (1.0 default)
 };
 
 // =============================================================================
@@ -597,6 +597,9 @@ fragment float4 matrix_fragment(
     float vigStrength = dot(vig, vig) * 0.3;
     color *= 1.0 - vigStrength;
     
+    // Brightness boost (for small embedded views)
+    color *= params.brightnessBoost;
+
     // Lighter tone mapping — let bright heads BURN
     color = color / (color + 0.8);
     

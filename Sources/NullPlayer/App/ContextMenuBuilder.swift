@@ -319,23 +319,61 @@ class ContextMenuBuilder {
         let currentMode = UserDefaults.standard.string(forKey: "mainWindowVisMode")
             .flatMap { MainWindowVisMode(rawValue: $0) } ?? .spectrum
         
-        // Mode options
-        let spectrumItem = NSMenuItem(title: "Spectrum", action: #selector(MenuActions.setMainVisMode(_:)), keyEquivalent: "")
-        spectrumItem.target = MenuActions.shared
-        spectrumItem.representedObject = MainWindowVisMode.spectrum
-        spectrumItem.state = (currentMode == .spectrum) ? .on : .off
-        visMenu.addItem(spectrumItem)
+        // Mode submenu
+        let modeItem = NSMenuItem(title: "Mode", action: nil, keyEquivalent: "")
+        let modeMenu = NSMenu()
+        modeMenu.autoenablesItems = false
         
-        let fireItem = NSMenuItem(title: "Fire", action: #selector(MenuActions.setMainVisMode(_:)), keyEquivalent: "")
-        fireItem.target = MenuActions.shared
-        fireItem.representedObject = MainWindowVisMode.fire
-        fireItem.state = (currentMode == .fire) ? .on : .off
-        visMenu.addItem(fireItem)
+        for mode in MainWindowVisMode.allCases {
+            let item = NSMenuItem(title: mode.displayName, action: #selector(MenuActions.setMainVisMode(_:)), keyEquivalent: "")
+            item.target = MenuActions.shared
+            item.representedObject = mode
+            item.state = (currentMode == mode) ? .on : .off
+            modeMenu.addItem(item)
+        }
+        modeItem.submenu = modeMenu
+        visMenu.addItem(modeItem)
+        
+        // Responsiveness submenu
+        let responsivenessItem = NSMenuItem(title: "Responsiveness", action: nil, keyEquivalent: "")
+        let responsivenessMenu = NSMenu()
+        responsivenessMenu.autoenablesItems = false
+        
+        let currentDecay = UserDefaults.standard.string(forKey: "mainWindowDecayMode")
+            .flatMap { SpectrumDecayMode(rawValue: $0) } ?? .snappy
+        
+        for mode in SpectrumDecayMode.allCases {
+            let item = NSMenuItem(title: mode.displayName, action: #selector(MenuActions.setMainVisResponsiveness(_:)), keyEquivalent: "")
+            item.target = MenuActions.shared
+            item.representedObject = mode
+            item.state = (currentDecay == mode) ? .on : .off
+            responsivenessMenu.addItem(item)
+        }
+        responsivenessItem.submenu = responsivenessMenu
+        visMenu.addItem(responsivenessItem)
+        
+        // Normalization submenu (not shown for Fire mode)
+        if currentMode != .fire {
+            let normItem = NSMenuItem(title: "Normalization", action: nil, keyEquivalent: "")
+            let normMenu = NSMenu()
+            normMenu.autoenablesItems = false
+            
+            let currentNorm = UserDefaults.standard.string(forKey: "mainWindowNormalizationMode")
+                .flatMap { SpectrumNormalizationMode(rawValue: $0) } ?? .accurate
+            
+            for mode in SpectrumNormalizationMode.allCases {
+                let item = NSMenuItem(title: "\(mode.displayName) - \(mode.description)", action: #selector(MenuActions.setMainVisNormalization(_:)), keyEquivalent: "")
+                item.target = MenuActions.shared
+                item.representedObject = mode
+                item.state = (currentNorm == mode) ? .on : .off
+                normMenu.addItem(item)
+            }
+            normItem.submenu = normMenu
+            visMenu.addItem(normItem)
+        }
         
         // Flame Style submenu (only when Fire mode active)
         if currentMode == .fire {
-            visMenu.addItem(NSMenuItem.separator())
-            
             let flameStyleItem = NSMenuItem(title: "Flame Style", action: nil, keyEquivalent: "")
             let flameStyleMenu = NSMenu()
             flameStyleMenu.autoenablesItems = false
@@ -354,7 +392,7 @@ class ContextMenuBuilder {
             flameStyleItem.submenu = flameStyleMenu
             visMenu.addItem(flameStyleItem)
             
-            // Flame Intensity submenu
+            // Fire Intensity submenu
             let flameIntensityItem = NSMenuItem(title: "Fire Intensity", action: nil, keyEquivalent: "")
             let flameIntensityMenu = NSMenu()
             flameIntensityMenu.autoenablesItems = false
@@ -372,6 +410,68 @@ class ContextMenuBuilder {
             
             flameIntensityItem.submenu = flameIntensityMenu
             visMenu.addItem(flameIntensityItem)
+        }
+        
+        // Lightning Style submenu (only when Lightning mode active)
+        if currentMode == .electricity {
+            let lightningStyleItem = NSMenuItem(title: "Lightning Style", action: nil, keyEquivalent: "")
+            let lightningStyleMenu = NSMenu()
+            lightningStyleMenu.autoenablesItems = false
+            
+            let currentStyle = UserDefaults.standard.string(forKey: "mainWindowLightningStyle")
+                .flatMap { LightningStyle(rawValue: $0) } ?? .classic
+            
+            for style in LightningStyle.allCases {
+                let item = NSMenuItem(title: style.displayName, action: #selector(MenuActions.setMainVisLightningStyle(_:)), keyEquivalent: "")
+                item.target = MenuActions.shared
+                item.representedObject = style
+                item.state = (currentStyle == style) ? .on : .off
+                lightningStyleMenu.addItem(item)
+            }
+            
+            lightningStyleItem.submenu = lightningStyleMenu
+            visMenu.addItem(lightningStyleItem)
+        }
+        
+        // Matrix sub-menus (only when Matrix mode active)
+        if currentMode == .matrix {
+            // Matrix Color submenu
+            let matrixColorItem = NSMenuItem(title: "Matrix Color", action: nil, keyEquivalent: "")
+            let matrixColorMenu = NSMenu()
+            matrixColorMenu.autoenablesItems = false
+            
+            let currentMatrixColor = UserDefaults.standard.string(forKey: "mainWindowMatrixColorScheme")
+                .flatMap { MatrixColorScheme(rawValue: $0) } ?? .classic
+            
+            for scheme in MatrixColorScheme.allCases {
+                let item = NSMenuItem(title: scheme.displayName, action: #selector(MenuActions.setMainVisMatrixColor(_:)), keyEquivalent: "")
+                item.target = MenuActions.shared
+                item.representedObject = scheme
+                item.state = (currentMatrixColor == scheme) ? .on : .off
+                matrixColorMenu.addItem(item)
+            }
+            
+            matrixColorItem.submenu = matrixColorMenu
+            visMenu.addItem(matrixColorItem)
+            
+            // Matrix Intensity submenu
+            let matrixIntensityItem = NSMenuItem(title: "Matrix Intensity", action: nil, keyEquivalent: "")
+            let matrixIntensityMenu = NSMenu()
+            matrixIntensityMenu.autoenablesItems = false
+            
+            let currentMatrixIntensity = UserDefaults.standard.string(forKey: "mainWindowMatrixIntensity")
+                .flatMap { MatrixIntensity(rawValue: $0) } ?? .subtle
+            
+            for intensity in MatrixIntensity.allCases {
+                let item = NSMenuItem(title: intensity.displayName, action: #selector(MenuActions.setMainVisMatrixIntensity(_:)), keyEquivalent: "")
+                item.target = MenuActions.shared
+                item.representedObject = intensity
+                item.state = (currentMatrixIntensity == intensity) ? .on : .off
+                matrixIntensityMenu.addItem(item)
+            }
+            
+            matrixIntensityItem.submenu = matrixIntensityMenu
+            visMenu.addItem(matrixIntensityItem)
         }
         
         return visMenu
@@ -1771,6 +1871,36 @@ class MenuActions: NSObject {
     @objc func setMainVisFlameIntensity(_ sender: NSMenuItem) {
         guard let intensity = sender.representedObject as? FlameIntensity else { return }
         UserDefaults.standard.set(intensity.rawValue, forKey: "mainWindowFlameIntensity")
+        NotificationCenter.default.post(name: NSNotification.Name("MainWindowVisChanged"), object: nil)
+    }
+    
+    @objc func setMainVisLightningStyle(_ sender: NSMenuItem) {
+        guard let style = sender.representedObject as? LightningStyle else { return }
+        UserDefaults.standard.set(style.rawValue, forKey: "mainWindowLightningStyle")
+        NotificationCenter.default.post(name: NSNotification.Name("MainWindowVisChanged"), object: nil)
+    }
+    
+    @objc func setMainVisMatrixColor(_ sender: NSMenuItem) {
+        guard let scheme = sender.representedObject as? MatrixColorScheme else { return }
+        UserDefaults.standard.set(scheme.rawValue, forKey: "mainWindowMatrixColorScheme")
+        NotificationCenter.default.post(name: NSNotification.Name("MainWindowVisChanged"), object: nil)
+    }
+    
+    @objc func setMainVisMatrixIntensity(_ sender: NSMenuItem) {
+        guard let intensity = sender.representedObject as? MatrixIntensity else { return }
+        UserDefaults.standard.set(intensity.rawValue, forKey: "mainWindowMatrixIntensity")
+        NotificationCenter.default.post(name: NSNotification.Name("MainWindowVisChanged"), object: nil)
+    }
+    
+    @objc func setMainVisResponsiveness(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? SpectrumDecayMode else { return }
+        UserDefaults.standard.set(mode.rawValue, forKey: "mainWindowDecayMode")
+        NotificationCenter.default.post(name: NSNotification.Name("MainWindowVisChanged"), object: nil)
+    }
+    
+    @objc func setMainVisNormalization(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? SpectrumNormalizationMode else { return }
+        UserDefaults.standard.set(mode.rawValue, forKey: "mainWindowNormalizationMode")
         NotificationCenter.default.post(name: NSNotification.Name("MainWindowVisChanged"), object: nil)
     }
     

@@ -112,7 +112,7 @@ struct CosmicParams {
     var beatIntensity: Float         // 4 bytes (offset 32)
     var flareIntensity: Float = 0    // 4 bytes (offset 36) - big JWST flare on rare peaks
     var flareScroll: Float = 0       // 4 bytes (offset 40) - scroll snapshot when giant fired
-    var padding: Float = 0           // 4 bytes (offset 44) → total 48
+    var brightnessBoost: Float = 1.0 // 4 bytes (offset 44) → total 48
 }
 
 /// Visual style presets for Lightning mode
@@ -146,7 +146,7 @@ struct ElectricityParams {
     var beatIntensity: Float         // 4 bytes (offset 28)
     var dramaticIntensity: Float     // 4 bytes (offset 32) - rare dramatic strike
     var colorScheme: Int32 = 0       // 4 bytes (offset 36) - lightning color palette
-    var padding: Float = 0           // 4 bytes (offset 40) → total 44
+    var brightnessBoost: Float = 1.0 // 4 bytes (offset 40) → total 44
 }
 
 /// Color scheme presets for Matrix mode
@@ -194,7 +194,7 @@ struct MatrixParams {
     var scrollOffset: Float          // 4 bytes (offset 36)
     var colorScheme: Int32 = 0       // 4 bytes (offset 40) - matrix color palette
     var intensity: Float = 1.0       // 4 bytes (offset 44) - 1.0=subtle, 2.0=intense
-    var padding: Float = 0           // 4 bytes (offset 48) → total 52 (padded to 56)
+    var brightnessBoost: Float = 1.0 // 4 bytes (offset 48) → total 52 (padded to 56)
 }
 
 /// Decay mode controlling how quickly bars fall
@@ -237,7 +237,7 @@ enum SpectrumNormalizationMode: String, CaseIterable {
 // MARK: - LED Parameters (for Metal shader)
 
 /// Parameters passed to the Metal shader (must match Metal struct exactly)
-/// Total size: 40 bytes, 8-byte aligned
+/// Total size: 44 bytes
 struct LEDParams {
     var viewportSize: SIMD2<Float>  // 8 bytes (offset 0)
     var columnCount: Int32          // 4 bytes (offset 8)
@@ -248,6 +248,7 @@ struct LEDParams {
     var qualityMode: Int32          // 4 bytes (offset 28)
     var maxHeight: Float            // 4 bytes (offset 32)
     var time: Float = 0             // 4 bytes (offset 36) - animation time in seconds
+    var brightnessBoost: Float = 1.0 // 4 bytes (offset 40) - brightness multiplier
 }
 
 /// Parameters for Ultra mode shader (must match Metal UltraParams exactly)
@@ -264,7 +265,8 @@ struct UltraParams {
     var reflectionHeight: Float     // 4 bytes (offset 36)
     var reflectionAlpha: Float      // 4 bytes (offset 40)
     var time: Float                 // 4 bytes (offset 44)
-    var padding: SIMD2<Float> = SIMD2<Float>(0, 0)  // 8 bytes (offset 48) - alignment to 56
+    var brightnessBoost: Float = 1.0 // 4 bytes (offset 48) - brightness multiplier
+    var padding: Float = 0          // 4 bytes (offset 52) - alignment to 56
 }
 
 // MARK: - Spectrum Analyzer View
@@ -279,6 +281,12 @@ class SpectrumAnalyzerView: NSView {
     /// respond to SpectrumSettingsChanged notifications for quality mode changes.
     /// This prevents cross-contamination between the standalone spectrum window and the overlay.
     var isEmbedded: Bool = false
+    
+    /// UserDefaults key used to read normalization mode each frame.
+    /// Defaults to "spectrumNormalizationMode" for the standalone spectrum window.
+    /// Embedded views (e.g., main window overlay) should set this to their own key
+    /// (e.g., "mainWindowNormalizationMode") to avoid cross-contamination.
+    var normalizationUserDefaultsKey: String = "spectrumNormalizationMode"
     
     /// Quality mode (Classic discrete vs Enhanced smooth vs Ultra high-quality)
     var qualityMode: SpectrumQualityMode = .classic {
@@ -306,7 +314,9 @@ class SpectrumAnalyzerView: NSView {
     /// Decay/responsiveness mode
     var decayMode: SpectrumDecayMode = .snappy {
         didSet {
-            UserDefaults.standard.set(decayMode.rawValue, forKey: "spectrumDecayMode")
+            if !isEmbedded {
+                UserDefaults.standard.set(decayMode.rawValue, forKey: "spectrumDecayMode")
+            }
             let factor = decayMode.decayFactor
             dataLock.withLock {
                 renderDecayFactor = factor
@@ -339,6 +349,14 @@ class SpectrumAnalyzerView: NSView {
     
     /// Glow intensity for enhanced mode (0-1)
     var glowIntensity: Float = 0.5
+    
+    /// Brightness multiplier for all GPU-rendered modes (1.0 = default, >1.0 = brighter).
+    /// Used to boost brightness when the view is embedded at small sizes (e.g., main window vis area).
+    var brightnessBoost: Float = 1.0
+    
+    /// Bass energy attenuation factor (1.0 = full bass, <1.0 = reduced bass influence).
+    /// Used to tame bass-heavy visuals in small embedded views where bass dominates.
+    var bassAttenuation: Float = 1.0
     
     /// Current lightning style preset (only used when qualityMode == .electricity)
     var lightningStyle: LightningStyle = .classic {
@@ -1387,6 +1405,7 @@ class SpectrumAnalyzerView: NSView {
                 for i in 16..<min(50, rawSpectrum.count) { mid += rawSpectrum[i] }; mid /= 34.0
                 for i in 50..<min(75, rawSpectrum.count) { treble += rawSpectrum[i] }; treble /= 25.0
             }
+            bass *= bassAttenuation
             let attack = localIntensity.attackSpeed
             let release = localIntensity.releaseSpeed
             flameSmoothBass += (bass - flameSmoothBass) * (bass > flameSmoothBass ? attack : release)
@@ -1395,7 +1414,12 @@ class SpectrumAnalyzerView: NSView {
         }
         if let buf = flameSpectrumBuffer {
             let p = buf.contents().bindMemory(to: Float.self, capacity: 75)
-            for i in 0..<75 { p[i] = i < localSpectrum.count ? localSpectrum[i] : 0 }
+            let bassAtten = bassAttenuation
+            for i in 0..<75 {
+                var val: Float = i < localSpectrum.count ? localSpectrum[i] : 0
+                if i < 16 { val *= bassAtten }
+                p[i] = val
+            }
         }
         let scale = metalLayer?.contentsScale ?? 2.0
         if let buf = flameParamsBuffer {
@@ -1456,6 +1480,7 @@ class SpectrumAnalyzerView: NSView {
                 for i in 16..<min(50, rawSpectrum.count) { mid += rawSpectrum[i] }; mid /= 34.0
                 for i in 50..<min(75, rawSpectrum.count) { treble += rawSpectrum[i] }; treble /= 25.0
             }
+            bass *= bassAttenuation
             
             // Smooth audio values (fast attack, slower release)
             cosmicSmoothBass += (bass - cosmicSmoothBass) * (bass > cosmicSmoothBass ? 0.3 : 0.08)
@@ -1515,7 +1540,8 @@ class SpectrumAnalyzerView: NSView {
                 totalEnergy: totalE,
                 beatIntensity: cosmicBeatIntensity,
                 flareIntensity: cosmicFlareIntensity,
-                flareScroll: cosmicFlareScrollSnapshot
+                flareScroll: cosmicFlareScrollSnapshot,
+                brightnessBoost: brightnessBoost
             )
         }
         
@@ -1532,7 +1558,12 @@ class SpectrumAnalyzerView: NSView {
         dataLock.withLock { localSpectrum = displaySpectrum }
         if let buf = flameSpectrumBuffer {
             let p = buf.contents().bindMemory(to: Float.self, capacity: 75)
-            for i in 0..<75 { p[i] = i < localSpectrum.count ? localSpectrum[i] : 0 }
+            let bassAtten = bassAttenuation
+            for i in 0..<75 {
+                var val: Float = i < localSpectrum.count ? localSpectrum[i] : 0
+                if i < 16 { val *= bassAtten }
+                p[i] = val
+            }
         }
         
         if let enc = cb.makeRenderCommandEncoder(descriptor: rpd), let pl = cosmicRenderPipeline {
@@ -1566,6 +1597,7 @@ class SpectrumAnalyzerView: NSView {
                 for i in 16..<min(50, rawSpectrum.count) { mid += rawSpectrum[i] }; mid /= 34.0
                 for i in 50..<min(75, rawSpectrum.count) { treble += rawSpectrum[i] }; treble /= 25.0
             }
+            bass *= bassAttenuation
             
             // Smooth audio values — JWST-style gentle tracking
             electricitySmoothBass += (bass - electricitySmoothBass) * (bass > electricitySmoothBass ? 0.25 : 0.06)
@@ -1602,7 +1634,12 @@ class SpectrumAnalyzerView: NSView {
         dataLock.withLock { localSpectrum = displaySpectrum }
         if let buf = flameSpectrumBuffer {
             let p = buf.contents().bindMemory(to: Float.self, capacity: 75)
-            for i in 0..<75 { p[i] = i < localSpectrum.count ? localSpectrum[i] : 0 }
+            let bassAtten = bassAttenuation
+            for i in 0..<75 {
+                var val: Float = i < localSpectrum.count ? localSpectrum[i] : 0
+                if i < 16 { val *= bassAtten }
+                p[i] = val
+            }
         }
         
         // Update electricity params
@@ -1621,7 +1658,8 @@ class SpectrumAnalyzerView: NSView {
                 totalEnergy: totalE,
                 beatIntensity: electricityBeatIntensity,
                 dramaticIntensity: electricityDramaticIntensity,
-                colorScheme: localColorScheme
+                colorScheme: localColorScheme,
+                brightnessBoost: brightnessBoost
             )
         }
         
@@ -1666,6 +1704,7 @@ class SpectrumAnalyzerView: NSView {
                 for i in 16..<min(50, rawSpectrum.count) { mid += rawSpectrum[i] }; mid /= 34.0
                 for i in 50..<min(75, rawSpectrum.count) { treble += rawSpectrum[i] }; treble /= 25.0
             }
+            bass *= bassAttenuation
             
             // Get current intensity preset for attack/release speeds
             let intensityPreset = renderMatrixIntensity
@@ -1714,7 +1753,12 @@ class SpectrumAnalyzerView: NSView {
         dataLock.withLock { localSpectrum = displaySpectrum }
         if let buf = flameSpectrumBuffer {
             let p = buf.contents().bindMemory(to: Float.self, capacity: 75)
-            for i in 0..<75 { p[i] = i < localSpectrum.count ? localSpectrum[i] : 0 }
+            let bassAtten = bassAttenuation
+            for i in 0..<75 {
+                var val: Float = i < localSpectrum.count ? localSpectrum[i] : 0
+                if i < 16 { val *= bassAtten }
+                p[i] = val
+            }
         }
         
         // Update matrix params
@@ -1733,7 +1777,8 @@ class SpectrumAnalyzerView: NSView {
                 dramaticIntensity: matrixDramaticIntensity,
                 scrollOffset: localScroll,
                 colorScheme: localColorScheme,
-                intensity: localIntensityVal
+                intensity: localIntensityVal,
+                brightnessBoost: brightnessBoost
             )
         }
         
@@ -1776,7 +1821,7 @@ class SpectrumAnalyzerView: NSView {
         let ultraOutputCount = ultraBarCount
         
         // Check normalization mode - Accurate uses full height for max dynamic range
-        let isAccurateMode = UserDefaults.standard.string(forKey: "spectrumNormalizationMode") == SpectrumNormalizationMode.accurate.rawValue
+        let isAccurateMode = UserDefaults.standard.string(forKey: normalizationUserDefaultsKey) == SpectrumNormalizationMode.accurate.rawValue
         
         // Scale factor: Accurate mode uses full height, others leave headroom for peaks
         let displayScale: Float = isAccurateMode ? 1.0 : 0.95
@@ -2131,7 +2176,8 @@ class SpectrumAnalyzerView: NSView {
                     cellSpacing: cellSpacing,
                     qualityMode: 1,
                     maxHeight: scaledHeight,
-                    time: localAnimationTime
+                    time: localAnimationTime,
+                    brightnessBoost: brightnessBoost
                 )
             }
             
@@ -2179,7 +2225,8 @@ class SpectrumAnalyzerView: NSView {
                     glowIntensity: 1.0,         // Maximum glow for flashy neon effect
                     reflectionHeight: 0.0,      // No reflection
                     reflectionAlpha: 0.0,
-                    time: localAnimationTime
+                    time: localAnimationTime,
+                    brightnessBoost: brightnessBoost
                 )
             }
             
