@@ -10557,6 +10557,13 @@ class PlexBrowserView: NSView {
                     let tracks = try await PlexManager.shared.fetchTracks(forAlbum: album)
                     allTracks.append(contentsOf: tracks)
                 }
+                
+                // Last-resort fallback: if no tracks found via albums, fetch tracks directly
+                if allTracks.isEmpty {
+                    NSLog("PlexBrowser: No tracks found via albums for '%@', trying direct track fetch", artist.title)
+                    allTracks = try await PlexManager.shared.fetchTracks(forArtist: artist)
+                }
+                
                 let convertedTracks = PlexManager.shared.convertToTracks(allTracks)
                 NSLog("Playing artist %@ with %d tracks", artist.title, convertedTracks.count)
                 WindowManager.shared.audioEngine.loadTracks(convertedTracks)
