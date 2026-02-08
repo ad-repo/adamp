@@ -65,6 +65,7 @@ Windows automatically snap together when dragged near each other:
 - **Edge-to-edge snapping**: Windows dock when edges touch
 - **Screen edge snapping**: Windows snap to screen borders
 - **Group movement**: Docked windows (Main, Playlist, EQ, Spectrum) move together when dragged
+- **Group minimize**: When the main window is minimized, all attached (touching) windows animate into the dock together. Unattached windows remain visible. Restoring from the dock brings all grouped windows back
 - **Vertical stacking**: Opening EQ, Playlist, or Spectrum places them below the existing stack
 
 **Snap to Default** (context menu) resets all windows to their default positions. Side windows (ProjectM, Library Browser) resize to match the vertical stack height.

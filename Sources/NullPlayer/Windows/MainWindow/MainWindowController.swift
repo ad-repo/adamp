@@ -175,6 +175,16 @@ extension MainWindowController: NSWindowDelegate {
         WindowManager.shared.applySnappedPosition(window, to: newOrigin)
     }
     
+    func windowWillMiniaturize(_ notification: Notification) {
+        guard let window = window else { return }
+        WindowManager.shared.attachDockedWindowsForMiniaturize(mainWindow: window)
+    }
+    
+    func windowDidDeminiaturize(_ notification: Notification) {
+        guard let window = window else { return }
+        WindowManager.shared.detachDockedWindowsAfterDeminiaturize(mainWindow: window)
+    }
+    
     func windowDidBecomeKey(_ notification: Notification) {
         // Bring all app windows to front when main window gets focus
         WindowManager.shared.bringAllWindowsToFront()

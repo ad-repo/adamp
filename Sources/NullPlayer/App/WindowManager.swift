@@ -153,6 +153,9 @@ class WindowManager {
     /// Flag to prevent feedback loop when snapping windows
     private var isSnappingWindow = false
     
+    /// Windows that were attached as children for coordinated minimize (for restore)
+    private var coordinatedMiniaturizedWindows: [NSWindow] = []
+    
     // MARK: - Initialization
     
     private init() {
@@ -1706,7 +1709,7 @@ class WindowManager {
     /// Find all windows that are docked (touching) the given window
     /// When dragging a dockable window (main, playlist, EQ), all touching windows move together
     /// When dragging a non-dockable window (Plex browser), it moves alone
-    private func findDockedWindows(to window: NSWindow) -> [NSWindow] {
+    func findDockedWindows(to window: NSWindow) -> [NSWindow] {
         // Non-dockable windows don't drag other windows with them
         guard isDockableWindow(window) else { return [] }
         
@@ -1791,6 +1794,29 @@ class WindowManager {
     /// Get all visible windows
     func visibleWindows() -> [NSWindow] {
         return allWindows()
+    }
+    
+    // MARK: - Coordinated Miniaturize
+    
+    /// Temporarily attach all docked windows as child windows of the main window
+    /// so they animate together into the dock as a group.
+    /// Called from windowWillMiniaturize (before the animation starts).
+    func attachDockedWindowsForMiniaturize(mainWindow: NSWindow) {
+        let docked = findDockedWindows(to: mainWindow)
+        coordinatedMiniaturizedWindows = docked
+        for window in docked {
+            mainWindow.addChildWindow(window, ordered: .above)
+        }
+    }
+    
+    /// Remove child window relationships after the main window is restored from dock,
+    /// so windows become independent again for normal docking/dragging behavior.
+    /// Called from windowDidDeminiaturize.
+    func detachDockedWindowsAfterDeminiaturize(mainWindow: NSWindow) {
+        for window in coordinatedMiniaturizedWindows {
+            mainWindow.removeChildWindow(window)
+        }
+        coordinatedMiniaturizedWindows.removeAll()
     }
     
     // MARK: - State Persistence
