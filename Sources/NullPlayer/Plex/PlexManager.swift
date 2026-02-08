@@ -588,12 +588,35 @@ class PlexManager {
         return try await client.fetchTracks(libraryID: library.id, offset: offset, limit: limit)
     }
     
-    /// Fetch albums for an artist
+    /// Fetch albums for an artist (with fallback to library section filter)
     func fetchAlbums(forArtist artist: PlexArtist) async throws -> [PlexAlbum] {
         guard let client = serverClient else {
             return []
         }
-        return try await client.fetchAlbums(forArtist: artist.id)
+        
+        // Primary: fetch via /library/metadata/{id}/children
+        let albums = try await client.fetchAlbums(forArtist: artist.id)
+        if !albums.isEmpty {
+            return albums
+        }
+        
+        // Fallback: query library section with artist.id filter
+        // This handles cases where the /children endpoint returns empty
+        // (compilation artists, metadata agent quirks, etc.)
+        guard let library = currentLibrary, library.isMusicLibrary else {
+            return []
+        }
+        NSLog("PlexManager: fetchAlbums /children returned empty for '%@' (id=%@), trying library section filter fallback", artist.title, artist.id)
+        return try await client.fetchAlbumsByArtistFilter(artistID: artist.id, libraryID: library.id)
+    }
+    
+    /// Fetch tracks for an artist directly (bypasses album hierarchy)
+    /// Used as a last-resort fallback when album fetch returns empty
+    func fetchTracks(forArtist artist: PlexArtist) async throws -> [PlexTrack] {
+        guard let client = serverClient, let library = currentLibrary, library.isMusicLibrary else {
+            return []
+        }
+        return try await client.fetchTracksByArtistFilter(artistID: artist.id, libraryID: library.id)
     }
     
     /// Fetch tracks for an album

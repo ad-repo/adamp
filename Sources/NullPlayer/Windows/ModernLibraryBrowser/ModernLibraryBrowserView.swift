@@ -3206,11 +3206,27 @@ class ModernLibraryBrowserView: NSView {
     
     // MARK: - Build Display Items
     
+    /// Extract an artist ID from a parentKey path, handling various Plex server formats:
+    /// - "/library/metadata/12345" → "12345"
+    /// - "/library/metadata/12345/children" → "12345"
+    /// - "12345" (bare ID) → "12345"
+    private func extractArtistId(from parentKey: String) -> String? {
+        if parentKey.contains("/library/metadata/") {
+            let stripped = parentKey.replacingOccurrences(of: "/library/metadata/", with: "")
+            let components = stripped.split(separator: "/")
+            if let first = components.first { return String(first) }
+            return nil
+        }
+        let trimmed = parentKey.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty, trimmed.allSatisfy({ $0.isNumber }) { return trimmed }
+        NSLog("ModernLibraryBrowser: Warning - unrecognized parentKey format: %@", parentKey)
+        return nil
+    }
+    
     private func buildArtistAlbumCounts() {
         artistAlbumCounts.removeAll()
         for album in cachedAlbums {
-            if let parentKey = album.parentKey {
-                let artistId = parentKey.replacingOccurrences(of: "/library/metadata/", with: "")
+            if let parentKey = album.parentKey, let artistId = extractArtistId(from: parentKey) {
                 artistAlbumCounts[artistId, default: 0] += 1
             }
         }
@@ -3560,8 +3576,22 @@ class ModernLibraryBrowserView: NSView {
                 expandedArtists.insert(artist.id)
                 if artistAlbums[artist.id] == nil {
                     Task { @MainActor in
-                        do { let albums = try await PlexManager.shared.fetchAlbums(forArtist: artist); artistAlbums[artist.id] = albums; rebuildCurrentModeItems() }
-                        catch { NSLog("Failed to load albums: \(error)") }
+                        do {
+                            NSLog("ModernLibraryBrowser: Fetching albums for artist '%@' (id=%@)", artist.title, artist.id)
+                            let albums = try await PlexManager.shared.fetchAlbums(forArtist: artist)
+                            if albums.isEmpty && artist.albumCount > 0 {
+                                NSLog("ModernLibraryBrowser: Warning - API returned 0 albums for '%@' (id=%@) but albumCount=%d - allowing retry", artist.title, artist.id, artist.albumCount)
+                                expandedArtists.remove(artist.id)
+                            } else {
+                                NSLog("ModernLibraryBrowser: Loaded %d albums for '%@' (id=%@)", albums.count, artist.title, artist.id)
+                                artistAlbums[artist.id] = albums
+                            }
+                            rebuildCurrentModeItems()
+                        } catch {
+                            NSLog("ModernLibraryBrowser: Failed to load albums for '%@' (id=%@): %@", artist.title, artist.id, error.localizedDescription)
+                            expandedArtists.remove(artist.id)
+                            rebuildCurrentModeItems()
+                        }
                     }; return
                 }
             }
@@ -3572,7 +3602,11 @@ class ModernLibraryBrowserView: NSView {
                 if albumTracks[album.id] == nil {
                     Task { @MainActor in
                         do { let tracks = try await PlexManager.shared.fetchTracks(forAlbum: album); albumTracks[album.id] = tracks; rebuildCurrentModeItems() }
-                        catch { NSLog("Failed to load tracks: \(error)") }
+                        catch {
+                            NSLog("ModernLibraryBrowser: Failed to load tracks for album '%@' (id=%@): %@", album.title, album.id, error.localizedDescription)
+                            expandedAlbums.remove(album.id)
+                            rebuildCurrentModeItems()
+                        }
                     }; return
                 }
             }
@@ -3583,7 +3617,11 @@ class ModernLibraryBrowserView: NSView {
                 if showSeasons[show.id] == nil {
                     Task { @MainActor in
                         do { let seasons = try await PlexManager.shared.fetchSeasons(forShow: show); showSeasons[show.id] = seasons; rebuildCurrentModeItems() }
-                        catch { NSLog("Failed to load seasons: \(error)") }
+                        catch {
+                            NSLog("ModernLibraryBrowser: Failed to load seasons for show '%@' (id=%@): %@", show.title, show.id, error.localizedDescription)
+                            expandedShows.remove(show.id)
+                            rebuildCurrentModeItems()
+                        }
                     }; return
                 }
             }
@@ -3594,7 +3632,11 @@ class ModernLibraryBrowserView: NSView {
                 if seasonEpisodes[season.id] == nil {
                     Task { @MainActor in
                         do { let episodes = try await PlexManager.shared.fetchEpisodes(forSeason: season); seasonEpisodes[season.id] = episodes; rebuildCurrentModeItems() }
-                        catch { NSLog("Failed to load episodes: \(error)") }
+                        catch {
+                            NSLog("ModernLibraryBrowser: Failed to load episodes for season '%@' (id=%@): %@", season.title, season.id, error.localizedDescription)
+                            expandedSeasons.remove(season.id)
+                            rebuildCurrentModeItems()
+                        }
                     }; return
                 }
             }
@@ -3677,6 +3719,11 @@ class ModernLibraryBrowserView: NSView {
                 let albums = try await PlexManager.shared.fetchAlbums(forArtist: artist)
                 var all: [PlexTrack] = []
                 for album in albums { all.append(contentsOf: try await PlexManager.shared.fetchTracks(forAlbum: album)) }
+                // Last-resort fallback: if no tracks found via albums, fetch tracks directly
+                if all.isEmpty {
+                    NSLog("ModernLibraryBrowser: No tracks found via albums for '%@', trying direct track fetch", artist.title)
+                    all = try await PlexManager.shared.fetchTracks(forArtist: artist)
+                }
                 WindowManager.shared.audioEngine.loadTracks(PlexManager.shared.convertToTracks(all))
             } catch { NSLog("Failed: %@", error.localizedDescription) }
         }
