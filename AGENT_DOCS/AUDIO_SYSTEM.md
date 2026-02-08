@@ -802,7 +802,8 @@ Powered by **aubio** (`libaubio`), a mature C library for audio analysis. Uses a
 
 - **libaubio** (`Frameworks/libaubio.5.dylib`) - C library, bundled in the app like libprojectM
 - Headers in `Frameworks/libaubio/` with `CAubio` module map
-- Install via `brew install aubio` for development
+- Automatically downloaded by `scripts/bootstrap.sh` (from `deps-v2` GitHub release)
+- Alternatively, install via `brew install aubio` for local development without bootstrap
 
 ### Display
 

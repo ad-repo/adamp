@@ -9,7 +9,7 @@ set -eo pipefail
 
 # Configuration
 REPO="ad-repo/nullplayer"
-RELEASE_TAG="deps-v1"
+RELEASE_TAG="deps-v2"
 
 # Framework definitions
 VLCKIT_FILE="VLCKit-macos.tar.gz"
@@ -19,6 +19,10 @@ VLCKIT_TARGET="Frameworks/VLCKit.framework"
 PROJECTM_FILE="libprojectM-4.1.6-macos.tar.gz"
 PROJECTM_SHA256="0bcdf100b837ec89101912dcd5bb21da4eae15902f136afa67140a0728aad0ee"
 PROJECTM_TARGET="Frameworks/libprojectM-4.dylib"
+
+AUBIO_FILE="libaubio-macos.tar.gz"
+AUBIO_SHA256="37fa52b7c57bed321ce8148bdea19d129ee3ac876e644703cae838cc478a4045"
+AUBIO_TARGET="Frameworks/libaubio.5.dylib"
 
 # Colors for output
 RED='\033[0;31m'
@@ -178,6 +182,14 @@ install_framework() {
         log_info "Created symlink: libprojectM-4.4.dylib -> $dylib_name"
     fi
     
+    # Create unversioned symlink for libaubio (linker looks for libaubio.dylib)
+    if [[ "$target" == *"libaubio"* ]]; then
+        local dylib_dir=$(dirname "${REPO_ROOT}/${target}")
+        local dylib_name=$(basename "${REPO_ROOT}/${target}")
+        ln -sf "$dylib_name" "${dylib_dir}/libaubio.dylib"
+        log_info "Created symlink: libaubio.dylib -> $dylib_name"
+    fi
+    
     rm -f "$tmpfile"
     log_success "${name} installed successfully"
     return 0
@@ -216,6 +228,16 @@ main() {
         echo ""
     else
         log_success "libprojectM already installed"
+    fi
+    
+    # libaubio
+    if [[ "$FORCE" == true ]] || [[ ! -e "${REPO_ROOT}/${AUBIO_TARGET}" ]]; then
+        if ! install_framework "libaubio" "$AUBIO_FILE" "$AUBIO_SHA256" "$AUBIO_TARGET"; then
+            failed=1
+        fi
+        echo ""
+    else
+        log_success "libaubio already installed"
     fi
     
     # Summary

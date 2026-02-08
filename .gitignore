@@ -58,8 +58,11 @@ tmp/
 # Binary frameworks (downloaded by scripts/bootstrap.sh)
 Frameworks/VLCKit.framework/
 Frameworks/libprojectM-4.dylib
+Frameworks/libaubio.5.dylib
+Frameworks/libaubio.dylib
 
 # Framework tarballs (used for releases)
 VLCKit-macos.tar.gz
 libprojectM-*.tar.gz
+libaubio-macos.tar.gz
 Frameworks/libprojectM-4.4.dylib
