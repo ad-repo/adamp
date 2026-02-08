@@ -401,19 +401,12 @@ class ModernMainWindowView: NSView {
         // BPM (with optional multiplier from double-click cycling)
         if let bpm = currentBPM, bpm > 0 {
             let displayBPM: Int
-            let suffix: String
             switch bpmMultiplierState {
-            case 1:
-                displayBPM = bpm * 2
-                suffix = " bpm 2x"
-            case 2:
-                displayBPM = bpm / 2
-                suffix = " bpm .5x"
-            default:
-                displayBPM = bpm
-                suffix = " bpm"
+            case 1:  displayBPM = bpm * 2
+            case 2:  displayBPM = max(1, bpm / 2)
+            default: displayBPM = bpm
             }
-            renderer.drawLabel("\(displayBPM)\(suffix)",
+            renderer.drawLabel("\(displayBPM) bpm",
                                in: ModernSkinElements.infoBPM.defaultRect,
                                font: smallFont, color: infoColor, context: context)
         }
