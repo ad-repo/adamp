@@ -1,0 +1,5 @@
+module CKeyFinder [system] {
+    header "keyfinder_c.h"
+    link "keyfinder_c"
+    export *
+}

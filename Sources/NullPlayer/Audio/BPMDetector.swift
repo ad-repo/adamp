@@ -1,83 +1,62 @@
 import Foundation
 import CAubio
 
-/// Real-time BPM detector powered by aubio's tempo detection.
+/// Real-time BPM detector powered by aubio's tempo/beat detection.
 ///
-/// Wraps aubio's `aubio_tempo_t` which uses onset detection + beat tracking
-/// to produce accurate, stable BPM readings across all genres.
-///
-/// Thread safety: All `process` calls must happen on the same thread (the audio tap thread).
-/// BPM updates are posted to the main thread via notification.
+/// Uses aubio's `aubio_tempo_t` for beat detection and BPM estimation.
+/// Thread-safe: `reset()` sets a flag consumed by `process()` on the audio
+/// thread so all aubio C library access stays on a single thread.
 class BPMDetector {
     
     // MARK: - Configuration
     
-    /// aubio FFT buffer size (must be power of 2)
     private let bufSize: UInt32 = 1024
-    
-    /// aubio hop size (samples between analysis frames)
     private let hopSize: UInt32 = 512
+    private let minConfidence: Float = 0.05
+    private let maxBPMReadings = 10
     
-    /// Minimum confidence to display a BPM value
-    private let minConfidence: Float = 0.1
+    // MARK: - aubio State (audio thread only)
     
-    // MARK: - aubio State
-    
-    /// aubio tempo detection object
     private var tempo: OpaquePointer?
-    
-    /// aubio input buffer (hopSize samples)
     private var inputBuffer: UnsafeMutablePointer<fvec_t>?
-    
-    /// aubio output buffer (beat detection result)
     private var outputBuffer: UnsafeMutablePointer<fvec_t>?
-    
-    /// Accumulator for incoming samples (audio tap delivers 2048 at a time,
-    /// aubio wants hopSize chunks)
-    private var sampleAccumulator: [Float] = []
-    
-    /// Current sample rate
     private var sampleRate: UInt32 = 44100
-    
-    /// Whether aubio has been initialized with the correct sample rate
     private var isInitialized = false
     
-    // MARK: - Smoothing State
+    // MARK: - Thread-safe reset
     
-    /// Last displayed BPM
+    private var needsReset = false
+    
+    // MARK: - Ring Buffer (audio thread only)
+    
+    private var ringBuffer = [Float](repeating: 0, count: 8192)
+    private var ringWritePos = 0
+    private var ringReadPos = 0
+    private var ringCount = 0
+    
+    // MARK: - Display State
+    
     private var displayedBPM: Int = 0
-    
-    /// Whether we have a confident reading
     private var hasConfidentReading = false
-    
-    /// Recent BPM readings for stability filtering
     private var recentReadings: [Float] = []
-    private let maxReadings = 10
-    
-    /// Timing for notification throttling
     private var lastNotificationTime: CFAbsoluteTime = 0
     private let notificationInterval: CFAbsoluteTime = 1.0
     
     // MARK: - Initialization
     
     init() {
-        // Defer aubio init until we know the sample rate
+        recentReadings.reserveCapacity(maxBPMReadings + 2)
     }
     
-    deinit {
-        destroyAubio()
-    }
+    deinit { destroyAubio() }
     
-    /// Create or recreate the aubio tempo object for the given sample rate
     private func initAubio(sampleRate: UInt32) {
         destroyAubio()
-        
         self.sampleRate = sampleRate
         tempo = new_aubio_tempo("default", bufSize, hopSize, sampleRate)
         inputBuffer = new_fvec(hopSize)
         outputBuffer = new_fvec(2)
         
-        // Set silence threshold (ignore very quiet sections)
         if let t = tempo {
             aubio_tempo_set_silence(t, -40.0)
         }
@@ -85,7 +64,6 @@ class BPMDetector {
         isInitialized = true
     }
     
-    /// Clean up aubio resources
     private func destroyAubio() {
         if let t = tempo { del_aubio_tempo(t) }
         if let ib = inputBuffer { del_fvec(ib) }
@@ -96,55 +74,79 @@ class BPMDetector {
         isInitialized = false
     }
     
+    private func clearState() {
+        ringWritePos = 0
+        ringReadPos = 0
+        ringCount = 0
+        recentReadings.removeAll(keepingCapacity: true)
+        displayedBPM = 0
+        hasConfidentReading = false
+        lastNotificationTime = 0
+    }
+    
     // MARK: - Public API
     
-    /// Process a buffer of mono audio samples. Call from the audio tap thread.
+    /// Process audio samples. Called from the audio tap thread ONLY.
     func process(samples: UnsafePointer<Float>, count: Int, sampleRate: Double) {
-        let sr = UInt32(sampleRate)
-        
-        // Initialize or reinitialize if sample rate changed
-        if !isInitialized || sr != self.sampleRate {
-            initAubio(sampleRate: sr)
+        // Handle reset request from another thread
+        if needsReset {
+            needsReset = false
+            destroyAubio()
+            clearState()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .bpmUpdated, object: nil,
+                    userInfo: ["bpm": 0])
+            }
         }
         
-        guard let tempo = tempo,
-              let inputBuf = inputBuffer,
-              let outputBuf = outputBuffer else { return }
+        let sr = UInt32(sampleRate)
+        if !isInitialized || sr != self.sampleRate {
+            initAubio(sampleRate: sr)
+            clearState()
+        }
         
-        // Accumulate incoming samples
-        sampleAccumulator.append(contentsOf: UnsafeBufferPointer(start: samples, count: count))
+        guard let tempoObj = tempo,
+              let inputBuf = inputBuffer,
+              let outputBuf = outputBuffer,
+              let inputData = inputBuf.pointee.data,
+              let _ = outputBuf.pointee.data else { return }
+        
+        // Write samples to ring buffer
+        let ringSize = ringBuffer.count
+        let toWrite = min(count, ringSize - ringCount)
+        for i in 0..<toWrite {
+            ringBuffer[ringWritePos] = samples[i]
+            ringWritePos = (ringWritePos + 1) % ringSize
+        }
+        ringCount += toWrite
         
         let hop = Int(hopSize)
         let now = CFAbsoluteTimeGetCurrent()
         
-        // Process in hopSize chunks
-        while sampleAccumulator.count >= hop {
-            // Copy samples into aubio's input buffer
-            let data = inputBuf.pointee.data!
+        // Process in hop-sized chunks
+        while ringCount >= hop {
             for i in 0..<hop {
-                data[i] = sampleAccumulator[i]
+                inputData[i] = ringBuffer[ringReadPos]
+                ringReadPos = (ringReadPos + 1) % ringSize
             }
-            sampleAccumulator.removeFirst(hop)
+            ringCount -= hop
             
-            // Run aubio tempo detection
-            aubio_tempo_do(tempo, inputBuf, outputBuf)
+            aubio_tempo_do(tempoObj, inputBuf, outputBuf)
             
-            // Get current BPM estimate
-            let bpm = aubio_tempo_get_bpm(tempo)
-            let confidence = aubio_tempo_get_confidence(tempo)
+            let bpm = aubio_tempo_get_bpm(tempoObj)
+            let confidence = aubio_tempo_get_confidence(tempoObj)
             
             if bpm > 0 && confidence >= minConfidence {
                 recentReadings.append(bpm)
-                if recentReadings.count > maxReadings {
+                if recentReadings.count > maxBPMReadings {
                     recentReadings.removeFirst()
                 }
                 
-                // Use median for stability
                 if recentReadings.count >= 3 {
                     let sorted = recentReadings.sorted()
                     let median = sorted[sorted.count / 2]
                     let newBPM = Int(median.rounded())
-                    
                     if newBPM > 0 {
                         displayedBPM = newBPM
                         hasConfidentReading = true
@@ -159,30 +161,14 @@ class BPMDetector {
             let bpm = displayedBPM
             DispatchQueue.main.async {
                 NotificationCenter.default.post(
-                    name: .bpmUpdated,
-                    object: nil,
-                    userInfo: ["bpm": bpm]
-                )
+                    name: .bpmUpdated, object: nil,
+                    userInfo: ["bpm": bpm])
             }
         }
     }
     
-    /// Reset all state (call on track change)
+    /// Request reset. Safe to call from ANY thread.
     func reset() {
-        destroyAubio()
-        sampleAccumulator.removeAll()
-        recentReadings.removeAll()
-        displayedBPM = 0
-        hasConfidentReading = false
-        lastNotificationTime = 0
-        
-        // Post reset (clear display)
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: .bpmUpdated,
-                object: nil,
-                userInfo: ["bpm": 0]
-            )
-        }
+        needsReset = true
     }
 }
