@@ -75,8 +75,8 @@ class WindowManager {
     /// Playlist window controller (classic or modern, accessed via protocol)
     private(set) var playlistWindowController: PlaylistWindowProviding?
     
-    /// Equalizer window controller
-    private(set) var equalizerWindowController: EQWindowController?
+    /// Equalizer window controller (classic or modern, accessed via protocol)
+    private(set) var equalizerWindowController: EQWindowProviding?
     
     /// Plex browser window controller (also handles local media library)
     private var plexBrowserWindowController: PlexBrowserWindowController?
@@ -250,7 +250,11 @@ class WindowManager {
     func showEqualizer(at restoredFrame: NSRect? = nil) {
         let isNewWindow = equalizerWindowController == nil
         if isNewWindow {
-            equalizerWindowController = EQWindowController()
+            if isModernUIEnabled {
+                equalizerWindowController = ModernEQWindowController()
+            } else {
+                equalizerWindowController = EQWindowController()
+            }
         }
         
         // Position BEFORE showing (unless restoring from saved state)
@@ -1116,8 +1120,9 @@ class WindowManager {
         
         // EQ window - position below main window
         if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
-            let eqTargetSize = NSSize(width: Skin.eqWindowSize.width * scale,
-                                      height: Skin.eqWindowSize.height * scale)
+            let eqBaseSize = isModernUIEnabled ? ModernSkinElements.eqWindowSize : Skin.eqWindowSize
+            let eqTargetSize = NSSize(width: eqBaseSize.width * scale,
+                                      height: eqBaseSize.height * scale)
             let eqFrame = NSRect(
                 x: mainFrame.minX,
                 y: nextY - eqTargetSize.height,

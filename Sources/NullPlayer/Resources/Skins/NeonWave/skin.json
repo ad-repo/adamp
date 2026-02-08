@@ -68,6 +68,9 @@
         },
         "playlist_titlebar": {
             "color": "#0c1018"
+        },
+        "eq_titlebar": {
+            "color": "#0c1018"
         }
     },
     "animations": {

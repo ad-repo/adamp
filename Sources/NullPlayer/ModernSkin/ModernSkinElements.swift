@@ -176,6 +176,37 @@ enum ModernSkinElements {
     static let playlistBtnShade = Element("playlist_btn_shade", NSRect(x: 244, y: 104, width: 10, height: 10),
                                           states: ["normal", "pressed"])
     
+    // MARK: - EQ Window
+    
+    /// EQ window size (same width as main window for docking compatibility)
+    static let eqWindowSize = NSSize(
+        width: baseMainSize.width * scaleFactor,
+        height: baseMainSize.height * scaleFactor
+    )
+    
+    /// EQ window minimum size
+    static let eqMinSize = eqWindowSize
+    
+    /// EQ window shade mode height
+    static let eqShadeHeight: CGFloat = 18 * scaleFactor
+    
+    /// EQ window title bar height
+    static let eqTitleBarHeight: CGFloat = 14 * scaleFactor
+    
+    /// EQ window border width
+    static let eqBorderWidth: CGFloat = 3 * scaleFactor
+    
+    /// EQ title bar element (per-window skinning)
+    static let eqTitleBar = Element("eq_titlebar", NSRect(x: 0, y: 102, width: 275, height: 14))
+    
+    /// EQ close button
+    static let eqBtnClose = Element("eq_btn_close", NSRect(x: 256, y: 104, width: 10, height: 10),
+                                    states: ["normal", "pressed"])
+    
+    /// EQ shade button
+    static let eqBtnShade = Element("eq_btn_shade", NSRect(x: 244, y: 104, width: 10, height: 10),
+                                    states: ["normal", "pressed"])
+    
     // MARK: - Spectrum Window
     
     /// Spectrum analyzer window size (same base as main window for docking compatibility)
@@ -221,6 +252,7 @@ enum ModernSkinElements {
         btnPrev, btnPlay, btnPause, btnStop, btnNext, btnEject,
         volumeTrack, volumeFill, volumeThumb,
         playlistTitleBar, playlistBtnClose, playlistBtnShade,
+        eqTitleBar, eqBtnClose, eqBtnShade,
         spectrumTitleBar, spectrumBtnClose
     ]
     

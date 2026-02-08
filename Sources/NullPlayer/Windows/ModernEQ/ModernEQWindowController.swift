@@ -1,13 +1,15 @@
 import AppKit
 
-/// Controller for the equalizer window (classic skin).
+/// Controller for the equalizer window (modern skin).
 /// Conforms to `EQWindowProviding` so WindowManager can use it interchangeably
-/// with `ModernEQWindowController`.
-class EQWindowController: NSWindowController, EQWindowProviding {
+/// with the classic `EQWindowController`.
+///
+/// This controller has ZERO dependencies on the classic skin system.
+class ModernEQWindowController: NSWindowController, EQWindowProviding {
     
     // MARK: - Properties
     
-    private var eqView: EQView!
+    private var eqView: ModernEQView!
     
     /// Whether the window is in shade mode
     private(set) var isShadeMode = false
@@ -18,10 +20,11 @@ class EQWindowController: NSWindowController, EQWindowProviding {
     // MARK: - Initialization
     
     convenience init() {
-        // Create borderless window with manual resize handling
-        let window = ResizableWindow(
-            contentRect: NSRect(origin: .zero, size: Skin.eqWindowSize),
-            styleMask: [.borderless, .resizable],
+        let windowSize = ModernSkinElements.eqWindowSize
+        
+        let window = BorderlessWindow(
+            contentRect: NSRect(origin: .zero, size: windowSize),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -37,43 +40,34 @@ class EQWindowController: NSWindowController, EQWindowProviding {
     private func setupWindow() {
         guard let window = window else { return }
         
-        // Don't use isMovableByWindowBackground - we handle dragging manually in the view
-        // This allows us to prevent window drag when clicking on sliders
+        // Disable automatic window dragging - we handle it manually in the view
         window.isMovableByWindowBackground = false
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = true
         window.title = "Equalizer"
         
-        // Set minimum size for EQ window
-        window.minSize = Skin.eqWindowSize
+        // Prevent window from being released when closed - we reuse the same controller
+        window.isReleasedWhenClosed = false
         
-        // Match main window's width and position below it
-        if let mainWindow = WindowManager.shared.mainWindowController?.window {
-            let mainFrame = mainWindow.frame
-            // Use same width as main window to match scaling
-            let eqHeight = Skin.eqWindowSize.height * (mainFrame.width / Skin.mainWindowSize.width)
-            let newFrame = NSRect(
-                x: mainFrame.minX,
-                y: mainFrame.minY - eqHeight,
-                width: mainFrame.width,
-                height: eqHeight
-            )
-            window.setFrame(newFrame, display: true)
-        } else {
-            window.center()
-        }
+        // Fixed size window (matches main window width for docking)
+        window.minSize = ModernSkinElements.eqMinSize
+        window.maxSize = ModernSkinElements.eqMinSize
+        
+        // Initial center position - will be repositioned by WindowManager
+        window.center()
         
         window.delegate = self
         
         // Set accessibility identifier for UI testing
-        window.setAccessibilityIdentifier("EqualizerWindow")
+        window.setAccessibilityIdentifier("ModernEqualizerWindow")
         window.setAccessibilityLabel("Equalizer Window")
     }
     
     private func setupView() {
-        eqView = EQView(frame: NSRect(origin: .zero, size: Skin.eqWindowSize))
+        eqView = ModernEQView(frame: NSRect(origin: .zero, size: ModernSkinElements.eqWindowSize))
         eqView.controller = self
+        eqView.autoresizingMask = [.width, .height]
         window?.contentView = eqView
     }
     
@@ -85,7 +79,6 @@ class EQWindowController: NSWindowController, EQWindowProviding {
     
     // MARK: - Shade Mode
     
-    /// Toggle shade mode on/off
     func setShadeMode(_ enabled: Bool) {
         guard let window = window else { return }
         
@@ -95,26 +88,26 @@ class EQWindowController: NSWindowController, EQWindowProviding {
             // Store current frame for restoration
             normalModeFrame = window.frame
             
-            // Calculate new shade mode frame
-            let shadeSize = SkinElements.EQShade.windowSize
+            // Calculate new shade mode frame (keep width, reduce height)
+            let shadeHeight = ModernSkinElements.eqShadeHeight
             let newFrame = NSRect(
                 x: window.frame.origin.x,
-                y: window.frame.origin.y + window.frame.height - shadeSize.height,
-                width: shadeSize.width,
-                height: shadeSize.height
+                y: window.frame.origin.y + window.frame.height - shadeHeight,
+                width: window.frame.width,
+                height: shadeHeight
             )
             
             // Resize window
             window.setFrame(newFrame, display: true, animate: true)
-            eqView.frame = NSRect(origin: .zero, size: shadeSize)
+            eqView.frame = NSRect(origin: .zero, size: newFrame.size)
         } else {
             // Restore normal mode frame
-            let normalSize = Skin.eqWindowSize
             let newFrame: NSRect
             
             if let storedFrame = normalModeFrame {
                 newFrame = storedFrame
             } else {
+                let normalSize = ModernSkinElements.eqWindowSize
                 newFrame = NSRect(
                     x: window.frame.origin.x,
                     y: window.frame.origin.y + window.frame.height - normalSize.height,
@@ -125,23 +118,17 @@ class EQWindowController: NSWindowController, EQWindowProviding {
             
             // Resize window
             window.setFrame(newFrame, display: true, animate: true)
-            eqView.frame = NSRect(origin: .zero, size: normalSize)
+            eqView.frame = NSRect(origin: .zero, size: newFrame.size)
             normalModeFrame = nil
         }
         
         eqView.setShadeMode(enabled)
     }
-    
-    // MARK: - Private Properties
-    
-    private var mainWindowController: MainWindowController? {
-        return nil
-    }
 }
 
 // MARK: - NSWindowDelegate
 
-extension EQWindowController: NSWindowDelegate {
+extension ModernEQWindowController: NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard let window = window else { return }
         let newOrigin = WindowManager.shared.windowWillMove(window, to: window.frame.origin)
@@ -150,14 +137,13 @@ extension EQWindowController: NSWindowDelegate {
     
     func windowDidBecomeKey(_ notification: Notification) {
         eqView.needsDisplay = true
-        // Bring all app windows to front when this window gets focus
         WindowManager.shared.bringAllWindowsToFront()
     }
     
     func windowDidResignKey(_ notification: Notification) {
         eqView.needsDisplay = true
     }
-
+    
     func windowWillClose(_ notification: Notification) {
         WindowManager.shared.notifyMainWindowVisibilityChanged()
     }
