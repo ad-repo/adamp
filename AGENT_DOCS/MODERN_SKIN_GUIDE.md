@@ -504,6 +504,36 @@ Right-click the player → **Modern UI** → **Select Skin** → choose from the
 
 Skin changes take effect immediately (no restart needed for skin change -- only for switching between Classic/Modern mode).
 
+## Double Size (2x) Mode
+
+Toggle via the **2X** button on the main window (first toggle button in the row) or right-click context menu → **Double Size** (modern UI only). This doubles all window dimensions and rendering scale.
+
+### How It Works
+
+`ModernSkinElements.scaleFactor` is a computed property: `baseScaleFactor * sizeMultiplier`.
+
+- `baseScaleFactor` -- set by skin.json `window.scale` (default 1.25)
+- `sizeMultiplier` -- set by double size mode (1.0 normal, 2.0 double)
+
+When double size is toggled:
+1. `WindowManager` sets `ModernSkinElements.sizeMultiplier` to 2.0 (or 1.0)
+2. All computed sizes in `ModernSkinElements` automatically update (window sizes, title bar heights, border widths, shade heights, etc.)
+3. `WindowManager.applyDoubleSize()` resizes all windows to the new sizes
+4. The `doubleSizeDidChange` notification triggers views to recreate their renderers with the new `scaleFactor`
+5. All rendering scales correctly because the renderer receives the updated `scaleFactor`
+
+### Interaction with Hide Title Bars
+
+Both features compose naturally because they both derive from `scaleFactor`. In double size mode, title bar heights also double. When title bars are hidden in double size mode, the doubled title bar height is correctly subtracted from the doubled window size.
+
+### Side Windows (Library Browser, ProjectM)
+
+Side windows (Library Browser, ProjectM) scale their width by `sizeMultiplier` and match the vertical stack height. Their internal layout constants (`itemHeight`, `tabBarHeight`, `serverBarHeight`, etc.) and fonts (`scaledSystemFont`, `sideWindowFont`) also scale by `sizeMultiplier` so the content is proportionally correct in 2x mode. Hardcoded pixel padding values in drawing methods must be multiplied by `ModernSkinElements.sizeMultiplier` to maintain proportions.
+
+### Interaction with Skin Scale
+
+A skin with `"window": { "scale": 1.5 }` sets `baseScaleFactor` to 1.5. In double size mode, the effective `scaleFactor` becomes 3.0 (1.5 x 2.0). All rendering and window sizing adjusts accordingly.
+
 ## Adding a Modern Sub-Window (Developer Guide)
 
 This section documents the repeatable pattern for creating modern-skinned versions of sub-windows. Future agents creating Modern EQ, Modern Playlist, Modern ProjectM, etc. should follow this recipe.
@@ -534,7 +564,8 @@ This section documents the repeatable pattern for creating modern-skinned versio
 
 - **Zero classic imports**: Files in `ModernSkin/` and `Windows/Modern{Window}/` must NEVER import or reference anything from `Skin/` or `Windows/{ClassicWindow}/`
 - **Skin changes**: Observe `ModernSkinEngine.skinDidChangeNotification` to re-create renderer
-- **Scale factor**: Use `ModernSkinElements.scaleFactor` for all geometry
+- **Double size changes**: Observe `.doubleSizeDidChange` notification and call `skinDidChange()` to recreate the renderer with the updated scale factor
+- **Scale factor**: Use `ModernSkinElements.scaleFactor` for all geometry. This is a computed property: `baseScaleFactor * sizeMultiplier`. The `baseScaleFactor` is set by skin.json `window.scale` (default 1.25); the `sizeMultiplier` is set by double size mode (1.0 or 2.0). Do NOT cache `scaleFactor` in a `let` -- use a computed `var` or reference `ModernSkinElements.scaleFactor` directly
 - **Coordinates**: Standard macOS bottom-left origin (no flipping needed, unlike classic skin system)
 
 ### Element Image Fallback Chain

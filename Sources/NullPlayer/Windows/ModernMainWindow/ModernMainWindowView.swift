@@ -65,8 +65,8 @@ class ModernMainWindowView: NSView {
     /// BPM multiplier cycle state: 0 = normal, 1 = 2x, 2 = 0.5x
     private var bpmMultiplierState: Int = 0
     
-    /// Scale factor for hit testing
-    private let scale = ModernSkinElements.scaleFactor
+    /// Scale factor for hit testing (computed to track double-size changes)
+    private var scale: CGFloat { ModernSkinElements.scaleFactor }
     
     /// Timer for distinguishing single vs double click on vis area
     private var visClickTimer: Timer?
@@ -106,6 +106,10 @@ class ModernMainWindowView: NSView {
         // Observe skin changes
         NotificationCenter.default.addObserver(self, selector: #selector(modernSkinDidChange),
                                                 name: ModernSkinEngine.skinDidChangeNotification, object: nil)
+        
+        // Observe double size changes
+        NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
+                                                name: .doubleSizeDidChange, object: nil)
         
         // Observe BPM detection updates
         NotificationCenter.default.addObserver(self, selector: #selector(bpmDidUpdate(_:)),
@@ -491,16 +495,17 @@ class ModernMainWindowView: NSView {
     private func drawEQPlaylistButtons(context: CGContext) {
         let audioEngine = WindowManager.shared.audioEngine
         
-        // 8 toggle buttons right-aligned: SH, RP, CA, pM, EQ, PL, SP, LB
+        // 9 toggle buttons right-aligned: 2X, SH, RP, CA, pM, EQ, PL, SP, LB
         let y: CGFloat = 42
         let h: CGFloat = 14
         let w: CGFloat = 18
         let spacing: CGFloat = 2
         let rightPad: CGFloat = 8  // Attractive padding from right edge
-        let totalWidth = CGFloat(8) * w + CGFloat(7) * spacing
+        let totalWidth = CGFloat(9) * w + CGFloat(8) * spacing
         let startX: CGFloat = 275 - rightPad - totalWidth
         
         let buttonDefs: [(String, String, Bool)] = [
+            ("btn_2x", "2X", WindowManager.shared.isDoubleSize),
             ("btn_shuffle", "SH", audioEngine.shuffleEnabled),
             ("btn_repeat", "RP", audioEngine.repeatEnabled),
             ("btn_cast", "CA", CastManager.shared.isCasting),
@@ -616,6 +621,13 @@ class ModernMainWindowView: NSView {
         setupGridBackground(skin: skin)
         marqueeLayer.configure(with: skin)
         updateMarqueeForMode()
+        
+        // Reposition metal overlay to match new scale
+        if let overlay = metalOverlay {
+            let specRect = scaledRect(ModernSkinElements.spectrumArea.defaultRect)
+            overlay.frame = specRect
+        }
+        
         needsDisplay = true
     }
     
@@ -649,6 +661,10 @@ class ModernMainWindowView: NSView {
     }
     
     @objc private func modernSkinDidChange() {
+        skinDidChange()
+    }
+    
+    @objc private func doubleSizeChanged() {
         skinDidChange()
     }
     
@@ -757,15 +773,16 @@ class ModernMainWindowView: NSView {
             ("btn_stop", ModernSkinElements.btnStop.defaultRect),
             ("btn_next", ModernSkinElements.btnNext.defaultRect),
             ("btn_eject", ModernSkinElements.btnEject.defaultRect),
-            // Toggle button row (8 buttons right-aligned: SH, RP, CA, pM, EQ, PL, SP, LB)
-            ("btn_shuffle", NSRect(x: 107, y: 42, width: 18, height: 14)),
-            ("btn_repeat", NSRect(x: 127, y: 42, width: 18, height: 14)),
-            ("btn_cast", NSRect(x: 147, y: 42, width: 18, height: 14)),
-            ("btn_projectm", NSRect(x: 167, y: 42, width: 18, height: 14)),
-            ("btn_eq", NSRect(x: 187, y: 42, width: 18, height: 14)),
-            ("btn_playlist", NSRect(x: 207, y: 42, width: 18, height: 14)),
-            ("btn_spectrum", NSRect(x: 227, y: 42, width: 18, height: 14)),
-            ("btn_library", NSRect(x: 247, y: 42, width: 18, height: 14)),
+            // Toggle button row (9 buttons right-aligned: 2X, SH, RP, CA, pM, EQ, PL, SP, LB)
+            ("btn_2x", NSRect(x: 89, y: 42, width: 18, height: 14)),
+            ("btn_shuffle", NSRect(x: 109, y: 42, width: 18, height: 14)),
+            ("btn_repeat", NSRect(x: 129, y: 42, width: 18, height: 14)),
+            ("btn_cast", NSRect(x: 149, y: 42, width: 18, height: 14)),
+            ("btn_projectm", NSRect(x: 169, y: 42, width: 18, height: 14)),
+            ("btn_eq", NSRect(x: 189, y: 42, width: 18, height: 14)),
+            ("btn_playlist", NSRect(x: 209, y: 42, width: 18, height: 14)),
+            ("btn_spectrum", NSRect(x: 229, y: 42, width: 18, height: 14)),
+            ("btn_library", NSRect(x: 249, y: 42, width: 18, height: 14)),
             // Sliders
             ("seek_track", ModernSkinElements.seekTrack.defaultRect.insetBy(dx: 0, dy: -4)),  // expand vertical hit area
             ("volume_track", ModernSkinElements.volumeTrack.defaultRect.insetBy(dx: 0, dy: -4)),  // expand vertical hit area
@@ -982,6 +999,9 @@ class ModernMainWindowView: NSView {
             
         case "btn_eject":
             openFileDialog()
+            
+        case "btn_2x":
+            WindowManager.shared.isDoubleSize.toggle()
             
         case "btn_shuffle":
             audioEngine.shuffleEnabled.toggle()

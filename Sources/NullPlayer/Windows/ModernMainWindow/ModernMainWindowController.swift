@@ -112,7 +112,7 @@ class ModernMainWindowController: NSWindowController, MainWindowProviding {
     // MARK: - Shade Mode
     
     /// Shade mode height: title bar (14) + seek (6) + transport row (28) + padding = ~18px base * scale
-    static let shadeHeight: CGFloat = 18 * ModernSkinElements.scaleFactor
+    static var shadeHeight: CGFloat { 18 * ModernSkinElements.scaleFactor }
     
     func setShadeMode(_ enabled: Bool) {
         guard let window = window else { return }

@@ -61,8 +61,8 @@ class ModernProjectMView: NSView {
     /// Cycle interval in seconds
     private var presetCycleInterval: TimeInterval = 30.0
     
-    /// Scale factor for hit testing
-    private let scale = ModernSkinElements.scaleFactor
+    /// Scale factor for hit testing (computed to track double-size changes)
+    private var scale: CGFloat { ModernSkinElements.scaleFactor }
     
     // MARK: - Layout Constants
     
@@ -125,6 +125,10 @@ class ModernProjectMView: NSView {
         // Observe skin changes
         NotificationCenter.default.addObserver(self, selector: #selector(modernSkinDidChange),
                                                 name: ModernSkinEngine.skinDidChangeNotification, object: nil)
+        
+        // Observe double size changes
+        NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
+                                                name: .doubleSizeDidChange, object: nil)
         
         // Set initial audio active state
         updateAudioActiveState()
@@ -248,6 +252,10 @@ class ModernProjectMView: NSView {
     }
     
     @objc private func modernSkinDidChange() {
+        skinDidChange()
+    }
+    
+    @objc private func doubleSizeChanged() {
         skinDidChange()
     }
     

@@ -164,8 +164,8 @@ class ModernLibraryBrowserView: NSView {
     private var scrollOffset: CGFloat = 0
     private var horizontalScrollOffset: CGFloat = 0
     
-    private let itemHeight: CGFloat = 18
-    private let columnHeaderHeight: CGFloat = 18
+    private var itemHeight: CGFloat { 18 * ModernSkinElements.sizeMultiplier }
+    private var columnHeaderHeight: CGFloat { 18 * ModernSkinElements.sizeMultiplier }
     
     // Column state
     private var columnWidths: [String: CGFloat] = [:] { didSet { saveColumnWidths() } }
@@ -322,14 +322,14 @@ class ModernLibraryBrowserView: NSView {
     
     private struct Layout {
         static var titleBarHeight: CGFloat { WindowManager.shared.hideTitleBars ? borderWidth : ModernSkinElements.libraryTitleBarHeight }
-        static let tabBarHeight: CGFloat = 24
-        static let serverBarHeight: CGFloat = 24
-        static let searchBarHeight: CGFloat = 26
-        static let statusBarHeight: CGFloat = 6
+        static var tabBarHeight: CGFloat { 24 * ModernSkinElements.sizeMultiplier }
+        static var serverBarHeight: CGFloat { 24 * ModernSkinElements.sizeMultiplier }
+        static var searchBarHeight: CGFloat { 26 * ModernSkinElements.sizeMultiplier }
+        static var statusBarHeight: CGFloat { 6 * ModernSkinElements.sizeMultiplier }
         static let scrollbarWidth: CGFloat = 0
-        static let alphabetWidth: CGFloat = 16
-        static let borderWidth: CGFloat = ModernSkinElements.libraryBorderWidth
-        static let padding: CGFloat = 3
+        static var alphabetWidth: CGFloat { 16 * ModernSkinElements.sizeMultiplier }
+        static var borderWidth: CGFloat { ModernSkinElements.libraryBorderWidth }
+        static var padding: CGFloat { 3 * ModernSkinElements.sizeMultiplier }
     }
     
     // MARK: - Initialization
@@ -422,6 +422,8 @@ class ModernLibraryBrowserView: NSView {
         // Register notifications
         NotificationCenter.default.addObserver(self, selector: #selector(modernSkinDidChange),
                                                name: ModernSkinEngine.skinDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
+                                               name: .doubleSizeDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(plexStateDidChange),
                                                name: PlexManager.accountDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(plexStateDidChange),
@@ -596,7 +598,7 @@ class ModernLibraryBrowserView: NSView {
         skin.surfaceColor.withAlphaComponent(0.4).setFill()
         context.fill(tabBarRect)
         
-        let font = skin.primaryFont?.withSize(11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let font = skin.sideWindowFont(size: 11)
         
         // Sort indicator width on right
         let sortText = "Sort"
@@ -668,19 +670,20 @@ class ModernLibraryBrowserView: NSView {
         skin.surfaceColor.withAlphaComponent(0.4).setFill()
         context.fill(barRect)
         
-        let font = skin.primaryFont?.withSize(11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let font = skin.sideWindowFont(size: 11)
         let textColor = skin.textColor
         let dimColor = skin.textDimColor
         let accentColor = skin.accentColor
         
-        let textY = barRect.minY + (barRect.height - font.pointSize - 2) / 2
+        let m = ModernSkinElements.sizeMultiplier
+        let textY = barRect.minY + (barRect.height - font.pointSize - 2 * m) / 2
         
         // Common prefix
         let prefixAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: dimColor]
         let prefix = "Source: "
-        prefix.draw(at: NSPoint(x: barRect.minX + 4, y: textY), withAttributes: prefixAttrs)
+        prefix.draw(at: NSPoint(x: barRect.minX + 4 * m, y: textY), withAttributes: prefixAttrs)
         let prefixWidth = prefix.size(withAttributes: prefixAttrs).width
-        let sourceNameStartX = barRect.minX + 4 + prefixWidth
+        let sourceNameStartX = barRect.minX + 4 * m + prefixWidth
         
         let nameAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textColor]
         let activeAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: accentColor]
@@ -688,18 +691,18 @@ class ModernLibraryBrowserView: NSView {
         // Right side: F5 refresh label
         let refreshText = "F5"
         let refreshWidth = refreshText.size(withAttributes: prefixAttrs).width
-        let refreshX = barRect.maxX - refreshWidth - 8
+        let refreshX = barRect.maxX - refreshWidth - 8 * m
         refreshText.draw(at: NSPoint(x: refreshX, y: textY), withAttributes: prefixAttrs)
         
         // ART toggle button (modern boxed toggle style)
         let artText = "ART"
         let artTextWidth = artText.size(withAttributes: prefixAttrs).width
-        let artBtnWidth = artTextWidth + 16  // padding inside button
-        let artBtnHeight: CGFloat = Layout.serverBarHeight - 6
-        var artX = refreshX - artBtnWidth - 12
+        let artBtnWidth = artTextWidth + 16 * m  // padding inside button
+        let artBtnHeight: CGFloat = Layout.serverBarHeight - 6 * m
+        var artX = refreshX - artBtnWidth - 12 * m
         
         if currentArtwork != nil {
-            let artBtnRect = NSRect(x: artX, y: barRect.minY + 3, width: artBtnWidth, height: artBtnHeight)
+            let artBtnRect = NSRect(x: artX, y: barRect.minY + 3 * m, width: artBtnWidth, height: artBtnHeight)
             drawToggleTab(label: artText, isActive: isArtOnlyMode, rect: artBtnRect,
                           font: font, skin: skin, context: context)
         } else {
@@ -711,9 +714,9 @@ class ModernLibraryBrowserView: NSView {
         if isArtOnlyMode && currentArtwork != nil {
             let visText = "VIS"
             let visTextWidth = visText.size(withAttributes: prefixAttrs).width
-            let visBtnWidth = visTextWidth + 16
-            let visX = artX - visBtnWidth - 8
-            let visBtnRect = NSRect(x: visX, y: barRect.minY + 3, width: visBtnWidth, height: artBtnHeight)
+            let visBtnWidth = visTextWidth + 16 * m
+            let visX = artX - visBtnWidth - 8 * m
+            let visBtnRect = NSRect(x: visX, y: barRect.minY + 3 * m, width: visBtnWidth, height: artBtnHeight)
             drawToggleTab(label: visText, isActive: isVisualizingArt, rect: visBtnRect,
                           font: font, skin: skin, context: context)
             visEndX = visX
@@ -727,13 +730,13 @@ class ModernLibraryBrowserView: NSView {
             let sourceTextWidth = sourceText.size(withAttributes: nameAttrs).width
             
             let addText = "+ADD"
-            let addX = sourceNameStartX + sourceTextWidth + 28
+            let addX = sourceNameStartX + sourceTextWidth + 28 * m
             addText.draw(at: NSPoint(x: addX, y: textY), withAttributes: activeAttrs)
             
             // Item count
             let countText = "\(displayItems.count) items"
             let countWidth = countText.size(withAttributes: prefixAttrs).width
-            let countX = visEndX - countWidth - 24
+            let countX = visEndX - countWidth - 24 * m
             countText.draw(at: NSPoint(x: countX, y: textY), withAttributes: nameAttrs)
             
         case .plex(let serverId):
@@ -742,25 +745,25 @@ class ModernLibraryBrowserView: NSView {
             
             if configuredServer != nil || manager.isLinked {
                 let serverName = configuredServer?.name ?? "Select Server"
-                let maxServerWidth: CGFloat = 100
+                let maxServerWidth: CGFloat = 100 * m
                 
                 context.saveGState()
-                let clipRect = NSRect(x: sourceNameStartX, y: textY, width: maxServerWidth, height: font.pointSize + 4)
+                let clipRect = NSRect(x: sourceNameStartX, y: textY, width: maxServerWidth, height: font.pointSize + 4 * m)
                 context.clip(to: clipRect)
                 serverName.draw(at: NSPoint(x: sourceNameStartX, y: textY), withAttributes: nameAttrs)
                 context.restoreGState()
                 
                 let libLabel = "Lib:"
-                let libraryLabelX = sourceNameStartX + maxServerWidth + 16
+                let libraryLabelX = sourceNameStartX + maxServerWidth + 16 * m
                 libLabel.draw(at: NSPoint(x: libraryLabelX, y: textY), withAttributes: prefixAttrs)
                 
                 let libLabelWidth = libLabel.size(withAttributes: prefixAttrs).width
-                let libraryX = libraryLabelX + libLabelWidth + 4
+                let libraryX = libraryLabelX + libLabelWidth + 4 * m
                 let libraryText = manager.currentLibrary?.title ?? "Select"
-                let maxLibraryWidth: CGFloat = 80
+                let maxLibraryWidth: CGFloat = 80 * m
                 
                 context.saveGState()
-                let libClipRect = NSRect(x: libraryX, y: textY, width: maxLibraryWidth, height: font.pointSize + 4)
+                let libClipRect = NSRect(x: libraryX, y: textY, width: maxLibraryWidth, height: font.pointSize + 4 * m)
                 context.clip(to: libClipRect)
                 libraryText.draw(at: NSPoint(x: libraryX, y: textY), withAttributes: nameAttrs)
                 context.restoreGState()
@@ -776,7 +779,7 @@ class ModernLibraryBrowserView: NSView {
                 }
                 let countText = "\(itemCount) ITEMS"
                 let countWidth = countText.size(withAttributes: prefixAttrs).width
-                let countX = visEndX - countWidth - 24
+                let countX = visEndX - countWidth - 24 * m
                 countText.draw(at: NSPoint(x: countX, y: textY), withAttributes: nameAttrs)
             } else {
                 let linkText = "Click to link your Plex account"
@@ -793,7 +796,7 @@ class ModernLibraryBrowserView: NSView {
                 
                 let countText = "\(displayItems.count) items"
                 let countWidth = countText.size(withAttributes: prefixAttrs).width
-                let countX = visEndX - countWidth - 24
+                let countX = visEndX - countWidth - 24 * m
                 countText.draw(at: NSPoint(x: countX, y: textY), withAttributes: nameAttrs)
             } else {
                 let linkText = "Click to add a Subsonic server"
@@ -808,12 +811,12 @@ class ModernLibraryBrowserView: NSView {
             let sourceTextWidth = sourceText.size(withAttributes: nameAttrs).width
             
             let addText = "+ADD"
-            let addX = sourceNameStartX + sourceTextWidth + 28
+            let addX = sourceNameStartX + sourceTextWidth + 28 * m
             addText.draw(at: NSPoint(x: addX, y: textY), withAttributes: activeAttrs)
             
             let countText = "\(displayItems.count) stations"
             let countWidth = countText.size(withAttributes: prefixAttrs).width
-            let countX = visEndX - countWidth - 24
+            let countX = visEndX - countWidth - 24 * m
             countText.draw(at: NSPoint(x: countX, y: textY), withAttributes: nameAttrs)
         }
     }
@@ -1223,7 +1226,7 @@ class ModernLibraryBrowserView: NSView {
         
         let letterCount = CGFloat(alphabetLetters.count)
         let letterHeight = rect.height / letterCount
-        let fontSize = min(9, letterHeight * 0.8)
+        let fontSize = min(9 * ModernSkinElements.sizeMultiplier, letterHeight * 0.8)
         
         var availableLetters = Set<String>()
         for item in displayItems {
@@ -2652,6 +2655,10 @@ class ModernLibraryBrowserView: NSView {
         let skin = currentSkin()
         renderer = ModernSkinRenderer(skin: skin)
         needsDisplay = true
+    }
+    
+    @objc private func doubleSizeChanged() {
+        modernSkinDidChange()
     }
     
     func skinDidChange() { modernSkinDidChange() }

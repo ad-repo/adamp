@@ -105,6 +105,10 @@ class ModernPlaylistView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(modernSkinDidChange),
                                                 name: ModernSkinEngine.skinDidChangeNotification, object: nil)
         
+        // Observe double size changes
+        NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
+                                                name: .doubleSizeDidChange, object: nil)
+        
         // Observe window visibility for timer management
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidMiniaturize),
                                                name: NSWindow.didMiniaturizeNotification, object: nil)
@@ -208,6 +212,10 @@ class ModernPlaylistView: NSView {
     // MARK: - Notification Handlers
     
     @objc private func modernSkinDidChange() {
+        skinDidChange()
+    }
+    
+    @objc private func doubleSizeChanged() {
         skinDidChange()
     }
     

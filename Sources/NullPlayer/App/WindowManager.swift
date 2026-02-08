@@ -494,10 +494,10 @@ class WindowManager {
         plexBrowserWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(plexBrowserWindowController?.window)
         
-        // Position newly created windows
-        if isNewWindow, let window = plexBrowserWindowController?.window {
-            if let frame = restoredFrame, frame != .zero {
-                // Use restored frame from state restoration
+        // Position window to match the vertical stack
+        if let window = plexBrowserWindowController?.window {
+            if isNewWindow, let frame = restoredFrame, frame != .zero {
+                // Use restored frame from state restoration (first creation only)
                 window.setFrame(frame, display: true)
             } else {
                 // Position to the right of the vertical stack
@@ -506,13 +506,16 @@ class WindowManager {
                 let mainWindow = mainWindowController?.window
                 let mainActualHeight = mainWindow?.frame.height ?? 0
                 let stackHasMultipleWindows = stackBounds.height > mainActualHeight + 1
+                // Scale width for double-size mode
+                let sideWidth = window.frame.width * (isModernUIEnabled ? ModernSkinElements.sizeMultiplier : 1.0)
+                
                 if stackBounds != .zero && stackHasMultipleWindows {
                     // Match stack height when multiple windows are stacked
                     // No adjustWindowForHiddenTitleBars needed - stack height already accounts for it
                     let newFrame = NSRect(
                         x: stackBounds.maxX,
                         y: stackBounds.minY,
-                        width: window.frame.width,
+                        width: sideWidth,
                         height: stackBounds.height
                     )
                     window.setFrame(newFrame, display: true)
@@ -524,7 +527,7 @@ class WindowManager {
                     let newFrame = NSRect(
                         x: mainFrame.maxX,
                         y: mainFrame.maxY - defaultHeight,
-                        width: window.frame.width,
+                        width: sideWidth,
                         height: defaultHeight
                     )
                     window.setFrame(newFrame, display: true)
@@ -1243,6 +1246,13 @@ class WindowManager {
     
     /// Apply double size scaling to all windows
     private func applyDoubleSize() {
+        // For modern UI, set the sizeMultiplier so all ModernSkinElements computed
+        // sizes (window sizes, title bar heights, border widths, etc.) reflect 2x.
+        // This must happen BEFORE reading any ModernSkinElements sizes.
+        if isModernUIEnabled {
+            ModernSkinElements.sizeMultiplier = isDoubleSize ? 2.0 : 1.0
+        }
+        
         let scale: CGFloat = isDoubleSize ? 2.0 : 1.0
         
         // Get main window position as anchor point
@@ -1251,13 +1261,31 @@ class WindowManager {
         // Store old main window frame for calculating relative positions
         let oldMainFrame = mainWindow.frame
         
-        // Resize main window first (anchor top-left)
-        let mainTargetSize = NSSize(width: Skin.mainWindowSize.width * scale,
+        // For modern UI, sizes already include the multiplier via scaleFactor.
+        // For classic UI, sizes are base sizes that need explicit * scale.
+        let mainTargetSize: NSSize
+        if isModernUIEnabled {
+            mainTargetSize = ModernSkinElements.mainWindowSize
+        } else {
+            mainTargetSize = NSSize(width: Skin.mainWindowSize.width * scale,
                                     height: Skin.mainWindowSize.height * scale)
+        }
+        
+        // Account for hidden title bars
+        var mainAdjustedSize = mainTargetSize
+        if hideTitleBars {
+            let titleDelta: CGFloat = isModernUIEnabled ? ModernSkinElements.playlistTitleBarHeight : 14 * Skin.scaleFactor * scale
+            mainAdjustedSize.height -= titleDelta
+        }
+        
+        // Update minSize
+        mainWindow.minSize = mainAdjustedSize
+        
+        // Resize main window (anchor top-left)
         var mainFrame = mainWindow.frame
         let mainTopY = mainFrame.maxY  // Keep top edge fixed
-        mainFrame.size = mainTargetSize
-        mainFrame.origin.y = mainTopY - mainTargetSize.height
+        mainFrame.size = mainAdjustedSize
+        mainFrame.origin.y = mainTopY - mainAdjustedSize.height
         mainWindow.setFrame(mainFrame, display: true, animate: true)
         
         // Track the bottom edge for stacking windows below main
@@ -1265,28 +1293,42 @@ class WindowManager {
         
         // EQ window - position below main window
         if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
-            let eqBaseSize = isModernUIEnabled ? ModernSkinElements.eqWindowSize : Skin.eqWindowSize
-            let eqTargetSize = NSSize(width: eqBaseSize.width * scale,
-                                      height: eqBaseSize.height * scale)
+            let eqTargetSize: NSSize
+            if isModernUIEnabled {
+                eqTargetSize = ModernSkinElements.eqWindowSize
+            } else {
+                eqTargetSize = NSSize(width: Skin.eqWindowSize.width * scale,
+                                      height: Skin.eqWindowSize.height * scale)
+            }
+            var eqAdjustedSize = eqTargetSize
+            if hideTitleBars {
+                let titleDelta: CGFloat = isModernUIEnabled ? ModernSkinElements.eqTitleBarHeight : 14 * Skin.scaleFactor * scale
+                eqAdjustedSize.height -= titleDelta
+            }
+            eqWindow.minSize = eqAdjustedSize
+            eqWindow.maxSize = eqAdjustedSize
             let eqFrame = NSRect(
                 x: mainFrame.minX,
-                y: nextY - eqTargetSize.height,
-                width: eqTargetSize.width,
-                height: eqTargetSize.height
+                y: nextY - eqAdjustedSize.height,
+                width: eqAdjustedSize.width,
+                height: eqAdjustedSize.height
             )
             eqWindow.setFrame(eqFrame, display: true, animate: true)
             nextY = eqFrame.minY
         }
         
         // Playlist - position below EQ (or main if no EQ)
-        // Playlist width matches main window, height can be expanded vertically
         if let playlistWindow = playlistWindowController?.window, playlistWindow.isVisible {
-            let baseMinSize = Skin.playlistMinSize
-            let minHeight = baseMinSize.height * scale
+            let baseMinSize: NSSize = isModernUIEnabled ? ModernSkinElements.playlistMinSize : Skin.playlistMinSize
+            var minHeight = baseMinSize.height * (isModernUIEnabled ? 1.0 : scale)
+            if hideTitleBars {
+                let titleDelta: CGFloat = isModernUIEnabled ? ModernSkinElements.playlistTitleBarHeight : 20 * Skin.scaleFactor * scale
+                minHeight -= titleDelta
+            }
             
-            // Lock width to match main window
-            playlistWindow.minSize = NSSize(width: mainFrame.width, height: minHeight)
-            playlistWindow.maxSize = NSSize(width: mainFrame.width, height: CGFloat.greatestFiniteMagnitude)
+            let targetWidth = mainFrame.width
+            playlistWindow.minSize = NSSize(width: targetWidth, height: minHeight)
+            playlistWindow.maxSize = NSSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude)
             
             // Scale height proportionally
             let currentFrame = playlistWindow.frame
@@ -1295,22 +1337,65 @@ class WindowManager {
             let playlistFrame = NSRect(
                 x: mainFrame.minX,
                 y: nextY - newHeight,
-                width: mainFrame.width,
+                width: targetWidth,
                 height: newHeight
             )
             playlistWindow.setFrame(playlistFrame, display: true, animate: true)
+            nextY = playlistFrame.minY
         }
         
-        // Browser - maintain relative position to main window (don't scale size)
+        // Spectrum window - position below playlist (or previous window)
+        if let spectrumWindow = spectrumWindowController?.window, spectrumWindow.isVisible {
+            let spectrumTargetSize: NSSize
+            if isModernUIEnabled {
+                spectrumTargetSize = ModernSkinElements.spectrumWindowSize
+            } else {
+                spectrumTargetSize = NSSize(width: Skin.mainWindowSize.width * scale,
+                                            height: Skin.mainWindowSize.height * scale)
+            }
+            var spectrumAdjustedSize = spectrumTargetSize
+            if hideTitleBars {
+                let titleDelta: CGFloat = isModernUIEnabled ? ModernSkinElements.spectrumTitleBarHeight : 14 * Skin.scaleFactor * scale
+                spectrumAdjustedSize.height -= titleDelta
+            }
+            spectrumWindow.minSize = spectrumAdjustedSize
+            spectrumWindow.maxSize = spectrumAdjustedSize
+            let spectrumFrame = NSRect(
+                x: mainFrame.minX,
+                y: nextY - spectrumAdjustedSize.height,
+                width: spectrumAdjustedSize.width,
+                height: spectrumAdjustedSize.height
+            )
+            spectrumWindow.setFrame(spectrumFrame, display: true, animate: true)
+            nextY = spectrumFrame.minY
+        }
+        
+        // Side windows - match the vertical stack height and reposition
+        let stackTopY = mainFrame.maxY
+        let stackHeight = stackTopY - nextY
+        
         if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
-            var plexFrame = plexWindow.frame
-            // Calculate offset from old main window
-            let offsetX = plexFrame.minX - oldMainFrame.maxX
-            let offsetY = plexFrame.maxY - oldMainFrame.maxY
-            // Apply same offset to new main window position
-            plexFrame.origin.x = mainFrame.maxX + offsetX
-            plexFrame.origin.y = mainFrame.maxY + offsetY - plexFrame.height
+            // Scale width: when going to 2x double it, when going to 1x halve it
+            let newWidth = isDoubleSize ? plexWindow.frame.width * 2.0 : plexWindow.frame.width / 2.0
+            let plexFrame = NSRect(
+                x: mainFrame.maxX,
+                y: nextY,
+                width: newWidth,
+                height: stackHeight
+            )
             plexWindow.setFrame(plexFrame, display: true, animate: true)
+        }
+        
+        if let projectMWindow = projectMWindowController?.window, projectMWindow.isVisible {
+            // Scale width: when going to 2x double it, when going to 1x halve it
+            let newWidth = isDoubleSize ? projectMWindow.frame.width * 2.0 : projectMWindow.frame.width / 2.0
+            let projectMFrame = NSRect(
+                x: mainFrame.minX - (isDoubleSize ? projectMWindow.frame.width * 2.0 : projectMWindow.frame.width / 2.0),
+                y: nextY,
+                width: newWidth,
+                height: stackHeight
+            )
+            projectMWindow.setFrame(projectMFrame, display: true, animate: true)
         }
     }
     
@@ -1388,7 +1473,8 @@ class WindowManager {
         let screenFrame = screen.frame
         
         // Use current main window size (preserves user scaling)
-        let mainSize = mainWindowController?.window?.frame.size ?? Skin.mainWindowSize
+        let mainSize = mainWindowController?.window?.frame.size ??
+            (isModernUIEnabled ? ModernSkinElements.mainWindowSize : Skin.mainWindowSize)
         let mainFrame = NSRect(
             x: screenFrame.midX - mainSize.width / 2,
             y: screenFrame.midY - mainSize.height / 2,

@@ -36,8 +36,8 @@ class ModernSpectrumView: NSView {
     /// Observer for spectrum data notifications
     private var spectrumObserver: NSObjectProtocol?
     
-    /// Scale factor for hit testing
-    private let scale = ModernSkinElements.scaleFactor
+    /// Scale factor for hit testing (computed to track double-size changes)
+    private var scale: CGFloat { ModernSkinElements.scaleFactor }
     
     // MARK: - Layout Constants
     
@@ -79,6 +79,10 @@ class ModernSpectrumView: NSView {
         // Observe skin changes
         NotificationCenter.default.addObserver(self, selector: #selector(modernSkinDidChange),
                                                 name: ModernSkinEngine.skinDidChangeNotification, object: nil)
+        
+        // Observe double size changes
+        NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
+                                                name: .doubleSizeDidChange, object: nil)
         
         // Set accessibility
         setAccessibilityIdentifier("modernSpectrumView")
@@ -183,6 +187,10 @@ class ModernSpectrumView: NSView {
     }
     
     @objc private func modernSkinDidChange() {
+        skinDidChange()
+    }
+    
+    @objc private func doubleSizeChanged() {
         skinDidChange()
     }
     

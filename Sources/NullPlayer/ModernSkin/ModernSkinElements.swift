@@ -16,8 +16,14 @@ enum ModernSkinElements {
     /// Matches classic Winamp dimensions for docking compatibility
     static let baseMainSize = NSSize(width: 275, height: 116)
     
-    /// Scale factor for modern UI rendering (configurable via skin.json window.scale)
-    static var scaleFactor: CGFloat = 1.25
+    /// Base scale factor for modern UI rendering (configurable via skin.json window.scale)
+    static var baseScaleFactor: CGFloat = 1.25
+    
+    /// Double size multiplier (1.0 = normal, 2.0 = double size)
+    static var sizeMultiplier: CGFloat = 1.0
+    
+    /// Effective scale factor combining base scale and size multiplier
+    static var scaleFactor: CGFloat { baseScaleFactor * sizeMultiplier }
     
     /// Scaled main window size
     static var mainWindowSize: NSSize {
@@ -98,6 +104,8 @@ enum ModernSkinElements {
     
     // MARK: - Window Toggle Buttons (above seek bar, right side)
     
+    static let btn2x = Element("btn_2x", NSRect(x: 140, y: 42, width: 20, height: 14),
+                               states: ["off", "on", "off_pressed", "on_pressed"])
     static let btnEQ = Element("btn_eq", NSRect(x: 152, y: 42, width: 20, height: 14),
                                states: ["off", "on", "off_pressed", "on_pressed"])
     static let btnPlaylist = Element("btn_playlist", NSRect(x: 174, y: 42, width: 20, height: 14),
@@ -299,7 +307,7 @@ enum ModernSkinElements {
         infoBitrate, infoSampleRate, infoBPM, infoStereo, infoMono, infoCast,
         statusPlay, statusPause, statusStop,
         spectrumArea,
-        btnEQ, btnPlaylist, btnLibrary, btnProjectM, btnSpectrum,
+        btn2x, btnEQ, btnPlaylist, btnLibrary, btnProjectM, btnSpectrum,
         seekTrack, seekFill, seekThumb,
         btnPrev, btnPlay, btnPause, btnStop, btnNext, btnEject,
         volumeTrack, volumeFill, volumeThumb,

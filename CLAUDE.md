@@ -190,6 +190,7 @@ Sources/NullPlayer/
   - Each view's `titleBarHeight` computed property returns `borderWidth` (not 0) when hidden, preserving the top border line
   - `toggleHideTitleBars()` must adjust `minSize`/`maxSize` constraints BEFORE resizing (EQ has `maxSize = minSize`)
   - Stack windows (main, EQ, playlist, spectrum) resize independently; side windows (ProjectM, Library Browser) match the stack height
+- **Double Size mode** (modern UI only): Toggle via 2X button on main window or context menu. `ModernSkinElements.scaleFactor` is a computed property (`baseScaleFactor * sizeMultiplier`). `baseScaleFactor` is set by skin.json `window.scale`; `sizeMultiplier` is set to 2.0 by double size mode. Do NOT cache `scaleFactor` in a `let` property -- use a computed `var` or reference it inline. Views must observe `.doubleSizeDidChange` and recreate their renderer. Side windows (Library Browser, ProjectM) scale width by `sizeMultiplier` and match stack height; their layout constants and hardcoded pixel padding must also multiply by `sizeMultiplier`
   - When title bars are hidden, all window drags pass `fromTitleBar: true` to allow undocking (no visual title bar to grab)
   - Classic windows use drawing transform offset (`translateBy`) to shift the skin image up; modern windows use conditional `titleBarHeight`
 - **Sonos menu**: Uses custom `SonosRoomCheckboxView` to keep menu open during multi-select

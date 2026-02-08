@@ -71,6 +71,14 @@ class ContextMenuBuilder {
         hideTitleBars.state = wm.hideTitleBars ? .on : .off
         menu.addItem(hideTitleBars)
         
+        // Double Size (modern UI only)
+        if wm.isModernUIEnabled {
+            let doubleSize = NSMenuItem(title: "Double Size", action: #selector(MenuActions.toggleDoubleSize), keyEquivalent: "")
+            doubleSize.target = MenuActions.shared
+            doubleSize.state = wm.isDoubleSize ? .on : .off
+            menu.addItem(doubleSize)
+        }
+        
         // Remember State On Quit
         let rememberState = NSMenuItem(title: "Remember State On Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
         rememberState.target = MenuActions.shared
@@ -2009,6 +2017,10 @@ class MenuActions: NSObject {
     
     @objc func toggleHideTitleBars() {
         WindowManager.shared.toggleHideTitleBars()
+    }
+    
+    @objc func toggleDoubleSize() {
+        WindowManager.shared.isDoubleSize.toggle()
     }
     
     @objc func snapToDefault() {

@@ -153,8 +153,17 @@ class ModernSkin {
     
     /// Return a proportional system font at scaled size. Used for data-dense views (library browser)
     /// where the skin's monospace font would waste space and hurt readability.
+    /// Uses `baseScaleFactor * sizeMultiplier` so fonts scale with double-size mode.
     func scaledSystemFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        NSFont.systemFont(ofSize: size * ModernSkinElements.scaleFactor, weight: weight)
+        return NSFont.systemFont(ofSize: size * ModernSkinElements.baseScaleFactor * ModernSkinElements.sizeMultiplier, weight: weight)
+    }
+    
+    /// Return the skin's primary font at a fixed point size, scaled by `sizeMultiplier`.
+    /// Used for side-window chrome (tabs, server bar) so they scale with double-size mode.
+    func sideWindowFont(size: CGFloat) -> NSFont {
+        let adjustedSize = size * ModernSkinElements.sizeMultiplier
+        return primaryFont?.withSize(adjustedSize)
+            ?? NSFont.monospacedSystemFont(ofSize: adjustedSize, weight: .regular)
     }
     
     /// Title bar text font (default base size 8)

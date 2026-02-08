@@ -49,8 +49,8 @@ class ModernEQView: NSView {
     /// Shade mode state
     private(set) var isShadeMode = false
     
-    /// Scale factor for layout
-    private let scale = ModernSkinElements.scaleFactor
+    /// Scale factor for layout (computed to track double-size changes)
+    private var scale: CGFloat { ModernSkinElements.scaleFactor }
     
     /// Glow multiplier from skin config
     private var glowMultiplier: CGFloat = 1.0
@@ -150,6 +150,10 @@ class ModernEQView: NSView {
         // Observe skin changes
         NotificationCenter.default.addObserver(self, selector: #selector(modernSkinDidChange),
                                                 name: ModernSkinEngine.skinDidChangeNotification, object: nil)
+        
+        // Observe double size changes
+        NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
+                                                name: .doubleSizeDidChange, object: nil)
         
         // Observe track changes for Auto EQ
         NotificationCenter.default.addObserver(self, selector: #selector(handleTrackChange(_:)),
@@ -303,6 +307,10 @@ class ModernEQView: NSView {
     // MARK: - Notification Handlers
     
     @objc private func modernSkinDidChange() {
+        skinDidChange()
+    }
+    
+    @objc private func doubleSizeChanged() {
         skinDidChange()
     }
     
