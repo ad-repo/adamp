@@ -94,7 +94,7 @@ enum ModernSkinElements {
     static let statusStop = Element("status_stop", NSRect(x: 8, y: 72, width: 8, height: 10))
     
     /// Mini spectrum analyzer area (to the left of status)
-    static let spectrumArea = Element("spectrum_area", NSRect(x: 10, y: 42, width: 60, height: 16),
+    static let spectrumArea = Element("spectrum_area", NSRect(x: 10, y: 41, width: 80, height: 18),
                                       animated: true)
     
     // MARK: - Window Toggle Buttons (above seek bar, right side)
