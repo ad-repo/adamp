@@ -62,6 +62,9 @@ class ModernMainWindowView: NSView {
     /// Current detected BPM (nil = not yet detected, 0 = no confidence)
     private var currentBPM: Int?
     
+    /// BPM multiplier cycle state: 0 = normal, 1 = 2x, 2 = 0.5x
+    private var bpmMultiplierState: Int = 0
+    
     /// Scale factor for hit testing
     private let scale = ModernSkinElements.scaleFactor
     
@@ -395,9 +398,22 @@ class ModernMainWindowView: NSView {
                                font: smallFont, color: infoColor, context: context)
         }
         
-        // BPM
+        // BPM (with optional multiplier from double-click cycling)
         if let bpm = currentBPM, bpm > 0 {
-            renderer.drawLabel("\(bpm) bpm",
+            let displayBPM: Int
+            let suffix: String
+            switch bpmMultiplierState {
+            case 1:
+                displayBPM = bpm * 2
+                suffix = " bpm 2x"
+            case 2:
+                displayBPM = bpm / 2
+                suffix = " bpm .5x"
+            default:
+                displayBPM = bpm
+                suffix = " bpm"
+            }
+            renderer.drawLabel("\(displayBPM)\(suffix)",
                                in: ModernSkinElements.infoBPM.defaultRect,
                                font: smallFont, color: infoColor, context: context)
         }
@@ -523,6 +539,7 @@ class ModernMainWindowView: NSView {
         self.currentTrack = track
         self.videoTitle = nil
         self.currentBPM = nil  // Reset BPM for new track
+        self.bpmMultiplierState = 0  // Reset multiplier for new track
         
         if let track = track {
             marqueeLayer.text = track.displayTitle.uppercased()
@@ -744,6 +761,8 @@ class ModernMainWindowView: NSView {
             // Sliders
             ("seek_track", ModernSkinElements.seekTrack.defaultRect.insetBy(dx: 0, dy: -4)),  // expand vertical hit area
             ("volume_track", ModernSkinElements.volumeTrack.defaultRect.insetBy(dx: 0, dy: -4)),  // expand vertical hit area
+            // BPM display (double-click to cycle multiplier)
+            ("info_bpm", ModernSkinElements.infoBPM.defaultRect),
             // Time display (click to toggle elapsed/remaining)
             ("time_display", ModernSkinElements.timeDisplay.defaultRect),
             // Spectrum area (click to toggle spectrum window, double-click to cycle vis mode)
@@ -792,6 +811,12 @@ class ModernMainWindowView: NSView {
                 // Toggle time display mode
                 let mode = WindowManager.shared.timeDisplayMode
                 WindowManager.shared.timeDisplayMode = (mode == .elapsed) ? .remaining : .elapsed
+            } else if element == "info_bpm" {
+                if event.clickCount == 2 {
+                    // Cycle: normal → 2x → 0.5x → normal
+                    bpmMultiplierState = (bpmMultiplierState + 1) % 3
+                    needsDisplay = true
+                }
             } else if element == "spectrum_area" {
                 // Handle single-click vs double-click on spectrum area
                 if event.clickCount == 2 {
