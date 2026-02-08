@@ -355,8 +355,8 @@ class ModernEQView: NSView {
     
     private func drawEQContent(in context: CGContext) {
         let skin = renderer.skin
-        let font = skin.smallFont?.withSize(7 * scale) ?? NSFont.monospacedSystemFont(ofSize: 7 * scale, weight: .regular)
-        let tinyFont = skin.smallFont?.withSize(6 * scale) ?? NSFont.monospacedSystemFont(ofSize: 6 * scale, weight: .regular)
+        let font = skin.eqLabelFont()
+        let tinyFont = skin.eqValueFont()
         
         // == 1. Sliders (clip so glow doesn't bleed up) ==
         let preampCenterX = preampX + sliderWidth / 2

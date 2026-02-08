@@ -91,11 +91,16 @@ struct FontConfig: Codable {
     /// Fallback system font name if primary can't be loaded
     let fallbackName: String?
     
-    /// Font sizes for different contexts
-    let titleSize: CGFloat?
-    let bodySize: CGFloat?
-    let smallSize: CGFloat?
-    let timeSize: CGFloat?
+    /// Font sizes for different contexts (unscaled base sizes)
+    let titleSize: CGFloat?      // Title bar text (default 8)
+    let bodySize: CGFloat?       // General body text (default 9)
+    let smallSize: CGFloat?      // Small labels, toggle buttons (default 7)
+    let timeSize: CGFloat?       // Time display digits (default 20)
+    let infoSize: CGFloat?       // Info labels: bitrate, samplerate, BPM (default 6.5)
+    let eqLabelSize: CGFloat?    // EQ frequency labels (default 7)
+    let eqValueSize: CGFloat?    // EQ dB value text (default 6)
+    let marqueeSize: CGFloat?    // Marquee/scrolling title text (default 11.7)
+    let playlistSize: CGFloat?   // Playlist track list text (default 8)
 }
 
 struct BackgroundConfig: Codable {

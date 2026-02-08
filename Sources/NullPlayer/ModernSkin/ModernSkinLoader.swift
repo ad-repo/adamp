@@ -261,7 +261,12 @@ class ModernSkinLoader {
                 titleSize: 10,
                 bodySize: 11,
                 smallSize: 7,
-                timeSize: 24
+                timeSize: 24,
+                infoSize: nil,
+                eqLabelSize: nil,
+                eqValueSize: nil,
+                marqueeSize: nil,
+                playlistSize: nil
             ),
             background: BackgroundConfig(
                 image: nil,

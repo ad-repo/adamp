@@ -91,10 +91,15 @@ MyPaletteSkin/
     "fonts": {
         "primaryName": "DepartureMono-Regular",
         "fallbackName": "Menlo",
-        "titleSize": 10,
+        "titleSize": 8,
         "bodySize": 9,
         "smallSize": 7,
-        "timeSize": 20
+        "timeSize": 20,
+        "infoSize": 6.5,
+        "eqLabelSize": 7,
+        "eqValueSize": 6,
+        "marqueeSize": 11.7,
+        "playlistSize": 8
     },
     "background": {
         "grid": {
@@ -161,21 +166,33 @@ NullPlayer bundles **Departure Mono**, a retro pixel-style monospace font. You c
 "fonts": {
     "primaryName": "DepartureMono-Regular",
     "fallbackName": "Menlo",
-    "titleSize": 10,
+    "titleSize": 8,
     "bodySize": 9,
     "smallSize": 7,
-    "timeSize": 20
+    "timeSize": 20,
+    "infoSize": 6.5,
+    "eqLabelSize": 7,
+    "eqValueSize": 6,
+    "marqueeSize": 11.7,
+    "playlistSize": 8
 }
 ```
 
-| Key | Purpose |
-|-----|---------|
-| `primaryName` | Main font (by PostScript name) |
-| `fallbackName` | Fallback if primary can't be loaded |
-| `titleSize` | Title bar text size |
-| `bodySize` | General body text |
-| `smallSize` | Small labels (bitrate, sample rate) |
-| `timeSize` | Large time display digits |
+All sizes are **unscaled base values** -- the engine multiplies them by the UI scale factor (`window.scale`, default 1.25) automatically.
+
+| Key | Purpose | Default |
+|-----|---------|---------|
+| `primaryName` | Main font (by PostScript name) | Required |
+| `fallbackName` | Fallback if primary can't be loaded | `"Menlo"` |
+| `titleSize` | Title bar text | 8 |
+| `bodySize` | General body text, source/tab labels | 9 |
+| `smallSize` | Small labels, toggle buttons | 7 |
+| `timeSize` | Large time display digits | 20 |
+| `infoSize` | Info labels (bitrate, sample rate, BPM) | 6.5 |
+| `eqLabelSize` | EQ frequency labels | 7 |
+| `eqValueSize` | EQ dB value text | 6 |
+| `marqueeSize` | Scrolling title/marquee text | 11.7 |
+| `playlistSize` | Playlist track list text | 8 |
 
 **Using a custom font**: Include a `.ttf` or `.otf` file in a `fonts/` directory inside your skin folder, then reference it by its PostScript name.
 

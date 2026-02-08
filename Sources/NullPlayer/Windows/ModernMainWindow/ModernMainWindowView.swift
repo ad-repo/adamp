@@ -154,11 +154,8 @@ class ModernMainWindowView: NSView {
                                 height: marqueeRect.height * 0.55)
         marquee.zPosition = 10  // Above grid
         
-        // Use a larger font for the marquee title text
-        if let font = skin.primaryFont {
-            let titleSize = (skin.config.fonts.bodySize ?? 9) * scale * 1.3
-            marquee.textFont = font.withSize(titleSize)
-        }
+        // Use the skin's marquee font (configurable via fonts.marqueeSize)
+        marquee.textFont = skin.marqueeFont()
         
         layer?.addSublayer(marquee)
         marqueeLayer = marquee
@@ -281,7 +278,7 @@ class ModernMainWindowView: NSView {
         let baseH: CGFloat = 18  // base height of shade window
         
         // Title text "NULLPLAYER" on left
-        let titleFont = renderer.skin.primaryFont?.withSize(8 * scale) ?? NSFont.monospacedSystemFont(ofSize: 8 * scale, weight: .regular)
+        let titleFont = renderer.skin.titleBarFont()
         let titleAttrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
             .foregroundColor: renderer.skin.textColor
@@ -379,7 +376,7 @@ class ModernMainWindowView: NSView {
     private func drawInfoLabels(context: CGContext) {
         let skin = renderer.skin
         // Use an explicitly small font for info labels to match reference dot-matrix style
-        let smallFont = skin.smallFont?.withSize(6.5 * scale) ?? NSFont.monospacedSystemFont(ofSize: 6.5 * scale, weight: .regular)
+        let smallFont = skin.infoFont()
         // Brighter dim color for info labels (more visible than textDim)
         let infoColor = skin.textDimColor
         

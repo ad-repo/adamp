@@ -498,7 +498,7 @@ class ModernLibraryBrowserView: NSView {
             renderer.drawWindowBorder(in: bounds, context: context)
             
             // Draw title text centered
-            let font = skin.primaryFont ?? NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+            let font = skin.primaryFont?.withSize(10) ?? NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: skin.textColor]
             let title = "NULLPLAYER LIBRARY"
             let titleSize = title.size(withAttributes: attrs)
@@ -591,7 +591,7 @@ class ModernLibraryBrowserView: NSView {
         skin.surfaceColor.withAlphaComponent(0.4).setFill()
         context.fill(tabBarRect)
         
-        let font = skin.primaryFont ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let font = skin.primaryFont?.withSize(11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         
         // Sort indicator width on right
         let sortText = "Sort"
@@ -663,7 +663,7 @@ class ModernLibraryBrowserView: NSView {
         skin.surfaceColor.withAlphaComponent(0.4).setFill()
         context.fill(barRect)
         
-        let font = skin.primaryFont ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let font = skin.primaryFont?.withSize(11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         let textColor = skin.textColor
         let dimColor = skin.textDimColor
         let accentColor = skin.accentColor
@@ -834,7 +834,7 @@ class ModernLibraryBrowserView: NSView {
             path.stroke()
         }
         
-        let font = skin.smallFont ?? NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+        let font = skin.smallFont?.withSize(9) ?? NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
         let displayText = searchQuery.isEmpty ? "Type to search..." : searchQuery
         let textColor = searchQuery.isEmpty ? skin.textDimColor : skin.textColor
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textColor]
@@ -924,8 +924,8 @@ class ModernLibraryBrowserView: NSView {
             return
         }
         
-        let font = NSFont.systemFont(ofSize: 10)
-        let smallFont = NSFont.systemFont(ofSize: 9)
+        let font = skin.scaledSystemFont(size: 8)
+        let smallFont = skin.scaledSystemFont(size: 7.2)
         
         for index in visibleStart..<visibleEnd {
             // In bottom-left coords: item 0 is at top, so y decreases as index increases
@@ -960,7 +960,7 @@ class ModernLibraryBrowserView: NSView {
                     let indicator = expanded ? "▼" : "▶"
                     let indicatorAttrs: [NSAttributedString.Key: Any] = [
                         .foregroundColor: skin.textDimColor,
-                        .font: NSFont.systemFont(ofSize: 8)
+                        .font: skin.scaledSystemFont(size: 6.4)
                     ]
                     indicator.draw(at: NSPoint(x: textX - 12, y: itemRect.midY - 5), withAttributes: indicatorAttrs)
                 }
@@ -1006,7 +1006,7 @@ class ModernLibraryBrowserView: NSView {
         skin.surfaceColor.withAlphaComponent(0.9).setFill()
         context.fill(rect)
         
-        let headerFont = NSFont.systemFont(ofSize: 9, weight: .medium)
+        let headerFont = skin.scaledSystemFont(size: 7.2, weight: .medium)
         let headerColor = skin.textDimColor.withAlphaComponent(0.7)
         let sortedHeaderColor = skin.textColor.withAlphaComponent(0.9)
         let separatorColor = skin.textDimColor.withAlphaComponent(0.2)
@@ -1029,7 +1029,7 @@ class ModernLibraryBrowserView: NSView {
             if isSortColumn {
                 let indicator = columnSortAscending ? "▲" : "▼"
                 let indicatorAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 7),
+                    .font: skin.scaledSystemFont(size: 5.6),
                     .foregroundColor: sortedHeaderColor
                 ]
                 indicator.draw(at: NSPoint(x: textX + textSize.width + 3, y: textY + 1), withAttributes: indicatorAttrs)
@@ -1063,8 +1063,8 @@ class ModernLibraryBrowserView: NSView {
         let totalWidth = rect.width - indent
         let textColor = isSelected ? skin.accentColor : skin.textColor
         let dimColor = isSelected ? skin.accentColor : skin.textDimColor
-        let font = NSFont.systemFont(ofSize: 10)
-        let smallFont = NSFont.systemFont(ofSize: 9)
+        let font = skin.scaledSystemFont(size: 8)
+        let smallFont = skin.scaledSystemFont(size: 7.2)
         
         var x = rect.minX + indent + 4 - horizontalScrollOffset
         for column in columns {
@@ -1167,7 +1167,7 @@ class ModernLibraryBrowserView: NSView {
         case .radio: message = "No radio stations found"
         }
         
-        let font = skin.primaryFont ?? NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        let font = skin.primaryFont?.withSize(10) ?? NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: skin.textDimColor]
         let textSize = message.size(withAttributes: attrs)
         let textX = listRect.midX - textSize.width / 2
@@ -1202,7 +1202,7 @@ class ModernLibraryBrowserView: NSView {
             context.restoreGState()
         } else {
             let message = "No album art"
-            let font = skin.primaryFont ?? NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+            let font = skin.primaryFont?.withSize(14) ?? NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: skin.textDimColor]
             let textSize = message.size(withAttributes: attrs)
             message.draw(at: NSPoint(x: contentRect.midX - textSize.width / 2,
@@ -1768,7 +1768,7 @@ class ModernLibraryBrowserView: NSView {
         let tabBarBottomY = tabBarTopY - Layout.tabBarHeight
         guard point.y >= tabBarBottomY && point.y < tabBarTopY else { return nil }
         
-        let font = currentSkin().smallFont ?? NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+        let font = currentSkin().smallFont?.withSize(9) ?? NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
         let sortText = "Sort"
         let sortAttrs: [NSAttributedString.Key: Any] = [.font: font]
         let sortWidth = sortText.size(withAttributes: sortAttrs).width + 16
@@ -1788,7 +1788,7 @@ class ModernLibraryBrowserView: NSView {
         let tabBarBottomY = tabBarTopY - Layout.tabBarHeight
         guard point.y >= tabBarBottomY && point.y < tabBarTopY else { return false }
         
-        let font = currentSkin().smallFont ?? NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+        let font = currentSkin().smallFont?.withSize(9) ?? NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
         let sortText = "Sort"
         let sortAttrs: [NSAttributedString.Key: Any] = [.font: font]
         let sortWidth = sortText.size(withAttributes: sortAttrs).width + 16
@@ -2169,7 +2169,7 @@ class ModernLibraryBrowserView: NSView {
         if relativeX >= refreshZoneStart { handleRefreshClick(); return }
         
         // ART toggle - match drawn button positions
-        let font = currentSkin().primaryFont ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let font = currentSkin().primaryFont?.withSize(11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         let fontAttrs: [NSAttributedString.Key: Any] = [.font: font]
         let artTextWidth = "ART".size(withAttributes: fontAttrs).width
         let artBtnWidth = artTextWidth + 16
@@ -2190,7 +2190,7 @@ class ModernLibraryBrowserView: NSView {
         
         switch currentSource {
         case .local:
-            let localFont = currentSkin().primaryFont ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+            let localFont = currentSkin().primaryFont?.withSize(11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             let localNameWidth = "Local Files".size(withAttributes: [.font: localFont]).width
             let sourcePrefix = "Source: ".size(withAttributes: [.font: localFont]).width + 4
             let sourceZoneEnd = sourcePrefix + localNameWidth
@@ -2199,7 +2199,7 @@ class ModernLibraryBrowserView: NSView {
             if relativeX >= addZoneStart && relativeX <= addZoneEnd { showAddFilesMenu(at: event) }
             else if relativeX < sourceZoneEnd { showSourceMenu(at: event) }
         case .plex:
-            let font = currentSkin().primaryFont ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+            let font = currentSkin().primaryFont?.withSize(11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             let sourcePrefix = "Source: ".size(withAttributes: [.font: font]).width + 4
             let maxServerWidth: CGFloat = 100
             let serverZoneEnd = sourcePrefix + maxServerWidth
@@ -2212,7 +2212,7 @@ class ModernLibraryBrowserView: NSView {
         case .subsonic:
             if relativeX < barWidth * 0.5 { showSourceMenu(at: event) }
         case .radio:
-            let radioFont = currentSkin().primaryFont ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+            let radioFont = currentSkin().primaryFont?.withSize(11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             let radioNameWidth = "Internet Radio".size(withAttributes: [.font: radioFont]).width
             let sourcePrefix = "Source: ".size(withAttributes: [.font: radioFont]).width + 4
             let sourceZoneEnd = sourcePrefix + radioNameWidth

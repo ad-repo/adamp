@@ -141,6 +141,46 @@ class ModernSkin {
         )
     }
     
+    // MARK: - Scaled Font Helpers
+    
+    /// Return the skin's primary font at an arbitrary base size, scaled by the current scale factor.
+    /// Falls back to monospaced system font if no skin font is available.
+    func scaledFont(size: CGFloat) -> NSFont {
+        let scale = ModernSkinElements.scaleFactor
+        return primaryFont?.withSize(size * scale)
+            ?? NSFont.monospacedSystemFont(ofSize: size * scale, weight: .regular)
+    }
+    
+    /// Return a proportional system font at scaled size. Used for data-dense views (library browser)
+    /// where the skin's monospace font would waste space and hurt readability.
+    func scaledSystemFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        NSFont.systemFont(ofSize: size * ModernSkinElements.scaleFactor, weight: weight)
+    }
+    
+    /// Title bar text font (default base size 8)
+    func titleBarFont() -> NSFont { scaledFont(size: config.fonts.titleSize ?? 8) }
+    
+    /// General body text font (default base size 9)
+    func bodyFont() -> NSFont { scaledFont(size: config.fonts.bodySize ?? 9) }
+    
+    /// Small labels and toggle button text font (default base size 7)
+    func smallLabelFont() -> NSFont { scaledFont(size: config.fonts.smallSize ?? 7) }
+    
+    /// Info labels font: bitrate, samplerate, BPM (default base size 6.5)
+    func infoFont() -> NSFont { scaledFont(size: config.fonts.infoSize ?? 6.5) }
+    
+    /// EQ frequency label font (default base size 7)
+    func eqLabelFont() -> NSFont { scaledFont(size: config.fonts.eqLabelSize ?? 7) }
+    
+    /// EQ dB value text font (default base size 6)
+    func eqValueFont() -> NSFont { scaledFont(size: config.fonts.eqValueSize ?? 6) }
+    
+    /// Marquee/scrolling title text font (default base size 11.7)
+    func marqueeFont() -> NSFont { scaledFont(size: config.fonts.marqueeSize ?? 11.7) }
+    
+    /// Playlist track list text font (default base size 8)
+    func playlistFont() -> NSFont { scaledFont(size: config.fonts.playlistSize ?? 8) }
+    
     // MARK: - Spectrum Colors
     
     /// Generate spectrum visualization colors from the skin palette.

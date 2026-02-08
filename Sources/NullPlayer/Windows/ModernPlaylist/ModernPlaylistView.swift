@@ -199,7 +199,7 @@ class ModernPlaylistView: NSView {
         let videoPrefix = track.mediaType == .video ? "[V] " : ""
         let titleText = "\(engine.currentIndex + 1). \(videoPrefix)\(track.displayTitle)"
         
-        let font = renderer.skin.smallFont ?? NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+        let font = renderer.skin.smallLabelFont()
         let attrs: [NSAttributedString.Key: Any] = [.font: font]
         let size = NSAttributedString(string: titleText, attributes: attrs).size()
         currentTrackTextWidth = size.width
@@ -306,8 +306,7 @@ class ModernPlaylistView: NSView {
         let skin = renderer.skin
         
         let scale = ModernSkinElements.scaleFactor
-        let fontSize: CGFloat = 8 * scale
-        let font = skin.smallFont?.withSize(fontSize) ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let font = skin.playlistFont()
         
         guard !tracks.isEmpty else {
             // Draw empty playlist message
@@ -405,7 +404,7 @@ class ModernPlaylistView: NSView {
         let tracks = engine.playlist
         guard !tracks.isEmpty else { return }
         
-        let font = renderer.skin.smallFont ?? NSFont.monospacedSystemFont(ofSize: 7 * ModernSkinElements.scaleFactor, weight: .regular)
+        let font = renderer.skin.smallLabelFont()
         let color = renderer.skin.textDimColor
         
         // Calculate remaining tracks and time

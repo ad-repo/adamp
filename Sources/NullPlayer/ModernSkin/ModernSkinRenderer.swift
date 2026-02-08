@@ -113,8 +113,7 @@ class ModernSkinRenderer {
         context.restoreGState()
         
         // Draw title text
-        let font = skin.primaryFont ?? NSFont.monospacedSystemFont(ofSize: 10 * scaleFactor, weight: .regular)
-        let titleFont = font.withSize((skin.config.fonts.titleSize ?? 10) * scaleFactor)
+        let titleFont = skin.titleBarFont()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
             .foregroundColor: skin.textColor
@@ -424,7 +423,7 @@ class ModernSkinRenderer {
         let onColor = skin.accentColor
         let offColor = skin.textDimColor
         let textColor = isOn ? onColor : offColor
-        let font = skin.smallFont ?? NSFont.monospacedSystemFont(ofSize: 7 * scaleFactor, weight: .regular)
+        let font = skin.smallLabelFont()
         let labelText = label ?? id.replacingOccurrences(of: "btn_", with: "").uppercased()
         
         // Toggle buttons with outlined boxes
@@ -464,7 +463,7 @@ class ModernSkinRenderer {
                    color: NSColor? = nil, alignment: NSTextAlignment = .left,
                    context: CGContext) {
         let scaledR = scaledRect(rect)
-        let drawFont = font ?? skin.smallFont ?? NSFont.monospacedSystemFont(ofSize: 7 * scaleFactor, weight: .regular)
+        let drawFont = font ?? skin.smallLabelFont()
         let drawColor = color ?? skin.textDimColor
         
         let style = NSMutableParagraphStyle()
@@ -485,7 +484,7 @@ class ModernSkinRenderer {
                            color: NSColor? = nil, alignment: NSTextAlignment = .left,
                            context: CGContext) {
         let scaledR = scaledRect(rect)
-        let drawFont = font ?? skin.smallFont ?? NSFont.monospacedSystemFont(ofSize: 7 * scaleFactor, weight: .regular)
+        let drawFont = font ?? skin.smallLabelFont()
         let drawColor = color ?? skin.textColor
         
         let style = NSMutableParagraphStyle()
@@ -659,7 +658,7 @@ class ModernSkinRenderer {
         context.restoreGState()
         
         // Button layout: ADD REM SEL on left, MISC LIST on right
-        let font = skin.smallFont ?? NSFont.monospacedSystemFont(ofSize: 7 * scaleFactor, weight: .regular)
+        let font = skin.smallLabelFont()
         let buttons: [(String, CGFloat, CGFloat)] = [
             ("ADD", rect.minX + 4 * scaleFactor, 30 * scaleFactor),
             ("REM", rect.minX + 36 * scaleFactor, 30 * scaleFactor),

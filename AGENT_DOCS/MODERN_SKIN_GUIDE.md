@@ -54,10 +54,15 @@ MySkin/
     "fonts": {
         "primaryName": "DepartureMono-Regular",
         "fallbackName": "Menlo",
-        "titleSize": 10,
+        "titleSize": 8,
         "bodySize": 9,
         "smallSize": 7,
-        "timeSize": 20
+        "timeSize": 20,
+        "infoSize": 6.5,
+        "eqLabelSize": 7,
+        "eqValueSize": 6,
+        "marqueeSize": 11.7,
+        "playlistSize": 8
     },
     "background": {
         "image": "background.png",
@@ -397,6 +402,20 @@ Types: `pulse`, `glow`, `rotate`, `colorCycle`
 Repeat modes: `loop`, `reverse`, `once`
 
 ## Font Configuration
+
+All font sizes are **unscaled base values**. The engine multiplies them by the UI scale factor (`window.scale`, default 1.25) automatically. The 9 configurable sizes cover every text context in the player chrome windows. The library browser uses proportional system fonts for readability in dense data views, scaled by `window.scale` but not affected by font name settings.
+
+| Key | Used for | Default |
+|-----|----------|---------|
+| `titleSize` | Title bar text | 8 |
+| `bodySize` | Body text, source/tab labels | 9 |
+| `smallSize` | Small labels, toggle buttons | 7 |
+| `timeSize` | Time display digits | 20 |
+| `infoSize` | Info labels (bitrate, samplerate, BPM) | 6.5 |
+| `eqLabelSize` | EQ frequency labels | 7 |
+| `eqValueSize` | EQ dB value text | 6 |
+| `marqueeSize` | Scrolling title text | 11.7 |
+| `playlistSize` | Playlist track list | 8 |
 
 ### Using the Bundled Font
 
