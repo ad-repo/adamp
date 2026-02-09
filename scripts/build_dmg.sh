@@ -116,6 +116,7 @@ if [[ -f "$REPO_ROOT/Frameworks/libaubio.5.dylib" ]]; then
             if [[ ! -f "$FRAMEWORKS_DIR/$dep_name" ]]; then
                 if [[ -f "$dep" ]]; then
                     cp "$dep" "$FRAMEWORKS_DIR/"
+                    chmod 755 "$FRAMEWORKS_DIR/$dep_name"
                     log_info "  Bundled transitive dep: $dep_name"
                     # Recurse into this dependency's own deps
                     bundle_homebrew_deps "$FRAMEWORKS_DIR/$dep_name"
