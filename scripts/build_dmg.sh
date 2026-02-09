@@ -98,11 +98,36 @@ cp -R "$REPO_ROOT/Frameworks/VLCKit.framework" "$FRAMEWORKS_DIR/"
 cp "$REPO_ROOT/Frameworks/libprojectM-4.dylib" "$FRAMEWORKS_DIR/"
 ln -sf "libprojectM-4.dylib" "$FRAMEWORKS_DIR/libprojectM-4.4.dylib"
 
-# Copy libaubio (BPM detection)
+# Copy libaubio (BPM detection) and all its transitive Homebrew dependencies
 if [[ -f "$REPO_ROOT/Frameworks/libaubio.5.dylib" ]]; then
     cp "$REPO_ROOT/Frameworks/libaubio.5.dylib" "$FRAMEWORKS_DIR/"
     ln -sf "libaubio.5.dylib" "$FRAMEWORKS_DIR/libaubio.dylib"
     log_success "libaubio copied"
+
+    # Recursively bundle all Homebrew dylib dependencies
+    # libaubio depends on libsndfile which depends on libogg, libvorbis, libFLAC, etc.
+    bundle_homebrew_deps() {
+        local binary="$1"
+        local deps
+        deps=$(otool -L "$binary" 2>/dev/null | awk '{print $1}' | grep '^/opt/homebrew/')
+        for dep in $deps; do
+            local dep_name
+            dep_name=$(basename "$dep")
+            if [[ ! -f "$FRAMEWORKS_DIR/$dep_name" ]]; then
+                if [[ -f "$dep" ]]; then
+                    cp "$dep" "$FRAMEWORKS_DIR/"
+                    log_info "  Bundled transitive dep: $dep_name"
+                    # Recurse into this dependency's own deps
+                    bundle_homebrew_deps "$FRAMEWORKS_DIR/$dep_name"
+                else
+                    log_warning "  Homebrew dep not found: $dep"
+                fi
+            fi
+        done
+    }
+
+    log_info "Bundling libaubio transitive dependencies..."
+    bundle_homebrew_deps "$FRAMEWORKS_DIR/libaubio.5.dylib"
 else
     log_warning "libaubio.5.dylib not found - BPM detection will not work"
 fi
@@ -193,9 +218,52 @@ if [[ -f "$FRAMEWORKS_DIR/libaubio.5.dylib" ]]; then
     install_name_tool -id "@executable_path/../Frameworks/libaubio.5.dylib" "$FRAMEWORKS_DIR/libaubio.5.dylib" 2>/dev/null || true
 fi
 
+# Fix ALL Homebrew references in ALL bundled dylibs (transitive dependency chain)
+# This rewrites /opt/homebrew/... paths to @executable_path/../Frameworks/... in every dylib
+log_info "Fixing Homebrew references in bundled dylibs..."
+for dylib in "$FRAMEWORKS_DIR/"*.dylib; do
+    if [[ -f "$dylib" && ! -L "$dylib" ]]; then
+        local_name=$(basename "$dylib")
+        # Update the dylib's own install name
+        install_name_tool -id "@executable_path/../Frameworks/$local_name" "$dylib" 2>/dev/null || true
+        # Find and rewrite all /opt/homebrew references
+        homebrew_refs=$(otool -L "$dylib" 2>/dev/null | awk '{print $1}' | grep '^/opt/homebrew/' || true)
+        for ref in $homebrew_refs; do
+            ref_name=$(basename "$ref")
+            install_name_tool -change "$ref" "@executable_path/../Frameworks/$ref_name" "$dylib" 2>/dev/null || true
+        done
+    fi
+done
+# Also fix Homebrew references in the main executable
+homebrew_refs=$(otool -L "$MACOS_DIR/NullPlayer" 2>/dev/null | awk '{print $1}' | grep '^/opt/homebrew/' || true)
+for ref in $homebrew_refs; do
+    ref_name=$(basename "$ref")
+    install_name_tool -change "$ref" "@executable_path/../Frameworks/$ref_name" "$MACOS_DIR/NullPlayer" 2>/dev/null || true
+done
+
+# Step 10: Ad-hoc code sign the bundle
+log_info "Code signing app bundle..."
+
+# Sign all frameworks and dylibs first (inside-out signing order)
+for framework in "$FRAMEWORKS_DIR/"*.framework; do
+    if [[ -d "$framework" ]]; then
+        codesign --force --sign - "$framework" 2>/dev/null || true
+    fi
+done
+
+for dylib in "$FRAMEWORKS_DIR/"*.dylib; do
+    if [[ -f "$dylib" && ! -L "$dylib" ]]; then
+        codesign --force --sign - "$dylib" 2>/dev/null || true
+    fi
+done
+
+# Sign the main executable and app bundle last
+codesign --force --sign - "$APP_BUNDLE"
+log_success "Code signing complete"
+
 log_success "App bundle created at $APP_BUNDLE"
 
-# Step 10: Create DMG
+# Step 11: Create DMG
 log_info "Creating DMG..."
 
 DMG_NAME="$APP_NAME-$VERSION.dmg"
