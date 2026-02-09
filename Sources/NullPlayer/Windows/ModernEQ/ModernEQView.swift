@@ -354,11 +354,11 @@ class ModernEQView: NSView {
     }
     
     private var closeBtnBaseRect: NSRect {
-        return NSRect(x: 256, y: (bounds.height / scale) - 12, width: 10, height: 10)
+        return NSRect(x: 261, y: (bounds.height / scale) - 12, width: 10, height: 10)
     }
     
     private var shadeBtnBaseRect: NSRect {
-        return NSRect(x: 244, y: (bounds.height / scale) - 12, width: 10, height: 10)
+        return NSRect(x: 249, y: (bounds.height / scale) - 12, width: 10, height: 10)
     }
     
     // MARK: - EQ Content Drawing
@@ -836,14 +836,14 @@ class ModernEQView: NSView {
         if WindowManager.shared.hideTitleBars {
             return point.y >= bounds.height - 6  // invisible drag zone
         }
-        let closeWidth: CGFloat = 30 * scale
+        let closeWidth: CGFloat = 28 * scale
         return point.y >= bounds.height - titleBarHeight &&
                point.x < bounds.width - closeWidth
     }
     
     private func hitTestCloseButton(at point: NSPoint) -> Bool {
         if WindowManager.shared.hideTitleBars { return false }
-        let closeRect = NSRect(x: bounds.width - 18 * scale,
+        let closeRect = NSRect(x: bounds.width - 16 * scale,
                                y: bounds.height - titleBarHeight + 2 * scale,
                                width: 14 * scale, height: 12 * scale)
         return closeRect.contains(point)
@@ -851,7 +851,7 @@ class ModernEQView: NSView {
     
     private func hitTestShadeButton(at point: NSPoint) -> Bool {
         if WindowManager.shared.hideTitleBars { return false }
-        let shadeRect = NSRect(x: bounds.width - 32 * scale,
+        let shadeRect = NSRect(x: bounds.width - 28 * scale,
                                y: bounds.height - titleBarHeight + 2 * scale,
                                width: 12 * scale, height: 12 * scale)
         return shadeRect.contains(point)

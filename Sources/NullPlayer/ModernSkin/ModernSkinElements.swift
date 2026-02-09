@@ -57,11 +57,11 @@ enum ModernSkinElements {
     static let titleBarText = Element("titlebar_text", NSRect(x: 50, y: 102, width: 175, height: 14))
     
     /// Window control buttons (right side of title bar)
-    static let btnClose = Element("btn_close", NSRect(x: 256, y: 104, width: 10, height: 10),
+    static let btnClose = Element("btn_close", NSRect(x: 261, y: 104, width: 10, height: 10),
                                   states: ["normal", "pressed"])
-    static let btnMinimize = Element("btn_minimize", NSRect(x: 232, y: 104, width: 10, height: 10),
+    static let btnMinimize = Element("btn_minimize", NSRect(x: 237, y: 104, width: 10, height: 10),
                                      states: ["normal", "pressed"])
-    static let btnShade = Element("btn_shade", NSRect(x: 244, y: 104, width: 10, height: 10),
+    static let btnShade = Element("btn_shade", NSRect(x: 249, y: 104, width: 10, height: 10),
                                   states: ["normal", "pressed"])
     
     // MARK: - Time Display (left side)
@@ -175,11 +175,11 @@ enum ModernSkinElements {
     static let playlistTitleBar = Element("playlist_titlebar", NSRect(x: 0, y: 102, width: 275, height: 14))
     
     /// Playlist close button
-    static let playlistBtnClose = Element("playlist_btn_close", NSRect(x: 256, y: 104, width: 10, height: 10),
+    static let playlistBtnClose = Element("playlist_btn_close", NSRect(x: 261, y: 104, width: 10, height: 10),
                                           states: ["normal", "pressed"])
     
     /// Playlist shade button
-    static let playlistBtnShade = Element("playlist_btn_shade", NSRect(x: 244, y: 104, width: 10, height: 10),
+    static let playlistBtnShade = Element("playlist_btn_shade", NSRect(x: 249, y: 104, width: 10, height: 10),
                                           states: ["normal", "pressed"])
     
     // MARK: - EQ Window
@@ -205,11 +205,11 @@ enum ModernSkinElements {
     static let eqTitleBar = Element("eq_titlebar", NSRect(x: 0, y: 102, width: 275, height: 14))
     
     /// EQ close button
-    static let eqBtnClose = Element("eq_btn_close", NSRect(x: 256, y: 104, width: 10, height: 10),
+    static let eqBtnClose = Element("eq_btn_close", NSRect(x: 261, y: 104, width: 10, height: 10),
                                     states: ["normal", "pressed"])
     
     /// EQ shade button
-    static let eqBtnShade = Element("eq_btn_shade", NSRect(x: 244, y: 104, width: 10, height: 10),
+    static let eqBtnShade = Element("eq_btn_shade", NSRect(x: 249, y: 104, width: 10, height: 10),
                                     states: ["normal", "pressed"])
     
     // MARK: - Spectrum Window
@@ -238,7 +238,7 @@ enum ModernSkinElements {
     static let spectrumTitleBar = Element("spectrum_titlebar", NSRect(x: 0, y: 102, width: 275, height: 14))
     
     /// Spectrum window close button (allows per-window skinning)
-    static let spectrumBtnClose = Element("spectrum_btn_close", NSRect(x: 256, y: 104, width: 10, height: 10),
+    static let spectrumBtnClose = Element("spectrum_btn_close", NSRect(x: 261, y: 104, width: 10, height: 10),
                                           states: ["normal", "pressed"])
     
     // MARK: - ProjectM Visualization Window

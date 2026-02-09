@@ -229,15 +229,15 @@ The standalone Spectrum Analyzer window uses the modern skin system for its chro
 | Element ID | Default Rect | States | Description |
 |-----------|-------------|--------|-------------|
 | `spectrum_titlebar` | 0,102,275,14 | normal | Spectrum window title bar (falls back to `titlebar` rendering) |
-| `spectrum_btn_close` | 256,104,10,10 | normal, pressed | Spectrum window close button (falls back to `btn_close` rendering) |
+| `spectrum_btn_close` | 261,104,10,10 | normal, pressed | Spectrum window close button (falls back to `btn_close` rendering) |
 
 ### Playlist Window Chrome
 
 | Element ID | Default Rect | States | Description |
 |-----------|-------------|--------|-------------|
 | `playlist_titlebar` | 0,102,275,14 | normal | Playlist window title bar (falls back to `titlebar` rendering) |
-| `playlist_btn_close` | 256,104,10,10 | normal, pressed | Playlist close button (falls back to `btn_close`) |
-| `playlist_btn_shade` | 244,104,10,10 | normal, pressed | Playlist shade button (falls back to `btn_shade`) |
+| `playlist_btn_close` | 261,104,10,10 | normal, pressed | Playlist close button (falls back to `btn_close`) |
+| `playlist_btn_shade` | 249,104,10,10 | normal, pressed | Playlist shade button (falls back to `btn_shade`) |
 
 The modern playlist does not have bottom bar buttons -- all playlist operations (add, remove, sort, etc.) are available via the right-click context menu and keyboard shortcuts. The currently playing track is rendered in `accent` color (magenta in NeonWave).
 
@@ -246,8 +246,8 @@ The modern playlist does not have bottom bar buttons -- all playlist operations 
 | Element ID | Default Rect | States | Description |
 |-----------|-------------|--------|-------------|
 | `eq_titlebar` | 0,102,275,14 | normal | EQ window title bar (falls back to `titlebar` rendering) |
-| `eq_btn_close` | 256,104,10,10 | normal, pressed | EQ close button (falls back to `btn_close`) |
-| `eq_btn_shade` | 244,104,10,10 | normal, pressed | EQ shade button (falls back to `btn_shade`) |
+| `eq_btn_close` | 261,104,10,10 | normal, pressed | EQ close button (falls back to `btn_close`) |
+| `eq_btn_shade` | 249,104,10,10 | normal, pressed | EQ shade button (falls back to `btn_shade`) |
 
 The modern EQ window renders a 10-band graphic equalizer with preamp, ON/OFF toggle, AUTO toggle (genre-based presets), and PRESETS menu. Sliders use a color-coded fill: green (-12dB) through yellow (0dB) to red (+12dB). The EQ curve graph displays the current band values with the same color mapping and glow effects.
 

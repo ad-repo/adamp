@@ -291,12 +291,12 @@ class ModernPlaylistView: NSView {
     
     private var closeBtnBaseRect: NSRect {
         let scale = ModernSkinElements.scaleFactor
-        return NSRect(x: 256, y: (bounds.height / scale) - 12, width: 10, height: 10)
+        return NSRect(x: 261, y: (bounds.height / scale) - 12, width: 10, height: 10)
     }
     
     private var shadeBtnBaseRect: NSRect {
         let scale = ModernSkinElements.scaleFactor
-        return NSRect(x: 244, y: (bounds.height / scale) - 12, width: 10, height: 10)
+        return NSRect(x: 249, y: (bounds.height / scale) - 12, width: 10, height: 10)
     }
     
     // MARK: - Track List Drawing
@@ -675,7 +675,7 @@ class ModernPlaylistView: NSView {
         if WindowManager.shared.hideTitleBars {
             return point.y >= bounds.height - 6  // invisible drag zone
         }
-        let closeWidth: CGFloat = 30 * ModernSkinElements.scaleFactor
+        let closeWidth: CGFloat = 28 * ModernSkinElements.scaleFactor
         return point.y >= bounds.height - titleBarHeight &&
                point.x < bounds.width - closeWidth
     }
@@ -683,7 +683,7 @@ class ModernPlaylistView: NSView {
     private func hitTestCloseButton(at point: NSPoint) -> Bool {
         if WindowManager.shared.hideTitleBars { return false }
         let scale = ModernSkinElements.scaleFactor
-        let closeRect = NSRect(x: bounds.width - 18 * scale, y: bounds.height - titleBarHeight + 2 * scale,
+        let closeRect = NSRect(x: bounds.width - 16 * scale, y: bounds.height - titleBarHeight + 2 * scale,
                                width: 14 * scale, height: 12 * scale)
         return closeRect.contains(point)
     }
@@ -691,7 +691,7 @@ class ModernPlaylistView: NSView {
     private func hitTestShadeButton(at point: NSPoint) -> Bool {
         if WindowManager.shared.hideTitleBars { return false }
         let scale = ModernSkinElements.scaleFactor
-        let shadeRect = NSRect(x: bounds.width - 32 * scale, y: bounds.height - titleBarHeight + 2 * scale,
+        let shadeRect = NSRect(x: bounds.width - 28 * scale, y: bounds.height - titleBarHeight + 2 * scale,
                                width: 12 * scale, height: 12 * scale)
         return shadeRect.contains(point)
     }

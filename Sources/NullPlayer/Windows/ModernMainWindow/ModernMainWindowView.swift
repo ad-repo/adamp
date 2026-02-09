@@ -312,13 +312,13 @@ class ModernMainWindowView: NSView {
         // Unshade button (□ to restore)
         renderer.drawWindowControlButton("btn_shade",
                                           state: pressedElement == "btn_shade" ? "pressed" : "normal",
-                                          in: NSRect(x: 252, y: btnY, width: btnSize, height: btnSize),
+                                          in: NSRect(x: 255, y: btnY, width: btnSize, height: btnSize),
                                           context: context)
         
         // Close button
         renderer.drawWindowControlButton("btn_close",
                                           state: pressedElement == "btn_close" ? "pressed" : "normal",
-                                          in: NSRect(x: 262, y: btnY, width: btnSize, height: btnSize),
+                                          in: NSRect(x: 265, y: btnY, width: btnSize, height: btnSize),
                                           context: context)
     }
     
@@ -495,14 +495,14 @@ class ModernMainWindowView: NSView {
     private func drawEQPlaylistButtons(context: CGContext) {
         let audioEngine = WindowManager.shared.audioEngine
         
-        // 10 toggle buttons right-aligned: 2X, HT, SH, RP, CA, pM, EQ, PL, SP, LB
+        // 10 toggle buttons aligned with marquee panel (x:93 to x:267)
         let y: CGFloat = 42
         let h: CGFloat = 14
-        let w: CGFloat = 18
-        let spacing: CGFloat = 2
-        let rightPad: CGFloat = 8  // Attractive padding from right edge
-        let totalWidth = CGFloat(10) * w + CGFloat(9) * spacing
-        let startX: CGFloat = 275 - rightPad - totalWidth
+        let leftEdge: CGFloat = 93   // Match marquee left edge
+        let rightEdge: CGFloat = 267  // Match marquee right edge
+        let w: CGFloat = 16
+        let spacing = (rightEdge - leftEdge - 10 * w) / 9  // ~1.56
+        let startX = leftEdge
         
         let buttonDefs: [(String, String, Bool)] = [
             ("btn_2x", "2X", WindowManager.shared.isDoubleSize),
@@ -770,8 +770,8 @@ class ModernMainWindowView: NSView {
             let baseH: CGFloat = 18
             let btnSize: CGFloat = 8
             let btnY = (baseH - btnSize) / 2
-            let shadeRect = NSRect(x: 252, y: btnY, width: btnSize, height: btnSize)
-            let closeRect = NSRect(x: 262, y: btnY, width: btnSize, height: btnSize)
+            let shadeRect = NSRect(x: 255, y: btnY, width: btnSize, height: btnSize)
+            let closeRect = NSRect(x: 265, y: btnY, width: btnSize, height: btnSize)
             if closeRect.contains(base) { return "btn_close" }
             if shadeRect.contains(base) { return "btn_shade" }
             return nil
@@ -797,17 +797,20 @@ class ModernMainWindowView: NSView {
             ("btn_stop", ModernSkinElements.btnStop.defaultRect),
             ("btn_next", ModernSkinElements.btnNext.defaultRect),
             ("btn_eject", ModernSkinElements.btnEject.defaultRect),
-            // Toggle button row (10 buttons right-aligned: 2X, HT, SH, RP, CA, pM, EQ, PL, SP, LB)
-            ("btn_2x", NSRect(x: 69, y: 42, width: 18, height: 14)),
-            ("btn_ht", NSRect(x: 89, y: 42, width: 18, height: 14)),
-            ("btn_shuffle", NSRect(x: 109, y: 42, width: 18, height: 14)),
-            ("btn_repeat", NSRect(x: 129, y: 42, width: 18, height: 14)),
-            ("btn_cast", NSRect(x: 149, y: 42, width: 18, height: 14)),
-            ("btn_projectm", NSRect(x: 169, y: 42, width: 18, height: 14)),
-            ("btn_eq", NSRect(x: 189, y: 42, width: 18, height: 14)),
-            ("btn_playlist", NSRect(x: 209, y: 42, width: 18, height: 14)),
-            ("btn_spectrum", NSRect(x: 229, y: 42, width: 18, height: 14)),
-            ("btn_library", NSRect(x: 249, y: 42, width: 18, height: 14)),
+            // Toggle button row (10 buttons aligned with marquee panel x:93–267)
+        ])
+        do {
+            let leftEdge: CGFloat = 93
+            let rightEdge: CGFloat = 267
+            let bw: CGFloat = 16
+            let bs = (rightEdge - leftEdge - 10 * bw) / 9
+            let ids = ["btn_2x", "btn_ht", "btn_shuffle", "btn_repeat", "btn_cast",
+                       "btn_projectm", "btn_eq", "btn_playlist", "btn_spectrum", "btn_library"]
+            for (i, id) in ids.enumerated() {
+                hitTargets.append((id, NSRect(x: leftEdge + CGFloat(i) * (bw + bs), y: 42, width: bw, height: 14)))
+            }
+        }
+        hitTargets.append(contentsOf: [
             // Sliders
             ("seek_track", ModernSkinElements.seekTrack.defaultRect.insetBy(dx: 0, dy: -4)),  // expand vertical hit area
             ("volume_track", ModernSkinElements.volumeTrack.defaultRect.insetBy(dx: 0, dy: -4)),  // expand vertical hit area
