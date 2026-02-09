@@ -117,7 +117,7 @@ The main window provides core playback controls and track information.
 | **EQ** | Show/hide Equalizer window |
 | **PL** | Show/hide Playlist Editor |
 
-In modern UI mode, the toggle buttons appear in a single row: **SH** (Shuffle), **RP** (Repeat), **CA** (Cast), **pM** (ProjectM), **EQ** (Equalizer), **PL** (Playlist), **SP** (Spectrum), **LB** (Library). A volume slider replaces the bottom-right area, styled to match the seek bar.
+In modern UI mode, the toggle buttons appear in a single row: **2X** (Double Size), **HT** (Hide Title Bars), **SH** (Shuffle), **RP** (Repeat), **CA** (Cast), **pM** (ProjectM), **EQ** (Equalizer), **PL** (Playlist), **SP** (Spectrum), **LB** (Library). A volume slider replaces the bottom-right area, styled to match the seek bar.
 
 ### Title Bar Buttons
 
@@ -974,6 +974,7 @@ Shows detailed metadata for the currently playing track or video. This option is
 - Fade Duration (when Sweet Fades enabled)
 - Browser Album Art Background
 - Remember State on Quit
+- Double Size (doubles all windows and rendering, modern UI only)
 - Hide Title Bars (hides skinned title bars on all windows; drag zone retained at top edge)
 
 ### Local Library
@@ -1139,9 +1140,20 @@ When enabled, the following is saved on quit and restored on launch:
 
 **Note**: Streaming tracks require their respective servers (Plex/Navidrome) to be available on launch. Tracks from unavailable servers will be skipped. The playlist is restored but no track is automatically loaded or played - you choose when to start playback.
 
+### Double Size (2x)
+
+**Double Size** doubles all window dimensions and rendering scale for a larger UI (modern UI only). Toggle via the **2X** button on the main window or right-click context menu → **Double Size**.
+
+When enabled:
+- **Stack windows** (main, EQ, playlist, spectrum) double in both width and height
+- **Side windows** (Library Browser, ProjectM) scale width by 2x and match the stack height
+- **All rendering** (fonts, buttons, sliders, chrome) scales proportionally
+- **Composes with Hide Title Bars** — both can be active simultaneously
+- **Not persisted** — always starts at 1x on launch
+
 ### Hide Title Bars
 
-**Hide Title Bars** removes the skinned title bars from all windows for a cleaner look. Toggle via the right-click context menu.
+**Hide Title Bars** removes the skinned title bars from all windows for a cleaner look. Toggle via the **HT** button on the main window or right-click context menu.
 
 When enabled:
 - **All windows shrink** by the title bar height, so content fits without stretching
