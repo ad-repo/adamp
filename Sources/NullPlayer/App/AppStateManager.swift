@@ -430,8 +430,8 @@ class AppStateManager {
         }
     }
     
-    /// Restore only settings state (skin, volume, EQ, windows) - call before intro
-    /// This allows the intro to play with the user's preferred settings
+    /// Restore only settings state (skin, volume, EQ, windows)
+    /// Called early in launch before playlist state is restored
     func restoreSettingsState() {
         guard isEnabled else {
             NSLog("AppStateManager: Remember State disabled, skipping settings restore")
@@ -452,7 +452,7 @@ class AppStateManager {
         }
     }
     
-    /// Restore only playlist state - call after intro finishes
+    /// Restore only playlist state (tracks, position, playback)
     func restorePlaylistState() {
         guard isEnabled else {
             NSLog("AppStateManager: Remember State disabled, skipping playlist restore")

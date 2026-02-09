@@ -1,12 +1,10 @@
 import AppKit
-import AVFoundation
 
 /// Main application delegate for NullPlayer
 /// Manages application lifecycle and window coordination
-class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate {
     
     private var windowManager: WindowManager!
-    private var introPlayer: AVAudioPlayer?
     
     /// Whether the app is running in UI testing mode
     private(set) var isUITesting = false
@@ -16,9 +14,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
     
     /// Whether the app has finished launching and is ready to handle file opens
     private var isAppReady = false
-    
-    /// UserDefaults key for tracking the last launched app version
-    private let lastLaunchedVersionKey = "lastLaunchedAppVersion"
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Check for UI testing mode
@@ -67,21 +62,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         // Set up the application menu
         setupMainMenu()
         
-        // Restore settings state first (skin, volume, EQ, windows) so intro plays with correct settings
+        // Restore settings state (skin, volume, EQ, windows)
         AppStateManager.shared.restoreSettingsState()
         
         // Mark app as ready for file opens
         isAppReady = true
         
-        // If files were passed at launch (double-clicked to open), play them instead of intro
+        // If files were passed at launch (double-clicked to open), play them
         if !pendingFilesToOpen.isEmpty {
             processPendingFiles()
-        } else if shouldPlayIntro() {
-            // Play intro sound only on new install or update
-            // Playlist state will be restored after intro finishes
-            playIntro()
         } else {
-            // No intro - restore playlist state immediately
+            // Restore playlist state
             AppStateManager.shared.restorePlaylistState()
         }
     }
@@ -130,7 +121,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         // Mark app as ready for file opens
         isAppReady = true
         
-        // Skip intro sound in test mode for faster test execution
         NSLog("NullPlayer: UI testing mode setup complete")
     }
     
@@ -212,71 +202,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
         if let iconURL = BundleHelper.url(forResource: "AppIcon", withExtension: "png"),
            let iconImage = NSImage(contentsOf: iconURL) {
             NSApplication.shared.applicationIconImage = iconImage
-        }
-    }
-    
-    // MARK: - Intro Sound
-    
-    /// Check if the intro should play (new install or app was updated)
-    /// Updates the stored version after checking
-    private func shouldPlayIntro() -> Bool {
-        // Get current app version
-        let fullVersion = BundleHelper.fullVersion
-        
-        // Get last launched version
-        let lastVersion = UserDefaults.standard.string(forKey: lastLaunchedVersionKey)
-        
-        // Store current version for next launch
-        UserDefaults.standard.set(fullVersion, forKey: lastLaunchedVersionKey)
-        
-        // Play intro if:
-        // 1. New install (no stored version)
-        // 2. Update (version changed)
-        if lastVersion == nil {
-            NSLog("AppDelegate: First launch - playing intro")
-            return true
-        } else if lastVersion != fullVersion {
-            NSLog("AppDelegate: App updated from %@ to %@ - playing intro", lastVersion!, fullVersion)
-            return true
-        } else {
-            NSLog("AppDelegate: Same version %@ - skipping intro", fullVersion)
-            return false
-        }
-    }
-    
-    private func playIntro() {
-        // Use BundleHelper to work in both SPM development and standalone app bundle
-        guard let introURL = BundleHelper.url(forResource: "DJ Mike Llama - Llama Whippin Intro", withExtension: "mp3") else {
-            return
-        }
-        
-        // Load into playlist and play (updates UI state)
-        windowManager.audioEngine.loadFiles([introURL])
-        windowManager.audioEngine.play()
-        
-        // Also play via AVAudioPlayer for reliable audio output
-        do {
-            introPlayer = try AVAudioPlayer(contentsOf: introURL)
-            introPlayer?.delegate = self
-            introPlayer?.play()
-        } catch {
-            print("Failed to play intro: \(error)")
-        }
-    }
-    
-    // MARK: - AVAudioPlayerDelegate
-    
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        NSLog("Intro finished playing")
-        // After intro finishes, restore playlist state or clear to clean state
-        // Must dispatch to main thread since this delegate may be called from audio thread
-        DispatchQueue.main.async { [weak self] in
-            self?.introPlayer = nil
-            self?.windowManager.audioEngine.clearPlaylist()
-            
-            // Now restore playlist state if "Remember State" is enabled
-            // (Settings state was already restored before intro played)
-            AppStateManager.shared.restorePlaylistState()
         }
     }
     
