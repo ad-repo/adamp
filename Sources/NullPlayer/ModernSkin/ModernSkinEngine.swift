@@ -20,7 +20,7 @@ class ModernSkinEngine {
     private(set) var currentSkinName: String?
     
     /// The skin loader
-    private let loader = ModernSkinLoader.shared
+    let loader = ModernSkinLoader.shared
     
     /// The animation engine
     let animationEngine = ModernSkinAnimation()
@@ -148,7 +148,7 @@ class ModernSkinEngine {
         loadSkin(named: name)
     }
     
-    @objc private func openSkinsFolder() {
+    @objc func openSkinsFolder() {
         let dir = loader.userSkinsDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         NSWorkspace.shared.open(dir)

@@ -1167,6 +1167,8 @@ class WindowManager {
             let skin = try SkinLoader.shared.load(from: url)
             currentSkin = skin
             currentSkinPath = url.path
+            // Persist last used classic skin for easy reload when switching UI modes
+            UserDefaults.standard.set(url.path, forKey: "lastClassicSkinPath")
             notifySkinChanged()
         } catch {
             print("Failed to load skin: \(error)")
