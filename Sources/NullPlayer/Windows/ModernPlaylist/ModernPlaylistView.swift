@@ -304,6 +304,11 @@ class ModernPlaylistView: NSView {
     private func drawTrackList(in context: CGContext) {
         let listRect = calculateListArea()
         
+        // During window resize animations (e.g. double-size toggle, monitor disconnect),
+        // bounds can temporarily be smaller than titleBar + border, producing a negative
+        // listRect height. Bail out to avoid Range precondition failure in visible range calc.
+        guard listRect.width > 0, listRect.height > 0 else { return }
+        
         context.saveGState()
         context.clip(to: listRect)
         
@@ -334,7 +339,7 @@ class ModernPlaylistView: NSView {
         
         // Calculate visible range
         let visibleStart = max(0, Int(scrollOffset / itemHeight))
-        let visibleEnd = min(tracks.count, visibleStart + Int(listRect.height / itemHeight) + 2)
+        let visibleEnd = max(visibleStart, min(tracks.count, visibleStart + Int(listRect.height / itemHeight) + 2))
         
         for index in visibleStart..<visibleEnd {
             let y = listRect.maxY - CGFloat(index + 1) * itemHeight + scrollOffset
