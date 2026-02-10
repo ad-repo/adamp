@@ -44,9 +44,10 @@ class WindowManager {
         }
     }
     
-    /// Double size mode (2x scaling) - not persisted, always starts at 1x
+    /// Double size mode (2x scaling) - not persisted, always starts at 1x (modern UI only)
     var isDoubleSize: Bool = false {
         didSet {
+            guard isModernUIEnabled else { isDoubleSize = false; return }
             applyDoubleSize()
             NotificationCenter.default.post(name: .doubleSizeDidChange, object: nil)
         }
@@ -70,14 +71,15 @@ class WindowManager {
         set { UserDefaults.standard.set(newValue, forKey: "modernUIEnabled") }
     }
     
-    /// Whether title bars are hidden on all windows
+    /// Whether title bars are hidden on all windows (only applies in modern UI mode)
     var hideTitleBars: Bool {
-        get { UserDefaults.standard.bool(forKey: "hideTitleBars") }
+        get { isModernUIEnabled && UserDefaults.standard.bool(forKey: "hideTitleBars") }
         set { UserDefaults.standard.set(newValue, forKey: "hideTitleBars") }
     }
     
-    /// Toggle hide title bars mode and resize all visible windows
+    /// Toggle hide title bars mode and resize all visible windows (modern UI only)
     func toggleHideTitleBars() {
+        guard isModernUIEnabled else { return }
         let wasHidden = hideTitleBars
         hideTitleBars = !wasHidden
         let hiding = !wasHidden

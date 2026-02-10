@@ -994,7 +994,7 @@ Shows detailed metadata for the currently playing track or video. This option is
 - Browser Album Art Background
 - Remember State on Quit
 - Double Size (doubles all windows and rendering, modern UI only)
-- Hide Title Bars (hides skinned title bars on all windows; drag zone retained at top edge)
+- Hide Title Bars (hides skinned title bars on all windows; drag zone retained at top edge, modern UI only)
 
 ### Local Library
 - Track count
@@ -1170,9 +1170,9 @@ When enabled:
 - **Composes with Hide Title Bars** — both can be active simultaneously
 - **Not persisted** — always starts at 1x on launch
 
-### Hide Title Bars
+### Hide Title Bars (Modern UI Only)
 
-**Hide Title Bars** removes the skinned title bars from all windows for a cleaner look. Toggle via the **HT** button on the main window or right-click context menu.
+**Hide Title Bars** removes the skinned title bars from all windows for a cleaner look. This feature is only available in modern UI mode. Toggle via the **HT** button on the main window or right-click context menu.
 
 When enabled:
 - **All windows shrink** by the title bar height, so content fits without stretching

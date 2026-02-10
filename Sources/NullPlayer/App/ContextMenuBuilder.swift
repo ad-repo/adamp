@@ -62,11 +62,13 @@ class ContextMenuBuilder {
         alwaysOnTop.state = wm.isAlwaysOnTop ? .on : .off
         menu.addItem(alwaysOnTop)
         
-        // Hide Title Bars
-        let hideTitleBars = NSMenuItem(title: "Hide Title Bars", action: #selector(MenuActions.toggleHideTitleBars), keyEquivalent: "")
-        hideTitleBars.target = MenuActions.shared
-        hideTitleBars.state = wm.hideTitleBars ? .on : .off
-        menu.addItem(hideTitleBars)
+        // Hide Title Bars (modern UI only)
+        if wm.isModernUIEnabled {
+            let hideTitleBars = NSMenuItem(title: "Hide Title Bars", action: #selector(MenuActions.toggleHideTitleBars), keyEquivalent: "")
+            hideTitleBars.target = MenuActions.shared
+            hideTitleBars.state = wm.hideTitleBars ? .on : .off
+            menu.addItem(hideTitleBars)
+        }
         
         // Double Size (modern UI only)
         if wm.isModernUIEnabled {

@@ -182,6 +182,29 @@ Sources/NullPlayer/
 
 - **Modern skin system is completely independent**: Files in `ModernSkin/`, `Windows/ModernMainWindow/`, `Windows/ModernSpectrum/`, `Windows/ModernPlaylist/`, `Windows/ModernEQ/`, `Windows/ModernProjectM/`, and `Windows/ModernLibraryBrowser/` must NEVER import or reference anything from `Skin/` or `Windows/MainWindow/`. The coupling points are only: `AppDelegate` (mode selection), `WindowManager` (via `MainWindowProviding`, `SpectrumWindowProviding`, `PlaylistWindowProviding`, `EQWindowProviding`, `ProjectMWindowProviding`, and `LibraryBrowserWindowProviding` protocols), and shared infrastructure (`AudioEngine`, `Track`, `PlaybackState`)
 - **UI mode switching requires restart**: The `modernUIEnabled` UserDefaults preference selects which `MainWindowProviding` implementation `WindowManager` creates. Changing it at runtime shows a "restart required" alert
+- **Mode-specific features must be guarded at all layers**: When a feature only applies to one UI mode (modern or classic), enforce it in three places:
+  1. **Menu/UI**: Wrap the menu item or button in an `if wm.isModernUIEnabled` check so it's not shown in the wrong mode
+  2. **Property getter or setter**: Make the property return the safe default (e.g. `false`) when the wrong mode is active, OR reset to the safe default in `didSet` — this prevents stale UserDefaults or programmatic access from leaking behavior across modes
+  3. **Action/toggle function**: Add a `guard isModernUIEnabled else { return }` at the top of the toggle/apply function
+  
+  Example (Hide Title Bars — modern only):
+  ```swift
+  // Property: getter returns false in classic mode
+  var hideTitleBars: Bool {
+      get { isModernUIEnabled && UserDefaults.standard.bool(forKey: "hideTitleBars") }
+      set { UserDefaults.standard.set(newValue, forKey: "hideTitleBars") }
+  }
+  // Toggle: guard at top
+  func toggleHideTitleBars() {
+      guard isModernUIEnabled else { return }
+      ...
+  }
+  // Menu: wrapped in if-check
+  if wm.isModernUIEnabled {
+      let item = NSMenuItem(title: "Hide Title Bars", ...)
+      menu.addItem(item)
+  }
+  ```
 - **Skin coordinates**: skin skins use top-left origin, macOS uses bottom-left
 - **Streaming audio**: Uses `AudioStreaming` library, different from local `AVAudioEngine`
 - **Local file completion handler**: Must use `scheduleFile(_:at:completionCallbackType:completionHandler:)` with `.dataPlayedBack` - NOT the deprecated 3-parameter `scheduleFile(_:at:completionHandler:)` which defaults to `.dataConsumed` and fires before audio finishes playing, causing premature track advancement and UI desync
@@ -189,7 +212,7 @@ Sources/NullPlayer/
   - Multi-monitor: Screen edge snapping is skipped if it would cause docked windows to end up on different screens
   - `Snap to Default` centers main window on its current screen (not always the primary display)
   - Coordinated minimize: uses `addChildWindow`/`removeChildWindow` in `windowWillMiniaturize`/`windowDidDeminiaturize` to temporarily make docked windows children of the main window so they animate into the dock together. Child relationships are removed on restore so windows remain independent for normal docking/dragging
-- **Hide Title Bars mode**: `hideTitleBars` UserDefaults preference hides skinned title bars on all windows. Key implementation details:
+- **Hide Title Bars mode** (modern UI only): `hideTitleBars` UserDefaults preference hides skinned title bars on all windows. Only available in modern UI mode — the getter returns `false` when classic mode is active, and the menu item is hidden. Key implementation details:
   - Each view's `titleBarHeight` computed property returns `borderWidth` (not 0) when hidden, preserving the top border line
   - `toggleHideTitleBars()` must adjust `minSize`/`maxSize` constraints BEFORE resizing (EQ has `maxSize = minSize`)
   - Stack windows (main, EQ, playlist, spectrum) resize independently; side windows (ProjectM, Library Browser) match the stack height
