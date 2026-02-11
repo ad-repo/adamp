@@ -1541,37 +1541,8 @@ class PlexBrowserView: NSView {
         let prefixWidth = CGFloat(prefix.count) * scaledCharWidth
         let sourceNameStartX = barRect.minX + 4 + prefixWidth
         
-        // Star rating (art-only mode with a ratable track playing) - drawn for ALL sources
-        if isArtOnlyMode,
-           let currentTrack = WindowManager.shared.audioEngine.currentTrack,
-           currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
-            let starSize: CGFloat = 12
-            let starSpacing: CGFloat = 2
-            let totalStars = 5
-            let starsWidth = CGFloat(totalStars) * starSize + CGFloat(totalStars - 1) * starSpacing
-            let starsX = barRect.maxX - starsWidth - 8
-            let starY = barRect.minY + (barRect.height - starSize) / 2
-            
-            let rating = currentTrackRating ?? 0
-            let filledCount = rating / 2
-            
-            let greenColor = renderer.skinTextColor()
-            let dimGreen = NSColor(red: greenColor.redComponent * 0.4,
-                                  green: greenColor.greenComponent * 0.4,
-                                  blue: greenColor.blueComponent * 0.4,
-                                  alpha: 0.6)
-            
-            for i in 0..<totalStars {
-                let x = starsX + CGFloat(i) * (starSize + starSpacing)
-                let starRect = NSRect(x: x, y: starY, width: starSize, height: starSize)
-                let isFilled = i < filledCount
-                drawPixelStar(in: starRect, color: isFilled ? greenColor : dimGreen, context: context)
-            }
-            
-            rateButtonRect = NSRect(x: starsX, y: barRect.minY, width: starsWidth, height: barRect.height)
-        } else {
-            rateButtonRect = .zero
-        }
+        // rateButtonRect is set per-source below (stars drawn after VIS/ART/F5 positions are calculated)
+        rateButtonRect = .zero
         
         switch currentSource {
         case .local:
@@ -1623,14 +1594,44 @@ class PlexBrowserView: NSView {
                 visX = artX  // No VIS button
             }
             
-            // Item count (before VIS or before ART if no art-only mode)
-            let countNumber = "\(displayItems.count)"
-            let countLabel = " items"
-            let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
-            let countX = visX - countWidth - 24
-            drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
-            let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
-            drawScaledWhiteSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
+            // Star rating (art-only mode) or item count (list mode)
+            if isArtOnlyMode,
+               let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+               currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
+                let starSize: CGFloat = 12
+                let starSpacing: CGFloat = 2
+                let totalStars = 5
+                let starsWidth = CGFloat(totalStars) * starSize + CGFloat(totalStars - 1) * starSpacing
+                let starsX = visX - starsWidth - 16
+                let starY = barRect.minY + (barRect.height - starSize) / 2
+                
+                let rating = currentTrackRating ?? 0
+                let filledCount = rating / 2
+                
+                let greenColor = renderer.skinTextColor()
+                let dimGreen = NSColor(red: greenColor.redComponent * 0.4,
+                                      green: greenColor.greenComponent * 0.4,
+                                      blue: greenColor.blueComponent * 0.4,
+                                      alpha: 0.6)
+                
+                for i in 0..<totalStars {
+                    let x = starsX + CGFloat(i) * (starSize + starSpacing)
+                    let starRect = NSRect(x: x, y: starY, width: starSize, height: starSize)
+                    let isFilled = i < filledCount
+                    drawPixelStar(in: starRect, color: isFilled ? greenColor : dimGreen, context: context)
+                }
+                
+                rateButtonRect = NSRect(x: starsX, y: barRect.minY, width: starsWidth, height: barRect.height)
+            } else if !isArtOnlyMode {
+                // Item count (only in list mode)
+                let countNumber = "\(displayItems.count)"
+                let countLabel = " items"
+                let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
+                let countX = visX - countWidth - 24
+                drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
+                let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
+                drawScaledWhiteSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
+            }
             
         case .plex(let serverId):
             let manager = PlexManager.shared
@@ -1724,8 +1725,35 @@ class PlexBrowserView: NSView {
                     visX = artX  // No VIS button
                 }
                 
-                // Item count (only when not in art-only mode; stars are drawn globally above)
-                if !isArtOnlyMode {
+                // Star rating (art-only mode) or item count (list mode)
+                if isArtOnlyMode,
+                   let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+                   currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
+                    let starSize: CGFloat = 12
+                    let starSpacing: CGFloat = 2
+                    let totalStars = 5
+                    let starsWidth = CGFloat(totalStars) * starSize + CGFloat(totalStars - 1) * starSpacing
+                    let starsX = visX - starsWidth - 16
+                    let starY = barRect.minY + (barRect.height - starSize) / 2
+                    
+                    let rating = currentTrackRating ?? 0
+                    let filledCount = rating / 2
+                    
+                    let greenColor = renderer.skinTextColor()
+                    let dimGreen = NSColor(red: greenColor.redComponent * 0.4,
+                                          green: greenColor.greenComponent * 0.4,
+                                          blue: greenColor.blueComponent * 0.4,
+                                          alpha: 0.6)
+                    
+                    for i in 0..<totalStars {
+                        let x = starsX + CGFloat(i) * (starSize + starSpacing)
+                        let starRect = NSRect(x: x, y: starY, width: starSize, height: starSize)
+                        let isFilled = i < filledCount
+                        drawPixelStar(in: starRect, color: isFilled ? greenColor : dimGreen, context: context)
+                    }
+                    
+                    rateButtonRect = NSRect(x: starsX, y: barRect.minY, width: starsWidth, height: barRect.height)
+                } else if !isArtOnlyMode {
                     let countSpacing: CGFloat = 24
                     
                     // Show top-level item count (artists/albums/tracks), not expanded tree count
@@ -1815,14 +1843,44 @@ class PlexBrowserView: NSView {
                     visX = artX
                 }
                 
-                // Item count
-                let countNumber = "\(displayItems.count)"
-                let countLabel = " items"
-                let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
-                let countX = visX - countWidth - 24
-                drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
-                let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
-                drawScaledWhiteSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
+                // Star rating (art-only mode) or item count (list mode)
+                if isArtOnlyMode,
+                   let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+                   currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
+                    let starSize: CGFloat = 12
+                    let starSpacing: CGFloat = 2
+                    let totalStars = 5
+                    let starsWidth = CGFloat(totalStars) * starSize + CGFloat(totalStars - 1) * starSpacing
+                    let starsX = visX - starsWidth - 16
+                    let starY = barRect.minY + (barRect.height - starSize) / 2
+                    
+                    let rating = currentTrackRating ?? 0
+                    let filledCount = rating / 2
+                    
+                    let greenColor = renderer.skinTextColor()
+                    let dimGreen = NSColor(red: greenColor.redComponent * 0.4,
+                                          green: greenColor.greenComponent * 0.4,
+                                          blue: greenColor.blueComponent * 0.4,
+                                          alpha: 0.6)
+                    
+                    for i in 0..<totalStars {
+                        let x = starsX + CGFloat(i) * (starSize + starSpacing)
+                        let starRect = NSRect(x: x, y: starY, width: starSize, height: starSize)
+                        let isFilled = i < filledCount
+                        drawPixelStar(in: starRect, color: isFilled ? greenColor : dimGreen, context: context)
+                    }
+                    
+                    rateButtonRect = NSRect(x: starsX, y: barRect.minY, width: starsWidth, height: barRect.height)
+                } else if !isArtOnlyMode {
+                    // Item count (only in list mode)
+                    let countNumber = "\(displayItems.count)"
+                    let countLabel = " items"
+                    let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
+                    let countX = visX - countWidth - 24
+                    drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
+                    let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
+                    drawScaledWhiteSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
+                }
             } else {
                 // No Subsonic server configured - show add server message
                 let linkText = "Click to add a Subsonic server"
