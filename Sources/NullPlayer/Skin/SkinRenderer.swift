@@ -34,6 +34,149 @@ class SkinRenderer {
         return _whiteTextImage
     }
     
+    /// Cached result of gen.bmp font validation (nil = not yet checked)
+    private var _genFontValidationResult: Bool?
+    
+    /// Check if the skin's gen.bmp has a valid font at the expected location
+    /// Caches the result for performance
+    private var isGenFontValid: Bool {
+        if let cached = _genFontValidationResult {
+            return cached
+        }
+        let result = validateGenFont()
+        _genFontValidationResult = result
+        return result
+    }
+    
+    /// Validate that gen.bmp contains a usable font at the expected coordinates
+    /// Returns false if the image is missing, too small, or doesn't have valid font data
+    private func validateGenFont() -> Bool {
+        guard let genImage = skin.genWindowImage,
+              let cgImage = genImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return false
+        }
+        
+        // Check minimum dimensions - gen.bmp must be at least 194x103 to contain font rows
+        // Font is at Y=89-94 (active) and Y=97-102 (inactive), so need at least 103 pixels height
+        let minWidth: CGFloat = 190
+        let minHeight: CGFloat = 103
+        
+        if CGFloat(cgImage.width) < minWidth || CGFloat(cgImage.height) < minHeight {
+            return false
+        }
+        
+        // Sample pixels from the font area to check for valid font data
+        // A valid font should have:
+        // 1. A consistent background color (usually cyan #00C6FF or similar)
+        // 2. Character pixels that differ from the background
+        
+        let fontY = Int(SkinElements.GenFont.activeAlphabetY)
+        let fontHeight = Int(SkinElements.GenFont.charHeight)
+        
+        // Create a bitmap context to sample pixels
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bytesPerPixel = 4
+        let bytesPerRow = cgImage.width * bytesPerPixel
+        var pixelData = [UInt8](repeating: 0, count: cgImage.width * cgImage.height * bytesPerPixel)
+        
+        guard let context = CGContext(
+            data: &pixelData,
+            width: cgImage.width,
+            height: cgImage.height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return false
+        }
+        
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+        
+        // Sample the background color from the left edge of the font row (before any characters)
+        let bgX = 0
+        let bgY = fontY
+        let bgIndex = (bgY * cgImage.width + bgX) * bytesPerPixel
+        
+        guard bgIndex + 3 < pixelData.count else { return false }
+        
+        let bgR = pixelData[bgIndex]
+        let bgG = pixelData[bgIndex + 1]
+        let bgB = pixelData[bgIndex + 2]
+        
+        // Check if background is the typical cyan color (#00C6FF or similar)
+        // Classic Winamp gen.bmp uses cyan as the transparency/background color
+        let isCyanBackground = bgR < 50 && bgG > 150 && bgB > 200
+        
+        // Sample a few character positions to see if they have different pixels
+        // Check the 'A' character area (first character)
+        let charAPos = SkinElements.GenFont.charPositions[0]  // A
+        let charMPos = SkinElements.GenFont.charPositions[12] // M (middle of alphabet)
+        
+        var foundNonBackgroundPixels = 0
+        
+        // Sample pixels from character 'A' area
+        for dy in 0..<fontHeight {
+            for dx in 0..<Int(charAPos.width) {
+                let x = Int(charAPos.x) + dx
+                let y = fontY + dy
+                let index = (y * cgImage.width + x) * bytesPerPixel
+                
+                guard index + 2 < pixelData.count else { continue }
+                
+                let r = pixelData[index]
+                let g = pixelData[index + 1]
+                let b = pixelData[index + 2]
+                
+                // Check if this pixel differs significantly from background
+                let diffR = abs(Int(r) - Int(bgR))
+                let diffG = abs(Int(g) - Int(bgG))
+                let diffB = abs(Int(b) - Int(bgB))
+                
+                if diffR > 30 || diffG > 30 || diffB > 30 {
+                    foundNonBackgroundPixels += 1
+                }
+            }
+        }
+        
+        // Sample pixels from character 'M' area
+        for dy in 0..<fontHeight {
+            for dx in 0..<Int(charMPos.width) {
+                let x = Int(charMPos.x) + dx
+                let y = fontY + dy
+                let index = (y * cgImage.width + x) * bytesPerPixel
+                
+                guard index + 2 < pixelData.count else { continue }
+                
+                let r = pixelData[index]
+                let g = pixelData[index + 1]
+                let b = pixelData[index + 2]
+                
+                let diffR = abs(Int(r) - Int(bgR))
+                let diffG = abs(Int(g) - Int(bgG))
+                let diffB = abs(Int(b) - Int(bgB))
+                
+                if diffR > 30 || diffG > 30 || diffB > 30 {
+                    foundNonBackgroundPixels += 1
+                }
+            }
+        }
+        
+        // A valid font should have some non-background pixels (the actual letter shapes)
+        // but not too many (which would indicate random graphics, not a font)
+        // Typical 6-pixel tall font characters have ~15-30 pixels per character
+        let totalSampledPixels = (Int(charAPos.width) + Int(charMPos.width)) * fontHeight
+        let nonBgRatio = Double(foundNonBackgroundPixels) / Double(totalSampledPixels)
+        
+        // Valid font: 10-70% of pixels should be non-background (letter shapes)
+        // Too few = empty/blank area, too many = solid block or random graphics
+        let hasValidFontPattern = nonBgRatio > 0.10 && nonBgRatio < 0.70
+        
+        // Also check: if background is cyan, it's more likely to be a valid Winamp gen.bmp
+        // If not cyan but has valid pattern, still accept it (some skins use different colors)
+        return hasValidFontPattern || (isCyanBackground && foundNonBackgroundPixels > 5)
+    }
+    
     // MARK: - Initialization
     
     init(skin: Skin) {
@@ -1924,11 +2067,20 @@ class SkinRenderer {
     ///   (main window, EQ, playlist). Use Skin.scaleFactor for views that draw at actual window size
     ///   (ProjectM, library, analyzer).
     private func drawGenFontTitleText(_ text: String, in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true, fontScale: CGFloat = Skin.scaleFactor) {
+        // Check if gen.bmp has a valid font - if not, fall back to TEXT.BMP
+        if !isGenFontValid {
+            // Use TEXT.BMP font (same as marquee) with dark background
+            drawTextBmpTitleText(text, in: context, bounds: bounds, titleHeight: titleHeight, fontScale: fontScale)
+            return
+        }
+        
         // Load gen.png from skin or bundle
         let genImage = skin.genWindowImage
         guard let genImage = genImage,
               let cgImage = genImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return  // GenFont required - no fallback
+            // Fallback to TEXT.BMP if gen image can't be loaded
+            drawTextBmpTitleText(text, in: context, bounds: bounds, titleHeight: titleHeight, fontScale: fontScale)
+            return
         }
         
         let scale = fontScale
@@ -2024,6 +2176,68 @@ class SkinRenderer {
                     xPos += charSpacing
                 }
             }
+        }
+    }
+    
+    /// Draw title text using TEXT.BMP font (fallback when gen.bmp font is invalid)
+    /// Uses the same dark background gap styling as drawGenFontTitleText
+    private func drawTextBmpTitleText(_ text: String, in context: CGContext, bounds: NSRect, titleHeight: CGFloat, fontScale: CGFloat = Skin.scaleFactor) {
+        let charWidth = SkinElements.TextFont.charWidth * fontScale
+        let charHeight = SkinElements.TextFont.charHeight * fontScale
+        let charSpacing: CGFloat = 0
+        
+        // Calculate total text width
+        let totalWidth = CGFloat(text.count) * (charWidth + charSpacing) - charSpacing
+        
+        // Add padding around text for the background gap
+        let padding: CGFloat = 10
+        let capWidth: CGFloat = 4  // Width of rounded end caps
+        let gapWidth = totalWidth + padding * 2 + capWidth * 2
+        let gapHeight: CGFloat = 14
+        
+        // Center the gap in the title bar
+        let gapX = (bounds.width - gapWidth) / 2
+        let gapY = (titleHeight - gapHeight) / 2
+        
+        // Draw solid dark background (the "gap" in decorative lines)
+        let gapColor = NSColor(calibratedRed: 0.10, green: 0.10, blue: 0.18, alpha: 1.0)
+        gapColor.setFill()
+        context.fill(NSRect(x: gapX + capWidth, y: gapY, width: gapWidth - capWidth * 2, height: gapHeight))
+        
+        // Draw rounded end caps (tapered edges)
+        let capColor = NSColor(calibratedRed: 0.16, green: 0.16, blue: 0.24, alpha: 1.0)
+        
+        // Left cap - tapered inward
+        for i in 0..<Int(capWidth) {
+            let inset = CGFloat(Int(capWidth) - 1 - i)
+            let capX = gapX + CGFloat(i)
+            capColor.withAlphaComponent(CGFloat(i + 1) / capWidth).setFill()
+            context.fill(NSRect(x: capX, y: gapY + inset, width: 1, height: gapHeight - inset * 2))
+        }
+        
+        // Right cap - tapered inward
+        for i in 0..<Int(capWidth) {
+            let inset = CGFloat(i)
+            let capX = gapX + gapWidth - capWidth + CGFloat(i)
+            capColor.withAlphaComponent(CGFloat(Int(capWidth) - i) / capWidth).setFill()
+            context.fill(NSRect(x: capX, y: gapY + inset, width: 1, height: gapHeight - inset * 2))
+        }
+        
+        // Draw text centered in the gap using TEXT.BMP
+        var xPos = gapX + capWidth + padding
+        let textY = gapY + (gapHeight - charHeight) / 2
+        
+        guard let textImage = skin.text else {
+            // Final fallback: use system font
+            drawTitleBarTextFallback(text, centeredIn: NSRect(x: gapX, y: gapY, width: gapWidth, height: gapHeight), in: context)
+            return
+        }
+        
+        for char in text.uppercased() {
+            let sourceRect = SkinElements.TextFont.character(char)
+            let destRect = NSRect(x: xPos, y: textY, width: charWidth, height: charHeight)
+            drawSprite(from: textImage, sourceRect: sourceRect, to: destRect, in: context)
+            xPos += charWidth + charSpacing
         }
     }
     
