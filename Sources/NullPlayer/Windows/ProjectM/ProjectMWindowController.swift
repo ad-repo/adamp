@@ -1,7 +1,9 @@
 import AppKit
 
-/// Controller for the ProjectM visualization window
-class ProjectMWindowController: NSWindowController {
+/// Controller for the ProjectM visualization window (classic skin).
+/// Conforms to `ProjectMWindowProviding` so WindowManager can use it interchangeably
+/// with the modern `ModernProjectMWindowController`.
+class ProjectMWindowController: NSWindowController, ProjectMWindowProviding {
     
     // MARK: - Properties
     

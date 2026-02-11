@@ -65,6 +65,7 @@ Windows automatically snap together when dragged near each other:
 - **Edge-to-edge snapping**: Windows dock when edges touch
 - **Screen edge snapping**: Windows snap to screen borders
 - **Group movement**: Docked windows (Main, Playlist, EQ, Spectrum) move together when dragged
+- **Group minimize**: When the main window is minimized, all attached (touching) windows animate into the dock together. Unattached windows remain visible. Restoring from the dock brings all grouped windows back
 - **Vertical stacking**: Opening EQ, Playlist, or Spectrum places them below the existing stack
 
 **Snap to Default** (context menu) resets all windows to their default positions. Side windows (ProjectM, Library Browser) resize to match the vertical stack height.
@@ -116,6 +117,8 @@ The main window provides core playback controls and track information.
 | **EQ** | Show/hide Equalizer window |
 | **PL** | Show/hide Playlist Editor |
 
+In modern UI mode, the toggle buttons appear in a single row: **2X** (Double Size), **HT** (Hide Title Bars), **SH** (Shuffle), **RP** (Repeat), **CA** (Cast), **pM** (ProjectM), **EQ** (Equalizer), **PL** (Playlist), **SP** (Spectrum), **LB** (Library). A volume slider replaces the bottom-right area, styled to match the seek bar.
+
 ### Title Bar Buttons
 
 | Button | Function |
@@ -158,19 +161,32 @@ The Playlist Editor manages your playback queue.
 - **Scroll wheel** to navigate long lists
 - **Drag & drop** files to add them
 - **Marquee scrolling** - Long track titles on the currently playing track automatically scroll horizontally
+- **Delete key** - Remove selected tracks
+- **Enter key** - Play selected track
+- **Cmd+A** - Select all tracks
 
-### Bottom Bar Information
+### Context Menu
 
-The bottom bar displays:
+Right-click anywhere in the playlist to access playlist-specific options (the main player context menu is not shown in the playlist):
+
+| Option | Description |
+|--------|-------------|
+| **Play** | Play the selected track |
+| **Remove Selected** | Remove selected tracks from playlist |
+| **Clear Playlist** | Remove all tracks |
+| **Remove Dead Files** | Remove tracks whose files no longer exist |
+| **Selection** | Submenu: Select All, Select None, Invert Selection, Crop Selection |
+| **Sort** | Submenu: Sort by Title/Artist/Album/Filename/Path, Reverse, Randomize |
+| **File Info...** | Show metadata for selected track |
+
+### Classic UI: Bottom Bar
+
+The classic playlist includes a bottom bar with:
 - **Remaining tracks** and **countdown time** (updates during playback)
-- **Current playback position** (minutes:seconds)
+- **Mini transport controls**: Previous, Play, Pause, Stop, Next, Open
+- **Button menus**: ADD, REM, SEL, MISC, LIST (see below)
 
-### Mini Transport Controls
-
-Small transport buttons in the bottom bar:
-- Previous, Play, Pause, Stop, Next, Open
-
-### Button Menus
+### Classic UI: Button Menus
 
 **ADD Button:**
 - Add URL... - Stream from a URL
@@ -199,6 +215,14 @@ Small transport buttons in the bottom bar:
 - New Playlist - Clear and start fresh
 - Save Playlist... - Export as .m3u file
 - Load Playlist... - Import .m3u/.m3u8 file
+
+### Modern UI Playlist
+
+The modern playlist has a clean, minimal design:
+- Currently playing track is displayed in accent color (magenta in NeonWave)
+- No bottom bar controls -- all operations available via right-click context menu and keyboard shortcuts
+- Smooth marquee scrolling for long track titles
+- Bottom-edge drag to resize vertically (show more tracks)
 
 ### Shade Mode
 
@@ -298,6 +322,50 @@ When connected to Plex:
 - Play tracks directly or add to playlist
 - Full video playback support
 - Automatic play statistics (scrobbling)
+
+### Queue Management
+
+The playlist queue is preserved when playing new items. Double-clicking or pressing Enter on a track inserts it after the current track and starts playing immediately, without erasing the rest of your queue.
+
+| Action | Effect |
+|--------|--------|
+| **Double-click / Enter** | Insert after current track and play immediately ("jump the line") |
+| **Play Next** (Shift+Enter) | Insert after currently playing track (doesn't start playback) |
+| **Add to Queue** (Option+Enter) | Append to end of playlist |
+
+**Keyboard shortcuts:**
+- **Enter** - Play Now (insert and play immediately)
+- **Shift+Enter** - Play Next (insert after current, no playback change)
+- **Option+Enter** - Add to Queue (append to end)
+
+**Context menu:**
+Right-click any track, album, or artist to see queue options.
+
+If the playlist is empty, all actions will start playback automatically.
+
+### Column Configuration
+
+The Library Browser displays metadata in configurable columns.
+
+**Resizing columns:**
+- Hover over a column border in the header row — the cursor changes to a resize indicator
+- Click and drag to resize the column
+- Column widths are saved automatically
+
+**Showing/hiding columns:**
+- Right-click anywhere on the column header row to open the column menu
+- Check or uncheck columns to toggle their visibility
+- The Title column is always visible
+
+**Available track columns:**
+#, Title, Artist, Album, Album Artist, Year, Genre, Time, Bitrate, Sample Rate, Channels, Size, Rating, Plays, Disc, Date Added, Last Played, Path
+
+**Sorting:**
+- Click a column header to sort by that column
+- Click again to reverse the sort direction
+- The sorted column shows a ▲/▼ indicator
+
+**Reset to Default** in the right-click menu restores the default column set and widths.
 
 ### Album Art Background
 
@@ -813,24 +881,44 @@ Right-click a movie or episode in the Library Browser:
 
 ## Skins
 
-NullPlayer supports classic classic skin 2.x skins (.wsz files).
+NullPlayer supports classic `.wsz` skins in Classic Mode. A built-in **NullPlayer-Silver** skin provides a clean silver/gray appearance out of the box. You can also load any standard `.wsz` skin file.
+
+### Default Skin
+
+NullPlayer ships with **NullPlayer-Silver**, a clean silver/gray skin that loads automatically on first launch. It features:
+- Silver/gray window chrome with subtle gradients
+- Dark LCD-style displays with green text for time and marquee
+- Orange volume fill and blue seek thumb
+- Green active toggles for shuffle, repeat, EQ, and playlist buttons
+- A cool-to-warm spectrum visualization palette
+
+If you load a different skin, NullPlayer remembers your choice and restores it on next launch. To return to the default skin, use **Skins > Remove Skin** in the menu.
 
 ### Loading Skins
 
-- **Skins > Load Skin...** - Select a .wsz file
-- **Skins > Get More Skins...** - Opens [classic skin Skin Museum](https://skins.webamp.org/)
-- **&lt;Base Skin 1/2/3&gt;** - Built-in default skins
+- **Skins > Load Skin...** - Browse and select a `.wsz` skin file from your computer
+- **Skins > Get More Skins...** - Opens a website where you can download thousands of free `.wsz` skins
 
-### Managing Skins
+### Installing Skins
 
-Downloaded skins appear in the Skins menu if placed in:
+Place downloaded `.wsz` skin files in:
 ```
 ~/Library/Application Support/NullPlayer/Skins/
 ```
 
+Installed skins appear in the Skins menu for quick selection.
+
+### Official Skin Packages
+
+Four official NullPlayer skin packages are available in `dist/Skins/`:
+- **NullPlayer-Silver.wsz** - Clean silver/gray style (bundled default)
+- **NullPlayer-Classic.wsz** - Classic retro style
+- **NullPlayer-Dark.wsz** - Dark theme variant
+- **NullPlayer-Light.wsz** - Light theme variant
+
 ### Lock Browser/ProjectM to Default
 
-Enable this option to keep the Library Browser and ProjectM windows using the default skin regardless of main player skin.
+Enable this option to keep the Library Browser and ProjectM windows using the default appearance regardless of the main player skin.
 
 ---
 
@@ -867,6 +955,16 @@ Enable this option to keep the Library Browser and ProjectM windows using the de
 | **Delete** | Remove selected tracks |
 | **Enter** | Play selected track |
 | **Cmd+A** | Select all |
+
+### Library Browser
+
+| Key | Action |
+|-----|--------|
+| **↑** | Move selection up |
+| **↓** | Move selection down |
+| **Enter** | Play selected item |
+| **Shift+Enter** | Play Next (insert after current) |
+| **Option+Enter** | Add to Queue (append to end) |
 
 ### Video Player
 
@@ -919,7 +1017,7 @@ Shows detailed metadata for the currently playing track or video. This option is
 - Duration, Bitrate, Sample Rate, Channels
 - File path (local) or server path (Plex)
 - Genre, Year, Track Number (Plex only)
-- Last.fm scrobble count and your rating (Plex only)
+- Last.fm scrobble count and your rating (Plex, Subsonic/Navidrome, local files)
 
 **For Videos:**
 - Title, Year, Studio (movies)
@@ -942,9 +1040,8 @@ Shows detailed metadata for the currently playing track or video. This option is
 ### Skins
 - Load Skin...
 - Get More Skins...
-- Base skins (1, 2, 3)
 - Lock Browser/ProjectM to Default
-- Available skins list
+- Available skins list (from Skins directory)
 
 ### Visualizations
 - Preset count info
@@ -964,6 +1061,8 @@ Shows detailed metadata for the currently playing track or video. This option is
 - Fade Duration (when Sweet Fades enabled)
 - Browser Album Art Background
 - Remember State on Quit
+- Double Size (doubles all windows and rendering, modern UI only)
+- Hide Title Bars (hides skinned title bars on all windows; drag zone retained at top edge, modern UI only)
 
 ### Local Library
 - Track count
@@ -985,11 +1084,11 @@ Shows detailed metadata for the currently playing track or video. This option is
 
 | Item Type | Menu Options |
 |-----------|--------------|
-| **Track** | Play, Add to Playlist, Start Track Radio |
-| **Album** | Play Album, Add Album to Playlist, Start Album Radio |
-| **Artist** | Play All by Artist, Expand/Collapse, Start Artist Radio |
-| **Movie** | Play Movie, Add to Playlist, Cast to..., View Online |
-| **Episode** | Play Episode, Add to Playlist, Cast to..., View Online |
+| **Track** | Play, Add to Playlist, Play Next, Add to Queue, Start Track Radio |
+| **Album** | Play Album, Add Album to Playlist, Play Album Next, Add Album to Queue, Start Album Radio |
+| **Artist** | Play All by Artist, Play Artist Next, Add Artist to Queue, Expand/Collapse, Start Artist Radio |
+| **Movie** | Play Movie, Add to Playlist, Play Next, Add to Queue, Cast to..., View Online |
+| **Episode** | Play Episode, Add to Playlist, Play Next, Add to Queue, Cast to..., View Online |
 
 ### Video Player Context Menu (Right-click on video)
 
@@ -1123,10 +1222,33 @@ When enabled, the following is saved on quit and restored on launch:
 - **Playlist** (local files AND streaming tracks from Plex/Subsonic)
 - **ProjectM preset** (restores the last-used visualization preset)
 - **Library Browser source** (remembers which library was selected)
-- **Custom skin** (if a non-default skin was loaded)
-- **UI preferences** (time display mode, always on top)
+- **Custom skin** (if a .wsz skin was loaded)
+- **UI preferences** (time display mode, always on top, hide title bars)
 
 **Note**: Streaming tracks require their respective servers (Plex/Navidrome) to be available on launch. Tracks from unavailable servers will be skipped. The playlist is restored but no track is automatically loaded or played - you choose when to start playback.
+
+### Double Size (2x)
+
+**Double Size** doubles all window dimensions and rendering scale for a larger UI (modern UI only). Toggle via the **2X** button on the main window or right-click context menu → **Double Size**.
+
+When enabled:
+- **Stack windows** (main, EQ, playlist, spectrum) double in both width and height
+- **Side windows** (Library Browser, ProjectM) scale width by 2x and match the stack height
+- **All rendering** (fonts, buttons, sliders, chrome) scales proportionally
+- **Composes with Hide Title Bars** — both can be active simultaneously
+- **Not persisted** — always starts at 1x on launch
+
+### Hide Title Bars (Modern UI Only)
+
+**Hide Title Bars** removes the skinned title bars from all windows for a cleaner look. This feature is only available in modern UI mode. Toggle via the **HT** button on the main window or right-click context menu.
+
+When enabled:
+- **All windows shrink** by the title bar height, so content fits without stretching
+- **Window border** at the top remains visible for visual separation
+- **Dragging** still works — drag any window from anywhere to move or undock it
+- **Window controls** (close, minimize, shade buttons) are hidden — use the context menu or keyboard shortcuts instead
+- **Side windows** (ProjectM, Library Browser) automatically match the center stack height
+- **Setting persists** across sessions via UserDefaults
 
 ---
 
@@ -1180,7 +1302,7 @@ When enabled, the following is saved on quit and restored on launch:
 |------|----------|
 | Library database | `~/Library/Application Support/NullPlayer/library.json` |
 | Library backups | `~/Library/Application Support/NullPlayer/Backups/` |
-| Downloaded skins | `~/Library/Application Support/NullPlayer/Skins/` |
+| Classic skins (.wsz) | `~/Library/Application Support/NullPlayer/Skins/` |
 | Plex credentials | macOS Keychain |
 | Window positions | UserDefaults |
 | EQ settings | UserDefaults |
@@ -1226,12 +1348,10 @@ When enabled, the following is saved on quit and restored on launch:
 
 ## Credits
 
-- [Webamp](https://github.com/captbaritone/webamp) - Skin parsing reference
-- [classic skin Skin Museum](https://skins.webamp.org/) - Skin archive
+- [Skin Archive](https://skins.webamp.org/) - Community .wsz skin downloads
 - [projectM](https://github.com/projectM-visualizer/projectm) - ProjectM visualizations
 - [KSPlayer](https://github.com/kingslay/KSPlayer) - Video playback
 - [AudioStreaming](https://github.com/dimitris-c/AudioStreaming) - HTTP audio streaming
-- Original classic skin by Nullsoft
 
 ---
 

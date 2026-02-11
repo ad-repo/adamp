@@ -1,7 +1,7 @@
 import AppKit
 
-/// Controller for the standalone Spectrum Analyzer visualization window
-class SpectrumWindowController: NSWindowController {
+/// Controller for the standalone Spectrum Analyzer visualization window (classic skin)
+class SpectrumWindowController: NSWindowController, SpectrumWindowProviding {
     
     // MARK: - Properties
     

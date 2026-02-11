@@ -27,6 +27,11 @@ extension Notification.Name {
     /// Posted when a track fails to load
     /// userInfo contains: "track" (Track), "error" (Error), "message" (String)
     static let audioTrackDidFailToLoad = Notification.Name("audioTrackDidFailToLoad")
+    
+    /// Posted when BPM detection updates
+    /// userInfo contains: "bpm" (Int) - 0 means no confident reading
+    static let bpmUpdated = Notification.Name("bpmUpdated")
+    
 }
 
 /// Audio playback state
@@ -107,6 +112,8 @@ class AudioEngine {
     private(set) var currentTrack: Track? {
         didSet {
             delegate?.audioEngineDidChangeTrack(currentTrack)
+            // Reset BPM detector for new track
+            bpmDetector.reset()
             // Post notification for views that need to observe track changes
             NotificationCenter.default.post(
                 name: .audioTrackDidChange,
@@ -265,6 +272,10 @@ class AudioEngine {
     
     /// Current spectrum normalization mode (cached from UserDefaults, updated via notification)
     private var spectrumNormalizationMode: SpectrumNormalizationMode = .accurate
+    
+    /// Real-time BPM detector for tempo display
+    private let bpmDetector = BPMDetector()
+    
     
     /// Raw PCM audio data for waveform visualization (mono, normalized -1 to 1)
     private(set) var pcmData: [Float] = Array(repeating: 0, count: 512)
@@ -679,6 +690,15 @@ class AudioEngine {
             // Mix stereo to mono
             for i in 0..<fftSize {
                 fftSamples[i] = (channelData[0][i] + channelData[1][i]) / 2.0
+            }
+        }
+        
+        // Feed BPM detector with raw mono samples (before windowing) — modern UI only
+        if UserDefaults.standard.bool(forKey: "modernUIEnabled") {
+            fftSamples.withUnsafeBufferPointer { ptr in
+                if let base = ptr.baseAddress {
+                    bpmDetector.process(samples: base, count: fftSize, sampleRate: buffer.format.sampleRate)
+                }
             }
         }
         
@@ -2069,6 +2089,48 @@ class AudioEngine {
     func appendTracks(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
         playlist.append(contentsOf: tracks)
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
+    /// Insert tracks immediately after the current position.
+    /// If nothing is playing (currentIndex == -1), inserts at index 0.
+    /// Starts playback if playlist was empty and startPlaybackIfEmpty is true.
+    func insertTracksAfterCurrent(_ tracks: [Track], startPlaybackIfEmpty: Bool = true) {
+        guard !tracks.isEmpty else { return }
+        
+        let wasEmpty = playlist.isEmpty
+        let insertIndex = currentIndex >= 0 ? currentIndex + 1 : 0
+        
+        // Insert tracks at the calculated position
+        playlist.insert(contentsOf: tracks, at: insertIndex)
+        
+        // No need to adjust currentIndex - we're inserting AFTER current
+        
+        // Start playback if playlist was empty
+        if wasEmpty && startPlaybackIfEmpty {
+            currentIndex = 0
+            loadTrack(at: 0)
+            play()
+        }
+        
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
+    /// Insert tracks after current position and immediately play the first inserted track.
+    /// This is the "Play Now" / "Jump the Line" behavior - adds to queue and starts playing immediately.
+    func playNow(_ tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
+        
+        let insertIndex = currentIndex >= 0 ? currentIndex + 1 : 0
+        
+        // Insert tracks at the calculated position
+        playlist.insert(contentsOf: tracks, at: insertIndex)
+        
+        // Jump to and play the first inserted track
+        currentIndex = insertIndex
+        loadTrack(at: insertIndex)
+        play()
+        
         delegate?.audioEngineDidChangePlaylist()
     }
     

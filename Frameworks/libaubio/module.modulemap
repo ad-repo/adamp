@@ -1,0 +1,8 @@
+module CAubio [system] {
+    header "types.h"
+    header "fvec.h"
+    header "tempo.h"
+    header "onset.h"
+    link "aubio"
+    export *
+}

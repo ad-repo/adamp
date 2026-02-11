@@ -1,7 +1,7 @@
 import AppKit
 
-/// Controller for the playlist window
-class PlaylistWindowController: NSWindowController {
+/// Controller for the playlist window (classic skin)
+class PlaylistWindowController: NSWindowController, PlaylistWindowProviding {
     
     // MARK: - Properties
     

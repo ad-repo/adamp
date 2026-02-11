@@ -33,8 +33,6 @@ class WindowManager {
     /// Path to the currently loaded custom skin (nil if using a base skin)
     private(set) var currentSkinPath: String?
     
-    /// Index of the currently loaded base skin (1, 2, or 3; nil if using custom skin)
-    private(set) var currentBaseSkinIndex: Int?
     
     // MARK: - User Preferences
     
@@ -46,9 +44,10 @@ class WindowManager {
         }
     }
     
-    /// Double size mode (2x scaling) - not persisted, always starts at 1x
+    /// Double size mode (2x scaling) - not persisted, always starts at 1x (modern UI only)
     var isDoubleSize: Bool = false {
         didSet {
+            guard isModernUIEnabled else { isDoubleSize = false; return }
             applyDoubleSize()
             NotificationCenter.default.post(name: .doubleSizeDidChange, object: nil)
         }
@@ -63,26 +62,145 @@ class WindowManager {
         }
     }
     
-    /// Main player window controller
-    private(set) var mainWindowController: MainWindowController?
+    /// Main player window controller (classic or modern, accessed via protocol)
+    private(set) var mainWindowController: MainWindowProviding?
     
-    /// Playlist window controller
-    private(set) var playlistWindowController: PlaylistWindowController?
+    /// Whether the modern UI is enabled (requires restart to take effect)
+    var isModernUIEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "modernUIEnabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "modernUIEnabled") }
+    }
     
-    /// Equalizer window controller
-    private(set) var equalizerWindowController: EQWindowController?
+    /// Whether title bars are hidden on all windows (only applies in modern UI mode)
+    var hideTitleBars: Bool {
+        get { isModernUIEnabled && UserDefaults.standard.bool(forKey: "hideTitleBars") }
+        set { UserDefaults.standard.set(newValue, forKey: "hideTitleBars") }
+    }
     
-    /// Plex browser window controller (also handles local media library)
-    private var plexBrowserWindowController: PlexBrowserWindowController?
+    /// Toggle hide title bars mode and resize all visible windows (modern UI only)
+    func toggleHideTitleBars() {
+        guard isModernUIEnabled else { return }
+        let wasHidden = hideTitleBars
+        hideTitleBars = !wasHidden
+        let hiding = !wasHidden
+        
+        // Build ordered list of stack windows (top to bottom) with their deltas
+        let stackEntries: [(NSWindowController?, CGFloat)] = [
+            (mainWindowController as? NSWindowController, isModernUIEnabled ? ModernSkinElements.playlistTitleBarHeight : 14 * Skin.scaleFactor),
+            (equalizerWindowController as? NSWindowController, isModernUIEnabled ? ModernSkinElements.eqTitleBarHeight : 14 * Skin.scaleFactor),
+            (playlistWindowController as? NSWindowController, isModernUIEnabled ? ModernSkinElements.playlistTitleBarHeight : 20 * Skin.scaleFactor),
+            (spectrumWindowController as? NSWindowController, isModernUIEnabled ? ModernSkinElements.spectrumTitleBarHeight : 14 * Skin.scaleFactor),
+        ]
+        
+        // Get visible stack windows sorted top-to-bottom by their current frame
+        var visibleStack: [(NSWindow, CGFloat)] = []
+        for (controller, delta) in stackEntries {
+            if let w = controller?.window, w.isVisible {
+                visibleStack.append((w, delta))
+            }
+        }
+        visibleStack.sort { $0.0.frame.maxY > $1.0.frame.maxY }
+        
+        // Process stack windows keeping the main window's top edge fixed.
+        // Track cumulative shift so each window below accommodates the growth/shrink of windows above.
+        if let first = visibleStack.first {
+            let topEdge = first.0.frame.maxY  // Pin this
+            var nextTop = topEdge
+            
+            for (w, delta) in visibleStack {
+                adjustWindowSizeConstraints(w, delta: delta, hiding: hiding)
+                
+                var newHeight = w.frame.height
+                if hiding {
+                    newHeight -= delta
+                } else {
+                    newHeight += delta
+                }
+                let newY = nextTop - newHeight
+                w.setFrame(NSRect(x: w.frame.origin.x, y: newY, width: w.frame.width, height: newHeight), display: false)
+                w.contentView?.needsDisplay = true
+                nextTop = newY  // Next window's top = this window's bottom
+            }
+        }
+        
+        // Side windows: match the new stack height
+        let stackBounds = verticalStackBounds()
+        let sideWindowControllers: [(NSWindowController?, CGFloat)] = [
+            (projectMWindowController as? NSWindowController, isModernUIEnabled ? ModernSkinElements.projectMTitleBarHeight : 20 * Skin.scaleFactor),
+            (plexBrowserWindowController as? NSWindowController, isModernUIEnabled ? ModernSkinElements.libraryTitleBarHeight : 20 * Skin.scaleFactor),
+        ]
+        
+        for (controller, delta) in sideWindowControllers {
+            guard let w = controller?.window, w.isVisible else { continue }
+            adjustWindowSizeConstraints(w, delta: delta, hiding: hiding)
+            
+            if stackBounds != .zero {
+                // Match stack height and alignment
+                var frame = w.frame
+                frame.origin.y = stackBounds.minY
+                frame.size.height = stackBounds.height
+                w.setFrame(frame, display: false)
+            }
+            w.contentView?.needsDisplay = true
+        }
+    }
+    
+    /// Adjust a window's minSize/maxSize constraints for title bar hide/show
+    private func adjustWindowSizeConstraints(_ window: NSWindow, delta: CGFloat, hiding: Bool) {
+        var minSize = window.minSize
+        if hiding {
+            minSize.height = max(0, minSize.height - delta)
+        } else {
+            minSize.height += delta
+        }
+        window.minSize = minSize
+        if window.maxSize.height < CGFloat.greatestFiniteMagnitude {
+            var maxSize = window.maxSize
+            if hiding {
+                maxSize.height = max(0, maxSize.height - delta)
+            } else {
+                maxSize.height += delta
+            }
+            window.maxSize = maxSize
+        }
+    }
+    
+    /// Adjust a window's frame for hidden title bars (shrink by title bar height, pin top edge).
+    /// Call after creating a window when hideTitleBars is already true.
+    func adjustWindowForHiddenTitleBars(_ window: NSWindow, titleBarHeight: CGFloat) {
+        guard hideTitleBars else { return }
+        // Relax size constraints so the window can shrink
+        var minSize = window.minSize
+        minSize.height = max(0, minSize.height - titleBarHeight)
+        window.minSize = minSize
+        if window.maxSize.height < CGFloat.greatestFiniteMagnitude {
+            var maxSize = window.maxSize
+            maxSize.height = max(0, maxSize.height - titleBarHeight)
+            window.maxSize = maxSize
+        }
+        var frame = window.frame
+        frame.origin.y += titleBarHeight
+        frame.size.height -= titleBarHeight
+        window.setFrame(frame, display: false)
+    }
+    
+    /// Playlist window controller (classic or modern, accessed via protocol)
+    private(set) var playlistWindowController: PlaylistWindowProviding?
+    
+    /// Equalizer window controller (classic or modern, accessed via protocol)
+    private(set) var equalizerWindowController: EQWindowProviding?
+    
+    /// Library browser window controller (classic or modern, accessed via protocol)
+    private var plexBrowserWindowController: LibraryBrowserWindowProviding?
     
     /// Video player window controller
     private var videoPlayerWindowController: VideoPlayerWindowController?
     
-    /// ProjectM visualization window controller
-    private var projectMWindowController: ProjectMWindowController?
+    /// ProjectM visualization window controller (classic or modern, accessed via protocol)
+    private var projectMWindowController: ProjectMWindowProviding?
     
-    /// Spectrum analyzer window controller
-    private var spectrumWindowController: SpectrumWindowController?
+    /// Spectrum analyzer window controller (classic or modern, accessed via protocol)
+    private var spectrumWindowController: SpectrumWindowProviding?
     
     /// Debug console window controller
     private var debugWindowController: DebugWindowController?
@@ -147,6 +265,9 @@ class WindowManager {
     /// Flag to prevent feedback loop when snapping windows
     private var isSnappingWindow = false
     
+    /// Windows that were attached as children for coordinated minimize (for restore)
+    private var coordinatedMiniaturizedWindows: [NSWindow] = []
+    
     // MARK: - Initialization
     
     private init() {
@@ -182,8 +303,19 @@ class WindowManager {
     // MARK: - Window Management
     
     func showMainWindow() {
-        if mainWindowController == nil {
-            mainWindowController = MainWindowController()
+        let isNew = mainWindowController == nil
+        if isNew {
+            if isModernUIEnabled {
+                let modern = ModernMainWindowController()
+                mainWindowController = modern
+            } else {
+                mainWindowController = MainWindowController()
+            }
+        }
+        // Adjust for hidden title bars on first creation (before positioning/showing)
+        if isNew, let window = mainWindowController?.window {
+            let tbHeight = isModernUIEnabled ? ModernSkinElements.playlistTitleBarHeight : 14 * Skin.scaleFactor
+            adjustWindowForHiddenTitleBars(window, titleBarHeight: tbHeight)
         }
         mainWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(mainWindowController?.window)
@@ -200,7 +332,11 @@ class WindowManager {
     func showPlaylist(at restoredFrame: NSRect? = nil) {
         let isNewWindow = playlistWindowController == nil
         if isNewWindow {
-            playlistWindowController = PlaylistWindowController()
+            if isModernUIEnabled {
+                playlistWindowController = ModernPlaylistWindowController()
+            } else {
+                playlistWindowController = PlaylistWindowController()
+            }
         }
         
         // Position BEFORE showing (unless restoring from saved state)
@@ -209,6 +345,8 @@ class WindowManager {
                 playlistWindow.setFrame(frame, display: true)
             } else {
                 positionSubWindow(playlistWindow)
+                let tbHeight = isModernUIEnabled ? ModernSkinElements.playlistTitleBarHeight : 20 * Skin.scaleFactor
+                adjustWindowForHiddenTitleBars(playlistWindow, titleBarHeight: tbHeight)
             }
             NSLog("showPlaylist: window frame = \(playlistWindow.frame)")
         }
@@ -235,7 +373,11 @@ class WindowManager {
     func showEqualizer(at restoredFrame: NSRect? = nil) {
         let isNewWindow = equalizerWindowController == nil
         if isNewWindow {
-            equalizerWindowController = EQWindowController()
+            if isModernUIEnabled {
+                equalizerWindowController = ModernEQWindowController()
+            } else {
+                equalizerWindowController = EQWindowController()
+            }
         }
         
         // Position BEFORE showing (unless restoring from saved state)
@@ -244,6 +386,8 @@ class WindowManager {
                 eqWindow.setFrame(frame, display: true)
             } else {
                 positionSubWindow(eqWindow)
+                let tbHeight = isModernUIEnabled ? ModernSkinElements.eqTitleBarHeight : 14 * Skin.scaleFactor
+                adjustWindowForHiddenTitleBars(eqWindow, titleBarHeight: tbHeight)
             }
         }
         
@@ -341,38 +485,50 @@ class WindowManager {
     func showPlexBrowser(at restoredFrame: NSRect? = nil) {
         let isNewWindow = plexBrowserWindowController == nil
         if isNewWindow {
-            plexBrowserWindowController = PlexBrowserWindowController()
+            if isModernUIEnabled {
+                plexBrowserWindowController = ModernLibraryBrowserWindowController()
+            } else {
+                plexBrowserWindowController = PlexBrowserWindowController()
+            }
         }
         plexBrowserWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(plexBrowserWindowController?.window)
         
-        // Position newly created windows
-        if isNewWindow, let window = plexBrowserWindowController?.window {
-            if let frame = restoredFrame, frame != .zero {
-                // Use restored frame from state restoration
+        // Position window to match the vertical stack
+        if let window = plexBrowserWindowController?.window {
+            if isNewWindow, let frame = restoredFrame, frame != .zero {
+                // Use restored frame from state restoration (first creation only)
                 window.setFrame(frame, display: true)
             } else {
                 // Position to the right of the vertical stack
                 // Only match stack height if there's more than just the main window
                 let stackBounds = verticalStackBounds()
-                let stackHasMultipleWindows = stackBounds.height > Skin.mainWindowSize.height + 1
+                let mainWindow = mainWindowController?.window
+                let mainActualHeight = mainWindow?.frame.height ?? 0
+                let stackHasMultipleWindows = stackBounds.height > mainActualHeight + 1
+                // Scale width for double-size mode
+                let sideWidth = window.frame.width * (isModernUIEnabled ? ModernSkinElements.sizeMultiplier : 1.0)
+                
                 if stackBounds != .zero && stackHasMultipleWindows {
                     // Match stack height when multiple windows are stacked
+                    // No adjustWindowForHiddenTitleBars needed - stack height already accounts for it
                     let newFrame = NSRect(
                         x: stackBounds.maxX,
                         y: stackBounds.minY,
-                        width: window.frame.width,
+                        width: sideWidth,
                         height: stackBounds.height
                     )
                     window.setFrame(newFrame, display: true)
-                } else if let mainWindow = mainWindowController?.window {
+                } else if let mainWindow = mainWindow {
                     // Use default height (4× main) when only main window is visible
+                    // Side window matches stack height, so use 4× actual main height
                     let mainFrame = mainWindow.frame
+                    let defaultHeight = mainFrame.height * 4
                     let newFrame = NSRect(
                         x: mainFrame.maxX,
-                        y: mainFrame.maxY - window.frame.height,
-                        width: window.frame.width,
-                        height: window.frame.height  // Keep default 4× height
+                        y: mainFrame.maxY - defaultHeight,
+                        width: sideWidth,
+                        height: defaultHeight
                     )
                     window.setFrame(newFrame, display: true)
                 }
@@ -790,7 +946,11 @@ class WindowManager {
     func showProjectM(at restoredFrame: NSRect? = nil) {
         let isNewWindow = projectMWindowController == nil
         if isNewWindow {
-            projectMWindowController = ProjectMWindowController()
+            if isModernUIEnabled {
+                projectMWindowController = ModernProjectMWindowController()
+            } else {
+                projectMWindowController = ProjectMWindowController()
+            }
         }
         projectMWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(projectMWindowController?.window)
@@ -804,9 +964,12 @@ class WindowManager {
                 // Position to the left of the vertical stack
                 // Only match stack height if there's more than just the main window
                 let stackBounds = verticalStackBounds()
-                let stackHasMultipleWindows = stackBounds.height > Skin.mainWindowSize.height + 1
+                let mainWindow = mainWindowController?.window
+                let mainActualHeight = mainWindow?.frame.height ?? 0
+                let stackHasMultipleWindows = stackBounds.height > mainActualHeight + 1
                 if stackBounds != .zero && stackHasMultipleWindows {
                     // Match stack height when multiple windows are stacked
+                    // No adjustWindowForHiddenTitleBars needed - stack height already accounts for it
                     let newFrame = NSRect(
                         x: stackBounds.minX - window.frame.width,
                         y: stackBounds.minY,
@@ -814,14 +977,16 @@ class WindowManager {
                         height: stackBounds.height
                     )
                     window.setFrame(newFrame, display: true)
-                } else if let mainWindow = mainWindowController?.window {
+                } else if let mainWindow = mainWindow {
                     // Use default height (4× main) when only main window is visible
+                    // Side window matches stack height, so use 4× actual main height
                     let mainFrame = mainWindow.frame
+                    let defaultHeight = mainFrame.height * 4
                     let newFrame = NSRect(
                         x: mainFrame.minX - window.frame.width,
-                        y: mainFrame.maxY - window.frame.height,
+                        y: mainFrame.maxY - defaultHeight,
                         width: window.frame.width,
-                        height: window.frame.height  // Keep default 4× height
+                        height: defaultHeight
                     )
                     window.setFrame(newFrame, display: true)
                 }
@@ -863,7 +1028,11 @@ class WindowManager {
     func showSpectrum(at restoredFrame: NSRect? = nil) {
         let isNewWindow = spectrumWindowController == nil
         if isNewWindow {
-            spectrumWindowController = SpectrumWindowController()
+            if isModernUIEnabled {
+                spectrumWindowController = ModernSpectrumWindowController()
+            } else {
+                spectrumWindowController = SpectrumWindowController()
+            }
         }
         
         // Position BEFORE showing (unless restoring from saved state)
@@ -872,6 +1041,8 @@ class WindowManager {
                 window.setFrame(frame, display: true)
             } else {
                 positionSubWindow(window)
+                let tbHeight = isModernUIEnabled ? ModernSkinElements.spectrumTitleBarHeight : 20 * Skin.scaleFactor
+                adjustWindowForHiddenTitleBars(window, titleBarHeight: tbHeight)
             }
         }
         
@@ -951,7 +1122,7 @@ class WindowManager {
     
     /// Select a visualization preset by index
     func selectVisualizationPreset(at index: Int) {
-        projectMWindowController?.selectPreset(at: index)
+        projectMWindowController?.selectPreset(at: index, hardCut: false)
     }
 
     func notifyMainWindowVisibilityChanged() {
@@ -998,7 +1169,8 @@ class WindowManager {
             let skin = try SkinLoader.shared.load(from: url)
             currentSkin = skin
             currentSkinPath = url.path
-            currentBaseSkinIndex = nil  // Custom skin, not a base skin
+            // Persist last used classic skin for easy reload when switching UI modes
+            UserDefaults.standard.set(url.path, forKey: "lastClassicSkinPath")
             notifySkinChanged()
         } catch {
             print("Failed to load skin: \(error)")
@@ -1006,30 +1178,66 @@ class WindowManager {
     }
     
     private func loadDefaultSkin() {
+        // 1. Try last used skin from UserDefaults
+        if let lastPath = UserDefaults.standard.string(forKey: "lastClassicSkinPath"),
+           FileManager.default.fileExists(atPath: lastPath) {
+            do {
+                currentSkin = try SkinLoader.shared.load(from: URL(fileURLWithPath: lastPath))
+                currentSkinPath = lastPath
+                return
+            } catch {
+                NSLog("Failed to restore last skin: \(error)")
+            }
+        }
+        
+        // 2. Try bundled default skin from app resources
+        if let bundledURL = findBundledClassicSkin("NullPlayer-Silver") {
+            do {
+                currentSkin = try SkinLoader.shared.load(from: bundledURL)
+                return
+            } catch {
+                NSLog("Failed to load bundled skin: \(error)")
+            }
+        }
+        
+        // 3. Fallback: unskinned native macOS rendering
         currentSkin = SkinLoader.shared.loadDefault()
     }
     
-    /// Load the base/default skin (Base Skin 1)
-    func loadBaseSkin() {
+    private func findBundledClassicSkin(_ name: String) -> URL? {
+        let bundle = Bundle.main
+        guard let resourceURL = bundle.resourceURL else { return nil }
+        // Mirror search paths from ModernSkinLoader.findBundledSkinDirectory()
+        let searchPaths = [
+            resourceURL.appendingPathComponent("Resources/Skins/\(name).wsz"),
+            resourceURL.appendingPathComponent("NullPlayer_NullPlayer.bundle/Resources/Skins/\(name).wsz"),
+            resourceURL.appendingPathComponent("Skins/\(name).wsz"),
+        ]
+        for path in searchPaths {
+            if FileManager.default.fileExists(atPath: path.path) {
+                return path
+            }
+        }
+        return nil
+    }
+    
+    /// Load the bundled default classic skin (NullPlayer-Silver) at runtime
+    func loadBundledDefaultSkin() {
+        if let bundledURL = findBundledClassicSkin("NullPlayer-Silver") {
+            do {
+                currentSkin = try SkinLoader.shared.load(from: bundledURL)
+                currentSkinPath = nil
+                UserDefaults.standard.removeObject(forKey: "lastClassicSkinPath")
+                notifySkinChanged()
+                return
+            } catch {
+                NSLog("Failed to load bundled default skin: \(error)")
+            }
+        }
+        // Fallback: unskinned
         currentSkin = SkinLoader.shared.loadDefault()
-        currentSkinPath = nil  // Base skins don't have a custom path
-        currentBaseSkinIndex = 1
-        notifySkinChanged()
-    }
-    
-    /// Load the second built-in skin (Base Skin 2)
-    func loadBaseSkin2() {
-        currentSkin = SkinLoader.shared.loadBaseSkin2()
-        currentSkinPath = nil  // Base skins don't have a custom path
-        currentBaseSkinIndex = 2
-        notifySkinChanged()
-    }
-    
-    /// Load the third built-in skin (Base Skin 3)
-    func loadBaseSkin3() {
-        currentSkin = SkinLoader.shared.loadBaseSkin3()
-        currentSkinPath = nil  // Base skins don't have a custom path
-        currentBaseSkinIndex = 3
+        currentSkinPath = nil
+        UserDefaults.standard.removeObject(forKey: "lastClassicSkinPath")
         notifySkinChanged()
     }
     
@@ -1075,6 +1283,13 @@ class WindowManager {
     
     /// Apply double size scaling to all windows
     private func applyDoubleSize() {
+        // For modern UI, set the sizeMultiplier so all ModernSkinElements computed
+        // sizes (window sizes, title bar heights, border widths, etc.) reflect 2x.
+        // This must happen BEFORE reading any ModernSkinElements sizes.
+        if isModernUIEnabled {
+            ModernSkinElements.sizeMultiplier = isDoubleSize ? 2.0 : 1.0
+        }
+        
         let scale: CGFloat = isDoubleSize ? 2.0 : 1.0
         
         // Get main window position as anchor point
@@ -1083,13 +1298,31 @@ class WindowManager {
         // Store old main window frame for calculating relative positions
         let oldMainFrame = mainWindow.frame
         
-        // Resize main window first (anchor top-left)
-        let mainTargetSize = NSSize(width: Skin.mainWindowSize.width * scale,
+        // For modern UI, sizes already include the multiplier via scaleFactor.
+        // For classic UI, sizes are base sizes that need explicit * scale.
+        let mainTargetSize: NSSize
+        if isModernUIEnabled {
+            mainTargetSize = ModernSkinElements.mainWindowSize
+        } else {
+            mainTargetSize = NSSize(width: Skin.mainWindowSize.width * scale,
                                     height: Skin.mainWindowSize.height * scale)
+        }
+        
+        // Account for hidden title bars
+        var mainAdjustedSize = mainTargetSize
+        if hideTitleBars {
+            let titleDelta: CGFloat = isModernUIEnabled ? ModernSkinElements.playlistTitleBarHeight : 14 * Skin.scaleFactor * scale
+            mainAdjustedSize.height -= titleDelta
+        }
+        
+        // Update minSize
+        mainWindow.minSize = mainAdjustedSize
+        
+        // Resize main window (anchor top-left)
         var mainFrame = mainWindow.frame
         let mainTopY = mainFrame.maxY  // Keep top edge fixed
-        mainFrame.size = mainTargetSize
-        mainFrame.origin.y = mainTopY - mainTargetSize.height
+        mainFrame.size = mainAdjustedSize
+        mainFrame.origin.y = mainTopY - mainAdjustedSize.height
         mainWindow.setFrame(mainFrame, display: true, animate: true)
         
         // Track the bottom edge for stacking windows below main
@@ -1097,27 +1330,42 @@ class WindowManager {
         
         // EQ window - position below main window
         if let eqWindow = equalizerWindowController?.window, eqWindow.isVisible {
-            let eqTargetSize = NSSize(width: Skin.eqWindowSize.width * scale,
+            let eqTargetSize: NSSize
+            if isModernUIEnabled {
+                eqTargetSize = ModernSkinElements.eqWindowSize
+            } else {
+                eqTargetSize = NSSize(width: Skin.eqWindowSize.width * scale,
                                       height: Skin.eqWindowSize.height * scale)
+            }
+            var eqAdjustedSize = eqTargetSize
+            if hideTitleBars {
+                let titleDelta: CGFloat = isModernUIEnabled ? ModernSkinElements.eqTitleBarHeight : 14 * Skin.scaleFactor * scale
+                eqAdjustedSize.height -= titleDelta
+            }
+            eqWindow.minSize = eqAdjustedSize
+            eqWindow.maxSize = eqAdjustedSize
             let eqFrame = NSRect(
                 x: mainFrame.minX,
-                y: nextY - eqTargetSize.height,
-                width: eqTargetSize.width,
-                height: eqTargetSize.height
+                y: nextY - eqAdjustedSize.height,
+                width: eqAdjustedSize.width,
+                height: eqAdjustedSize.height
             )
             eqWindow.setFrame(eqFrame, display: true, animate: true)
             nextY = eqFrame.minY
         }
         
         // Playlist - position below EQ (or main if no EQ)
-        // Playlist width matches main window, height can be expanded vertically
         if let playlistWindow = playlistWindowController?.window, playlistWindow.isVisible {
-            let baseMinSize = Skin.playlistMinSize
-            let minHeight = baseMinSize.height * scale
+            let baseMinSize: NSSize = isModernUIEnabled ? ModernSkinElements.playlistMinSize : Skin.playlistMinSize
+            var minHeight = baseMinSize.height * (isModernUIEnabled ? 1.0 : scale)
+            if hideTitleBars {
+                let titleDelta: CGFloat = isModernUIEnabled ? ModernSkinElements.playlistTitleBarHeight : 20 * Skin.scaleFactor * scale
+                minHeight -= titleDelta
+            }
             
-            // Lock width to match main window
-            playlistWindow.minSize = NSSize(width: mainFrame.width, height: minHeight)
-            playlistWindow.maxSize = NSSize(width: mainFrame.width, height: CGFloat.greatestFiniteMagnitude)
+            let targetWidth = mainFrame.width
+            playlistWindow.minSize = NSSize(width: targetWidth, height: minHeight)
+            playlistWindow.maxSize = NSSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude)
             
             // Scale height proportionally
             let currentFrame = playlistWindow.frame
@@ -1126,22 +1374,65 @@ class WindowManager {
             let playlistFrame = NSRect(
                 x: mainFrame.minX,
                 y: nextY - newHeight,
-                width: mainFrame.width,
+                width: targetWidth,
                 height: newHeight
             )
             playlistWindow.setFrame(playlistFrame, display: true, animate: true)
+            nextY = playlistFrame.minY
         }
         
-        // Browser - maintain relative position to main window (don't scale size)
+        // Spectrum window - position below playlist (or previous window)
+        if let spectrumWindow = spectrumWindowController?.window, spectrumWindow.isVisible {
+            let spectrumTargetSize: NSSize
+            if isModernUIEnabled {
+                spectrumTargetSize = ModernSkinElements.spectrumWindowSize
+            } else {
+                spectrumTargetSize = NSSize(width: Skin.mainWindowSize.width * scale,
+                                            height: Skin.mainWindowSize.height * scale)
+            }
+            var spectrumAdjustedSize = spectrumTargetSize
+            if hideTitleBars {
+                let titleDelta: CGFloat = isModernUIEnabled ? ModernSkinElements.spectrumTitleBarHeight : 14 * Skin.scaleFactor * scale
+                spectrumAdjustedSize.height -= titleDelta
+            }
+            spectrumWindow.minSize = spectrumAdjustedSize
+            spectrumWindow.maxSize = spectrumAdjustedSize
+            let spectrumFrame = NSRect(
+                x: mainFrame.minX,
+                y: nextY - spectrumAdjustedSize.height,
+                width: spectrumAdjustedSize.width,
+                height: spectrumAdjustedSize.height
+            )
+            spectrumWindow.setFrame(spectrumFrame, display: true, animate: true)
+            nextY = spectrumFrame.minY
+        }
+        
+        // Side windows - match the vertical stack height and reposition
+        let stackTopY = mainFrame.maxY
+        let stackHeight = stackTopY - nextY
+        
         if let plexWindow = plexBrowserWindowController?.window, plexWindow.isVisible {
-            var plexFrame = plexWindow.frame
-            // Calculate offset from old main window
-            let offsetX = plexFrame.minX - oldMainFrame.maxX
-            let offsetY = plexFrame.maxY - oldMainFrame.maxY
-            // Apply same offset to new main window position
-            plexFrame.origin.x = mainFrame.maxX + offsetX
-            plexFrame.origin.y = mainFrame.maxY + offsetY - plexFrame.height
+            // Scale width: when going to 2x double it, when going to 1x halve it
+            let newWidth = isDoubleSize ? plexWindow.frame.width * 2.0 : plexWindow.frame.width / 2.0
+            let plexFrame = NSRect(
+                x: mainFrame.maxX,
+                y: nextY,
+                width: newWidth,
+                height: stackHeight
+            )
             plexWindow.setFrame(plexFrame, display: true, animate: true)
+        }
+        
+        if let projectMWindow = projectMWindowController?.window, projectMWindow.isVisible {
+            // Scale width: when going to 2x double it, when going to 1x halve it
+            let newWidth = isDoubleSize ? projectMWindow.frame.width * 2.0 : projectMWindow.frame.width / 2.0
+            let projectMFrame = NSRect(
+                x: mainFrame.minX - (isDoubleSize ? projectMWindow.frame.width * 2.0 : projectMWindow.frame.width / 2.0),
+                y: nextY,
+                width: newWidth,
+                height: stackHeight
+            )
+            projectMWindow.setFrame(projectMFrame, display: true, animate: true)
         }
     }
     
@@ -1219,7 +1510,8 @@ class WindowManager {
         let screenFrame = screen.frame
         
         // Use current main window size (preserves user scaling)
-        let mainSize = mainWindowController?.window?.frame.size ?? Skin.mainWindowSize
+        let mainSize = mainWindowController?.window?.frame.size ??
+            (isModernUIEnabled ? ModernSkinElements.mainWindowSize : Skin.mainWindowSize)
         let mainFrame = NSRect(
             x: screenFrame.midX - mainSize.width / 2,
             y: screenFrame.midY - mainSize.height / 2,
@@ -1682,7 +1974,7 @@ class WindowManager {
     /// Find all windows that are docked (touching) the given window
     /// When dragging a dockable window (main, playlist, EQ), all touching windows move together
     /// When dragging a non-dockable window (Plex browser), it moves alone
-    private func findDockedWindows(to window: NSWindow) -> [NSWindow] {
+    func findDockedWindows(to window: NSWindow) -> [NSWindow] {
         // Non-dockable windows don't drag other windows with them
         guard isDockableWindow(window) else { return [] }
         
@@ -1767,6 +2059,29 @@ class WindowManager {
     /// Get all visible windows
     func visibleWindows() -> [NSWindow] {
         return allWindows()
+    }
+    
+    // MARK: - Coordinated Miniaturize
+    
+    /// Temporarily attach all docked windows as child windows of the main window
+    /// so they animate together into the dock as a group.
+    /// Called from windowWillMiniaturize (before the animation starts).
+    func attachDockedWindowsForMiniaturize(mainWindow: NSWindow) {
+        let docked = findDockedWindows(to: mainWindow)
+        coordinatedMiniaturizedWindows = docked
+        for window in docked {
+            mainWindow.addChildWindow(window, ordered: .above)
+        }
+    }
+    
+    /// Remove child window relationships after the main window is restored from dock,
+    /// so windows become independent again for normal docking/dragging behavior.
+    /// Called from windowDidDeminiaturize.
+    func detachDockedWindowsAfterDeminiaturize(mainWindow: NSWindow) {
+        for window in coordinatedMiniaturizedWindows {
+            mainWindow.removeChildWindow(window)
+        }
+        coordinatedMiniaturizedWindows.removeAll()
     }
     
     // MARK: - State Persistence

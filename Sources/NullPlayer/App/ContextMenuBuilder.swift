@@ -30,8 +30,8 @@ class ContextMenuBuilder {
         
         menu.addItem(NSMenuItem.separator())
         
-        // Skins submenu
-        menu.addItem(buildSkinsMenuItem())
+        // UI submenu (unified Modern/Classic with skin selection)
+        menu.addItem(buildUIMenuItem())
         
         // Visualizations submenu
         menu.addItem(buildVisualizationsMenuItem())
@@ -61,6 +61,22 @@ class ContextMenuBuilder {
         alwaysOnTop.target = MenuActions.shared
         alwaysOnTop.state = wm.isAlwaysOnTop ? .on : .off
         menu.addItem(alwaysOnTop)
+        
+        // Hide Title Bars (modern UI only)
+        if wm.isModernUIEnabled {
+            let hideTitleBars = NSMenuItem(title: "Hide Title Bars", action: #selector(MenuActions.toggleHideTitleBars), keyEquivalent: "")
+            hideTitleBars.target = MenuActions.shared
+            hideTitleBars.state = wm.hideTitleBars ? .on : .off
+            menu.addItem(hideTitleBars)
+        }
+        
+        // Double Size (modern UI only)
+        if wm.isModernUIEnabled {
+            let doubleSize = NSMenuItem(title: "Double Size", action: #selector(MenuActions.toggleDoubleSize), keyEquivalent: "")
+            doubleSize.target = MenuActions.shared
+            doubleSize.state = wm.isDoubleSize ? .on : .off
+            menu.addItem(doubleSize)
+        }
         
         // Remember State On Quit
         let rememberState = NSMenuItem(title: "Remember State On Quit", action: #selector(MenuActions.toggleRememberState), keyEquivalent: "")
@@ -93,65 +109,142 @@ class ContextMenuBuilder {
         return item
     }
     
-    // MARK: - Skins Submenu
+    // MARK: - UI Submenu (unified Modern/Classic with skin selection)
     
-    private static func buildSkinsMenuItem() -> NSMenuItem {
-        let skinsItem = NSMenuItem(title: "Skins", action: nil, keyEquivalent: "")
-        skinsItem.submenu = buildSkinsSubmenu()
-        return skinsItem
-    }
-    
-    private static func buildSkinsSubmenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
+    private static func buildUIMenuItem() -> NSMenuItem {
+        let uiItem = NSMenuItem(title: "UI", action: nil, keyEquivalent: "")
+        let uiMenu = NSMenu()
+        uiMenu.autoenablesItems = false
+        
+        let isModern = WindowManager.shared.isModernUIEnabled
+        
+        // --- Modern submenu ---
+        let modernItem = NSMenuItem(title: "Modern", action: nil, keyEquivalent: "")
+        let modernMenu = NSMenu()
+        modernMenu.autoenablesItems = false
+        
+        // Last used modern skin for quick switch (shown at top when in classic mode)
+        let lastModernSkin = UserDefaults.standard.string(forKey: "modernSkinName")
+        if !isModern {
+            let switchItem = NSMenuItem(
+                title: "Switch to Modern" + (lastModernSkin.map { " (\($0))" } ?? ""),
+                action: #selector(MenuActions.setModernMode),
+                keyEquivalent: ""
+            )
+            switchItem.target = MenuActions.shared
+            modernMenu.addItem(switchItem)
+            modernMenu.addItem(NSMenuItem.separator())
+        }
+        
+        // Modern skin list
+        let modernSkins = ModernSkinEngine.shared.loader.availableSkins()
+        let currentModernSkin = ModernSkinEngine.shared.currentSkinName
+        
+        if modernSkins.isEmpty {
+            let noSkins = NSMenuItem(title: "No skins available", action: nil, keyEquivalent: "")
+            noSkins.isEnabled = false
+            modernMenu.addItem(noSkins)
+        } else {
+            for skinInfo in modernSkins {
+                let item = NSMenuItem(title: skinInfo.name, action: #selector(MenuActions.selectModernSkin(_:)), keyEquivalent: "")
+                item.target = MenuActions.shared
+                item.representedObject = skinInfo.name
+                if isModern && skinInfo.name == currentModernSkin {
+                    item.state = .on
+                }
+                modernMenu.addItem(item)
+            }
+        }
+        
+        modernMenu.addItem(NSMenuItem.separator())
+        
+        // Open modern skins folder
+        let openModernFolder = NSMenuItem(title: "Open Skins Folder...", action: #selector(MenuActions.openModernSkinsFolder), keyEquivalent: "")
+        openModernFolder.target = MenuActions.shared
+        modernMenu.addItem(openModernFolder)
+        
+        // Active indicator on the submenu item
+        if isModern { modernItem.state = .on }
+        modernItem.submenu = modernMenu
+        uiMenu.addItem(modernItem)
+        
+        // --- Classic submenu ---
+        let classicItem = NSMenuItem(title: "Classic", action: nil, keyEquivalent: "")
+        let classicMenu = NSMenu()
+        classicMenu.autoenablesItems = false
+        
+        // Last used classic skin for quick switch (shown at top when in modern mode)
+        let lastClassicSkinPath = UserDefaults.standard.string(forKey: "lastClassicSkinPath")
+        if isModern {
+            let lastSkinName = lastClassicSkinPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+            let switchItem = NSMenuItem(
+                title: "Switch to Classic" + (lastSkinName.map { " (\($0))" } ?? ""),
+                action: #selector(MenuActions.setClassicMode),
+                keyEquivalent: ""
+            )
+            switchItem.target = MenuActions.shared
+            classicMenu.addItem(switchItem)
+            classicMenu.addItem(NSMenuItem.separator())
+        }
         
         // Load Skin...
         let loadSkin = NSMenuItem(title: "Load Skin...", action: #selector(MenuActions.loadSkinFromFile), keyEquivalent: "")
         loadSkin.target = MenuActions.shared
-        menu.addItem(loadSkin)
+        classicMenu.addItem(loadSkin)
         
         // Get More Skins...
         let getMoreSkins = NSMenuItem(title: "Get More Skins...", action: #selector(MenuActions.getMoreSkins), keyEquivalent: "")
         getMoreSkins.target = MenuActions.shared
-        menu.addItem(getMoreSkins)
+        classicMenu.addItem(getMoreSkins)
         
-        // Base Skin 1
-        let baseSkin1 = NSMenuItem(title: "<Base Skin 1>", action: #selector(MenuActions.loadBaseSkin), keyEquivalent: "")
-        baseSkin1.target = MenuActions.shared
-        menu.addItem(baseSkin1)
+        classicMenu.addItem(NSMenuItem.separator())
         
-        // Base Skin 2
-        let baseSkin2 = NSMenuItem(title: "<Base Skin 2>", action: #selector(MenuActions.loadBaseSkin2), keyEquivalent: "")
-        baseSkin2.target = MenuActions.shared
-        menu.addItem(baseSkin2)
+        // Default Skin (Silver)
+        let defaultSkinItem = NSMenuItem(title: "Default Skin (Silver)", action: #selector(MenuActions.loadDefaultClassicSkin), keyEquivalent: "")
+        defaultSkinItem.target = MenuActions.shared
+        // Show checkmark if using the bundled default skin (no custom skin path)
+        if !isModern && WindowManager.shared.currentSkinPath == nil {
+            defaultSkinItem.state = .on
+        }
+        classicMenu.addItem(defaultSkinItem)
         
-        // Base Skin 3
-        let baseSkin3 = NSMenuItem(title: "<Base Skin 3>", action: #selector(MenuActions.loadBaseSkin3), keyEquivalent: "")
-        baseSkin3.target = MenuActions.shared
-        menu.addItem(baseSkin3)
-        
-        menu.addItem(NSMenuItem.separator())
+        classicMenu.addItem(NSMenuItem.separator())
         
         // Lock Browser/ProjectM toggle
         let lockToggle = NSMenuItem(title: "Lock Browser/ProjectM to Default", action: #selector(MenuActions.toggleLockBrowserProjectM(_:)), keyEquivalent: "")
         lockToggle.target = MenuActions.shared
         lockToggle.state = WindowManager.shared.lockBrowserProjectMSkin ? .on : .off
-        menu.addItem(lockToggle)
+        classicMenu.addItem(lockToggle)
         
-        menu.addItem(NSMenuItem.separator())
+        classicMenu.addItem(NSMenuItem.separator())
         
-        // Available skins from Skins directory
+        // Available classic skins from Skins directory
+        let currentSkinPath = WindowManager.shared.currentSkinPath
         let availableSkins = WindowManager.shared.availableSkins()
         if !availableSkins.isEmpty {
             for skin in availableSkins {
-                let skinItem = NSMenuItem(title: skin.name, action: #selector(MenuActions.loadSkin(_:)), keyEquivalent: "")
+                let skinItem = NSMenuItem(title: skin.name, action: #selector(MenuActions.selectClassicSkin(_:)), keyEquivalent: "")
                 skinItem.target = MenuActions.shared
                 skinItem.representedObject = skin.url
-                menu.addItem(skinItem)
+                // Show checkmark for current skin
+                if !isModern, let currentPath = currentSkinPath, currentPath == skin.url.path {
+                    skinItem.state = .on
+                }
+                classicMenu.addItem(skinItem)
             }
+        } else {
+            let noSkins = NSMenuItem(title: "No skins installed", action: nil, keyEquivalent: "")
+            noSkins.isEnabled = false
+            classicMenu.addItem(noSkins)
         }
         
-        return menu
+        // Active indicator on the submenu item
+        if !isModern { classicItem.state = .on }
+        classicItem.submenu = classicMenu
+        uiMenu.addItem(classicItem)
+        
+        uiItem.submenu = uiMenu
+        return uiItem
     }
     
     // MARK: - Visualizations Submenu
@@ -329,6 +422,11 @@ class ContextMenuBuilder {
             item.target = MenuActions.shared
             item.representedObject = mode
             item.state = (currentMode == mode) ? .on : .off
+            // Disable modes whose shader file is missing
+            if let qualityMode = mode.spectrumQualityMode,
+               !SpectrumAnalyzerView.isShaderAvailable(for: qualityMode) {
+                item.isEnabled = false
+            }
             modeMenu.addItem(item)
         }
         modeItem.submenu = modeMenu
@@ -518,6 +616,10 @@ class ContextMenuBuilder {
             item.target = MenuActions.shared
             item.representedObject = mode
             item.state = (currentQuality == mode) ? .on : .off
+            // Disable modes whose shader file is missing
+            if !SpectrumAnalyzerView.isShaderAvailable(for: mode) {
+                item.isEnabled = false
+            }
             modeMenu.addItem(item)
         }
         modeItem.submenu = modeMenu
@@ -924,8 +1026,13 @@ class ContextMenuBuilder {
         return subsonicItem
     }
     
-    // MARK: - Playback Submenu
     // MARK: - Output Devices Submenu (Unified)
+    
+    /// Public access to the output devices menu (used by modern skin CAST button)
+    static func buildOutputDevicesMenu() -> NSMenu {
+        let item = buildOutputDevicesMenuItem()
+        return item.submenu ?? NSMenu()
+    }
     
     private static func buildOutputDevicesMenuItem() -> NSMenuItem {
         let outputItem = NSMenuItem(title: "Output Devices", action: nil, keyEquivalent: "")
@@ -1745,6 +1852,21 @@ class MenuActions: NSObject {
     
     // MARK: - Skin Operations
     
+    @objc func loadDefaultClassicSkin() {
+        let wm = WindowManager.shared
+        // Clear the last used skin so the bundled default loads
+        UserDefaults.standard.removeObject(forKey: "lastClassicSkinPath")
+        
+        if wm.isModernUIEnabled {
+            // Switch to classic mode with default skin on next launch
+            wm.isModernUIEnabled = false
+            showRestartAlert()
+        } else {
+            // Already in classic mode - load bundled default skin now
+            wm.loadBundledDefaultSkin()
+        }
+    }
+    
     @objc func loadSkinFromFile() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -1753,24 +1875,51 @@ class MenuActions: NSObject {
         
         if panel.runModal() == .OK, let url = panel.url {
             WindowManager.shared.loadSkin(from: url)
+            UserDefaults.standard.set(url.path, forKey: "lastClassicSkinPath")
         }
-    }
-    
-    @objc func loadBaseSkin() {
-        WindowManager.shared.loadBaseSkin()
-    }
-    
-    @objc func loadBaseSkin2() {
-        WindowManager.shared.loadBaseSkin2()
-    }
-    
-    @objc func loadBaseSkin3() {
-        WindowManager.shared.loadBaseSkin3()
     }
     
     @objc func loadSkin(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         WindowManager.shared.loadSkin(from: url)
+        UserDefaults.standard.set(url.path, forKey: "lastClassicSkinPath")
+    }
+    
+    /// Select a classic skin and switch to classic mode if needed
+    @objc func selectClassicSkin(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        let wm = WindowManager.shared
+        
+        // Persist the last used classic skin path
+        UserDefaults.standard.set(url.path, forKey: "lastClassicSkinPath")
+        
+        if wm.isModernUIEnabled {
+            // Switch to classic mode and load this skin on next launch
+            wm.isModernUIEnabled = false
+            showRestartAlert()
+        } else {
+            // Already in classic mode — load the skin immediately
+            wm.loadSkin(from: url)
+        }
+    }
+    
+    /// Select a modern skin and switch to modern mode if needed
+    @objc func selectModernSkin(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        let wm = WindowManager.shared
+        
+        // Persist the selected modern skin name (ModernSkinEngine does this too, but
+        // we need it set before restart when switching from classic mode)
+        UserDefaults.standard.set(name, forKey: "modernSkinName")
+        
+        if !wm.isModernUIEnabled {
+            // Switch to modern mode — skin will load on next launch
+            wm.isModernUIEnabled = true
+            showRestartAlert()
+        } else {
+            // Already in modern mode — load the skin immediately
+            ModernSkinEngine.shared.loadSkin(named: name)
+        }
     }
     
     @objc func toggleLockBrowserProjectM(_ sender: NSMenuItem) {
@@ -1781,6 +1930,31 @@ class MenuActions: NSObject {
         if let url = URL(string: "https://skins.webamp.org/") {
             NSWorkspace.shared.open(url)
         }
+    }
+    
+    @objc func openModernSkinsFolder() {
+        ModernSkinEngine.shared.openSkinsFolder()
+    }
+    
+    // MARK: - UI Mode Switching
+    
+    @objc func setClassicMode() {
+        WindowManager.shared.isModernUIEnabled = false
+        showRestartAlert()
+    }
+    
+    @objc func setModernMode() {
+        WindowManager.shared.isModernUIEnabled = true
+        showRestartAlert()
+    }
+    
+    private func showRestartAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Restart Required"
+        alert.informativeText = "The UI mode change will take effect after restarting NullPlayer."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
     
     // MARK: - Options
@@ -1938,6 +2112,14 @@ class MenuActions: NSObject {
     
     @objc func toggleAlwaysOnTop() {
         WindowManager.shared.isAlwaysOnTop.toggle()
+    }
+    
+    @objc func toggleHideTitleBars() {
+        WindowManager.shared.toggleHideTitleBars()
+    }
+    
+    @objc func toggleDoubleSize() {
+        WindowManager.shared.isDoubleSize.toggle()
     }
     
     @objc func snapToDefault() {

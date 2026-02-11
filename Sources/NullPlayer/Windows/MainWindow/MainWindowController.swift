@@ -1,7 +1,7 @@
 import AppKit
 
 /// Controller for the main player window
-class MainWindowController: NSWindowController {
+class MainWindowController: NSWindowController, MainWindowProviding {
     
     // MARK: - Properties
     
@@ -99,6 +99,18 @@ class MainWindowController: NSWindowController {
         mainView.needsDisplay = true
     }
     
+    func setNeedsDisplay() {
+        mainView.needsDisplay = true
+    }
+    
+    var isWindowVisible: Bool {
+        window?.isVisible == true
+    }
+    
+    func toggleShadeMode() {
+        setShadeMode(!isShadeMode)
+    }
+    
     // MARK: - Shade Mode
     
     /// Toggle shade mode on/off
@@ -161,6 +173,16 @@ extension MainWindowController: NSWindowDelegate {
         guard let window = window else { return }
         let newOrigin = WindowManager.shared.windowWillMove(window, to: window.frame.origin)
         WindowManager.shared.applySnappedPosition(window, to: newOrigin)
+    }
+    
+    func windowWillMiniaturize(_ notification: Notification) {
+        guard let window = window else { return }
+        WindowManager.shared.attachDockedWindowsForMiniaturize(mainWindow: window)
+    }
+    
+    func windowDidDeminiaturize(_ notification: Notification) {
+        guard let window = window else { return }
+        WindowManager.shared.detachDockedWindowsAfterDeminiaturize(mainWindow: window)
     }
     
     func windowDidBecomeKey(_ notification: Notification) {

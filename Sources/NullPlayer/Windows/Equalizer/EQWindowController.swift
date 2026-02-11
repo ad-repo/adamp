@@ -1,7 +1,9 @@
 import AppKit
 
-/// Controller for the equalizer window
-class EQWindowController: NSWindowController {
+/// Controller for the equalizer window (classic skin).
+/// Conforms to `EQWindowProviding` so WindowManager can use it interchangeably
+/// with `ModernEQWindowController`.
+class EQWindowController: NSWindowController, EQWindowProviding {
     
     // MARK: - Properties
     

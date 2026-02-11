@@ -156,7 +156,15 @@ class MainWindowView: NSView {
         // Restore saved visualization mode
         if let savedMode = UserDefaults.standard.string(forKey: "mainWindowVisMode"),
            let mode = MainWindowVisMode(rawValue: savedMode) {
-            mainVisMode = mode
+            // Validate shader availability before restoring a GPU mode — if the shader file
+            // is missing (e.g., not included in DMG), fall back to Spectrum to prevent crashes
+            if let qualityMode = mode.spectrumQualityMode,
+               !SpectrumAnalyzerView.isShaderAvailable(for: qualityMode) {
+                NSLog("MainWindowView: Shader unavailable for \(mode.rawValue), falling back to Spectrum")
+                mainVisMode = .spectrum
+            } else {
+                mainVisMode = mode
+            }
         }
         
         // Setup layer-based marquee for normal mode
@@ -215,6 +223,7 @@ class MainWindowView: NSView {
         // Observe playback state changes to clear/freeze spectrum on stop/pause
         NotificationCenter.default.addObserver(self, selector: #selector(playbackStateDidChange),
                                                name: .audioPlaybackStateChanged, object: nil)
+        
     }
     
     // MARK: - Accessibility
@@ -432,14 +441,34 @@ class MainWindowView: NSView {
             mainVisMode = .spectrum
             return
         }
-        let nextIndex = allModes.index(after: currentIndex)
-        mainVisMode = (nextIndex < allModes.endIndex) ? allModes[nextIndex] : allModes[allModes.startIndex]
+        // Skip modes whose shader file is missing
+        var nextIndex = allModes.index(after: currentIndex)
+        if nextIndex >= allModes.endIndex { nextIndex = allModes.startIndex }
+        let startIndex = nextIndex
+        while true {
+            let mode = allModes[nextIndex]
+            if let qualityMode = mode.spectrumQualityMode,
+               !SpectrumAnalyzerView.isShaderAvailable(for: qualityMode) {
+                nextIndex = allModes.index(after: nextIndex)
+                if nextIndex >= allModes.endIndex { nextIndex = allModes.startIndex }
+                if nextIndex == startIndex { break }  // All modes checked, none available
+                continue
+            }
+            mainVisMode = mode
+            return
+        }
+        mainVisMode = .spectrum  // Fallback if nothing available
     }
     
     @objc private func mainVisSettingsChanged() {
         // Reload vis mode from UserDefaults
         if let savedMode = UserDefaults.standard.string(forKey: "mainWindowVisMode"),
            let mode = MainWindowVisMode(rawValue: savedMode) {
+            // Validate shader availability before applying a GPU mode
+            if let qualityMode = mode.spectrumQualityMode,
+               !SpectrumAnalyzerView.isShaderAvailable(for: qualityMode) {
+                return  // Don't switch to an unavailable mode
+            }
             if mode != mainVisMode {
                 mainVisMode = mode
             }
@@ -756,8 +785,13 @@ class MainWindowView: NSView {
     private func convertToOriginalCoordinates(_ point: NSPoint) -> NSPoint {
         let originalSize = isShadeMode ? SkinElements.MainShade.windowSize : Skin.baseMainSize
         let scale = scaleFactor
+        let hidingTitleBar = WindowManager.shared.hideTitleBars && !isShadeMode
         
         if scale == 1.0 {
+            if hidingTitleBar {
+                // Offset Y to account for hidden title bar shift
+                return NSPoint(x: point.x, y: point.y + SkinElements.titleBarHeight)
+            }
             return point
         }
         
@@ -765,7 +799,13 @@ class MainWindowView: NSView {
         let scaledWidth = originalSize.width * scale
         let scaledHeight = originalSize.height * scale
         let offsetX = (bounds.width - scaledWidth) / 2
-        let offsetY = (bounds.height - scaledHeight) / 2
+        let offsetY: CGFloat
+        if hidingTitleBar {
+            // Match the draw transform: full title bar shift
+            offsetY = -SkinElements.titleBarHeight * scale
+        } else {
+            offsetY = (bounds.height - scaledHeight) / 2
+        }
         
         // Transform point back to original coordinates
         let x = (point.x - offsetX) / scale
@@ -796,15 +836,27 @@ class MainWindowView: NSView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
         
+        // When hiding title bars, shift content up to clip the title bar off the top
+        let hidingTitleBar = WindowManager.shared.hideTitleBars && !isShadeMode
+        
         // Apply scaling for resized window
         if scale != 1.0 {
             // Center the scaled content
             let scaledWidth = originalSize.width * scale
             let scaledHeight = originalSize.height * scale
             let offsetX = (bounds.width - scaledWidth) / 2
-            let offsetY = (bounds.height - scaledHeight) / 2
+            let offsetY: CGFloat
+            if hidingTitleBar {
+                // Shift up by full title bar height so it's above the visible area
+                offsetY = -SkinElements.titleBarHeight * scale
+            } else {
+                offsetY = (bounds.height - scaledHeight) / 2
+            }
             context.translateBy(x: offsetX, y: offsetY)
             context.scaleBy(x: scale, y: scale)
+        } else if hidingTitleBar {
+            // No scaling, but still need to shift up for hidden title bar
+            context.translateBy(x: 0, y: -SkinElements.titleBarHeight)
         }
         
         let skin = WindowManager.shared.currentSkin
@@ -976,8 +1028,10 @@ class MainWindowView: NSView {
             pressedButton: pressedButton
         )
         
-        // Draw window controls (minimize, shade, close)
-        renderer.drawWindowControls(in: context, bounds: drawBounds, pressedButton: pressedButton)
+        // Draw window controls (minimize, shade, close) - skip when title bars are hidden
+        if !WindowManager.shared.hideTitleBars {
+            renderer.drawWindowControls(in: context, bounds: drawBounds, pressedButton: pressedButton)
+        }
     }
     
     // MARK: - Public Methods
@@ -1265,14 +1319,24 @@ class MainWindowView: NSView {
         
         // Hit test for actions
         if let action = regionManager.hitTest(point: point, in: .main, windowSize: hitTestSize) {
-            handleMouseDown(action: action, at: point)
-            return
+            // Skip window control actions when title bars are hidden
+            let isWindowControl = (action == .close || action == .minimize || action == .shade || action == .openMainMenu)
+            if !(WindowManager.shared.hideTitleBars && isWindowControl) {
+                handleMouseDown(action: action, at: point)
+                return
+            }
         }
         
         // No action hit - start window drag
         // Only allow undocking if dragging from title bar area (top 14 pixels in skin coords)
-        // skinY already calculated above for spectrum check
-        let isTitleBarArea = skinY < 14  // Title bar is 14px tall
+        // When title bars are hidden, use a small drag zone at the top of the view
+        // When title bars are hidden, all drags allow undocking (no visual title bar distinction)
+        let isTitleBarArea: Bool
+        if WindowManager.shared.hideTitleBars {
+            isTitleBarArea = true
+        } else {
+            isTitleBarArea = skinY < 14  // Title bar is 14px tall
+        }
         isDraggingWindow = true
         windowDragStartPoint = event.locationInWindow
         if let window = window {

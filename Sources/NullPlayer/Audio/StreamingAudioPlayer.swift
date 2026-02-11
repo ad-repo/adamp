@@ -28,6 +28,10 @@ class StreamingAudioPlayer {
     /// 10-band equalizer attached to the player
     private let eqNode: AVAudioUnitEQ
     
+    /// Real-time BPM detector for tempo display
+    let bpmDetector = BPMDetector()
+    
+    
     /// FFT setup for spectrum analysis
     private var fftSetup: vDSP_DFT_Setup?
     private let fftSize: Int = 2048
@@ -246,6 +250,7 @@ class StreamingAudioPlayer {
         NSLog("StreamingAudioPlayer: Playing URL: %@", url.absoluteString)
         hasReportedFormat = false  // Reset for new track
         _hasQueuedTrack = false     // Clear any previous queue state
+        bpmDetector.reset()         // Reset BPM for new track
         player.play(url: url)
     }
     
@@ -411,6 +416,15 @@ class StreamingAudioPlayer {
             // Apply compensation using Accelerate for efficiency
             var compensation = volumeCompensation
             vDSP_vsmul(fftSamples, 1, &compensation, &fftSamples, 1, vDSP_Length(fftSize))
+        }
+        
+        // Feed BPM detector with raw mono samples (before windowing) — modern UI only
+        if UserDefaults.standard.bool(forKey: "modernUIEnabled") {
+            fftSamples.withUnsafeBufferPointer { ptr in
+                if let base = ptr.baseAddress {
+                    bpmDetector.process(samples: base, count: fftSize, sampleRate: buffer.format.sampleRate)
+                }
+            }
         }
         
         // Forward PCM data for projectM visualization
@@ -620,6 +634,7 @@ class StreamingAudioPlayer {
 extension StreamingAudioPlayer: AudioPlayerDelegate {
     func audioPlayerDidStartPlaying(player: AudioPlayer, with entryId: AudioEntryId) {
         NSLog("StreamingAudioPlayer: Started playing entry: %@", entryId.id)
+        hasReportedFormat = false  // Reset for new track (including gapless queue transitions)
         delegate?.streamingPlayerDidChangeState(.playing)
     }
     

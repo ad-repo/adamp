@@ -323,6 +323,46 @@ class PlexServerClient {
         return albums
     }
     
+    /// Fetch albums for an artist by querying the library section with artist.id filter
+    /// This is a fallback when /library/metadata/{id}/children returns empty
+    func fetchAlbumsByArtistFilter(artistID: String, libraryID: String) async throws -> [PlexAlbum] {
+        // Query albums (type 9) filtered by artist.id - bypasses the parent-child hierarchy
+        let url = "\(baseURL)/library/sections/\(libraryID)/all?type=9&artist.id=\(artistID)"
+        guard let finalURL = URL(string: url) else {
+            throw PlexServerError.invalidURL
+        }
+        
+        var request = URLRequest(url: finalURL)
+        for (key, value) in standardHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        
+        let response: PlexResponse<PlexMetadataResponse> = try await performRequest(request)
+        let albums = response.mediaContainer.metadata?.map { $0.toAlbum() } ?? []
+        NSLog("PlexServerClient: fetchAlbumsByArtistFilter(artist: %@, library: %@) returned %d albums", artistID, libraryID, albums.count)
+        return albums
+    }
+    
+    /// Fetch tracks for an artist directly by querying the library section with artist.id filter
+    /// Used as a last-resort fallback when both album fetch methods return empty
+    func fetchTracksByArtistFilter(artistID: String, libraryID: String) async throws -> [PlexTrack] {
+        // Query tracks (type 10) filtered by artist.id - gets tracks directly without albums
+        let url = "\(baseURL)/library/sections/\(libraryID)/all?type=10&artist.id=\(artistID)"
+        guard let finalURL = URL(string: url) else {
+            throw PlexServerError.invalidURL
+        }
+        
+        var request = URLRequest(url: finalURL)
+        for (key, value) in standardHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        
+        let response: PlexResponse<PlexMetadataResponse> = try await performRequest(request)
+        let tracks = response.mediaContainer.metadata?.map { $0.toTrack() } ?? []
+        NSLog("PlexServerClient: fetchTracksByArtistFilter(artist: %@, library: %@) returned %d tracks", artistID, libraryID, tracks.count)
+        return tracks
+    }
+    
     // MARK: - Track Operations
     
     /// Fetch all tracks in a music library

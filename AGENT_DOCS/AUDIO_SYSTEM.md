@@ -775,6 +775,48 @@ Ultra mode provides the smoothest and most visually impressive spectrum visualiz
 - `Windows/Spectrum/SpectrumWindowController.swift` - Window controller
 - `Windows/Spectrum/SpectrumView.swift` - Container view with skin chrome
 
+## BPM Detection
+
+Real-time BPM (beats per minute) detection runs on the audio tap alongside spectrum analysis.
+
+### Algorithm
+
+Powered by **aubio** (`libaubio`), a mature C library for audio analysis. Uses aubio's `aubio_tempo_t` which combines onset detection with beat tracking for accurate tempo estimation across all genres (including extreme tempos like grindcore).
+
+1. **Audio input** - Mono-mixed PCM samples fed to aubio in hop-size chunks (512 samples)
+2. **Onset detection** - aubio detects note/beat onsets using spectral flux
+3. **Beat tracking** - aubio's internal beat tracker finds periodicity from onset patterns
+4. **BPM + confidence** - `aubio_tempo_get_bpm()` and `aubio_tempo_get_confidence()` return the current estimate
+5. **Smoothing** - Median filter over last 10 readings for display stability
+6. **Confidence threshold** - Only displays when aubio's confidence exceeds 0.1
+
+### Data Flow
+
+- Both `AudioEngine` (local) and `StreamingAudioPlayer` (streaming) own a `BPMDetector` instance
+- Fed from the same mono-mixed PCM buffer used for spectrum analysis (before windowing)
+- aubio processes in 512-sample hops internally (samples are accumulated from the 2048-sample audio tap)
+- Posts `.bpmUpdated` notification with `["bpm": Int]` (0 = no confident reading)
+- Notifications throttled to 1/second to avoid UI spam
+
+### Dependencies
+
+- **libaubio** (`Frameworks/libaubio.5.dylib`) - C library, bundled in the app like libprojectM
+- Headers in `Frameworks/libaubio/` with `CAubio` module map
+- Automatically downloaded by `scripts/bootstrap.sh` (from `deps-v2` GitHub release)
+- Alternatively, install via `brew install aubio` for local development without bootstrap
+
+### Display
+
+- **Classic skin**: Drawn via `SkinRenderer.drawBPM()` at `SkinElements.InfoDisplay.Positions.bpm` (right of kHz)
+- **Modern skin**: Drawn as a label in `ModernMainWindowView.drawInfoLabels()` using `ModernSkinElements.infoBPM`
+- Both views reset BPM to nil on track change; detector also resets its state
+
+### Key Files
+
+- `Audio/BPMDetector.swift` - Detection algorithm
+- `Audio/AudioEngine.swift` - Integration for local playback
+- `Audio/StreamingAudioPlayer.swift` - Integration for streaming
+
 ## ProjectM Visualization
 
 NullPlayer includes a ProjectM visualization window powered by projectM (libprojectM-4).
@@ -889,6 +931,7 @@ To fix problematic M4A files, re-encode with `ffmpeg -i input.m4a -movflags +fas
 | Accelerate | FFT for spectrum analysis | System |
 | CoreAudio | Output device management | System |
 | [AudioStreaming](https://github.com/dimitris-c/AudioStreaming) | HTTP streaming with AVAudioEngine | 1.4.0+ |
+| [aubio](https://aubio.org) | Real-time BPM/tempo detection | 0.4.9+ |
 
 ## Platform Requirements
 

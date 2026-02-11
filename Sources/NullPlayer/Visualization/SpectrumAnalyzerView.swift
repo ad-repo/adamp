@@ -25,6 +25,18 @@ enum SpectrumQualityMode: String, CaseIterable {
     case matrix = "Matrix"           // Falling digital rain driven by spectrum
     
     var displayName: String { rawValue }
+    
+    /// The Metal shader file required for this mode.
+    /// Returns nil if the mode shares a shader already checked by another mode.
+    var requiredShaderFile: String {
+        switch self {
+        case .classic, .enhanced, .ultra: return "SpectrumShaders"
+        case .flame: return "FlameShaders"
+        case .cosmic: return "CosmicShaders"
+        case .electricity: return "ElectricityShaders"
+        case .matrix: return "MatrixShaders"
+        }
+    }
 }
 
 /// Visual style presets for Flame mode
@@ -273,6 +285,29 @@ struct UltraParams {
 
 /// Metal-based spectrum analyzer visualization view
 class SpectrumAnalyzerView: NSView {
+    
+    // MARK: - Shader Availability
+    
+    /// Check if the Metal shader file for a given mode is available in the app bundle.
+    /// This is a static check that works without a SpectrumAnalyzerView instance, making it
+    /// safe to call from MainWindowView/ModernMainWindowView before the overlay is created.
+    static func isShaderAvailable(for mode: SpectrumQualityMode) -> Bool {
+        return BundleHelper.url(forResource: mode.requiredShaderFile, withExtension: "metal") != nil
+    }
+    
+    /// Check if the Metal render pipeline for a given mode was successfully created.
+    /// Only valid after setupMetal() has run. Use isShaderAvailable() for pre-init checks.
+    private func isPipelineAvailable(for mode: SpectrumQualityMode) -> Bool {
+        switch mode {
+        case .classic: return barPipelineState != nil
+        case .enhanced: return ledPipelineState != nil
+        case .ultra: return ultraPipelineState != nil
+        case .flame: return flamePropPipeline != nil && flameRenderPipeline != nil
+        case .cosmic: return cosmicRenderPipeline != nil
+        case .electricity: return electricityRenderPipeline != nil
+        case .matrix: return matrixRenderPipeline != nil
+        }
+    }
     
     // MARK: - Configuration
     
@@ -545,6 +580,18 @@ class SpectrumAnalyzerView: NSView {
     /// Current skin's visualization colors (24 colors, updated on skin change)
     private var colorPalette: [SIMD4<Float>] = []
     
+    /// Optional color override for the modern skin system.
+    /// When set, these colors are used instead of the classic skin's visColors.
+    var spectrumColors: [NSColor]? {
+        didSet {
+            if spectrumColors != nil {
+                applySpectrumColorOverride()
+            } else {
+                updateColorsFromSkin()
+            }
+        }
+    }
+    
     // MARK: - Initialization
     
     override init(frame frameRect: NSRect) {
@@ -622,6 +669,14 @@ class SpectrumAnalyzerView: NSView {
         
         // Set up Metal
         setupMetal()
+        
+        // Validate the restored mode has a working pipeline — if a shader file is missing
+        // (e.g., DMG didn't include it), fall back to Classic to prevent crashes.
+        // This must run AFTER setupMetal() so isPipelineAvailable() gives accurate results.
+        if !isPipelineAvailable(for: qualityMode) {
+            NSLog("SpectrumAnalyzerView: Pipeline not available for \(qualityMode.rawValue), falling back to Classic")
+            qualityMode = .classic
+        }
         
         // Load colors from current skin
         updateColorsFromSkin()
@@ -1173,17 +1228,26 @@ class SpectrumAnalyzerView: NSView {
     /// nonisolated(unsafe) because Swift doesn't recognize our lock-based synchronization
     nonisolated(unsafe) private var idleFrameCount: Int = 0
     
-    /// Frames to wait before stopping display link when idle (~1 second at 60fps)
-    private let idleFrameThreshold: Int = 60
+    /// Frame skip counter for 30fps effective rendering (skip every other frame)
+    nonisolated(unsafe) private var frameSkipCounter: Int = 0
+    
+    /// Frames to wait before stopping display link when idle (~1 second at effective 30fps)
+    private let idleFrameThreshold: Int = 30
     
     /// Track if we stopped rendering due to idle (vs window hidden)
     /// Protected by dataLock for thread-safe access from render and updateSpectrum
     /// nonisolated(unsafe) because Swift doesn't recognize our lock-based synchronization
     nonisolated(unsafe) private var stoppedDueToIdle: Bool = false
     
-    /// Called by display link at 60Hz
+    /// Called by display link at 60Hz, renders at effective 30fps via frame skipping
     /// Note: This is internal (not private) so the display link callback can access it
     func render() {
+        // Skip every other frame for effective 30fps rendering.
+        // A spectrum analyzer is visually indistinguishable at 30fps vs 60fps,
+        // and this halves CPU-side work (decay, band mapping, peak tracking, vertex updates).
+        frameSkipCounter += 1
+        guard frameSkipCounter & 1 == 0 else { return }
+        
         guard isRendering, let metalLayer = metalLayer else { return }
         
         // Non-blocking check for semaphore slot - if GPU is backed up, skip frame immediately
@@ -1240,6 +1304,14 @@ class SpectrumAnalyzerView: NSView {
         // Get drawable - this must succeed for us to render
         guard let drawable = metalLayer.nextDrawable() else {
             inFlightSemaphore.signal()  // Release slot since we won't use it
+            return
+        }
+        
+        // Safety net: if the mode requires a pipeline that doesn't exist, skip the frame.
+        // This should never happen if commonInit() validation worked, but guards against
+        // race conditions or runtime pipeline failures.
+        if !isPipelineAvailable(for: currentMode) {
+            inFlightSemaphore.signal()
             return
         }
         
@@ -1389,8 +1461,11 @@ class SpectrumAnalyzerView: NSView {
     
     /// Render flame mode: single compute pass + render pass with ping-pong textures
     private func renderFlame(drawable: CAMetalDrawable) {
+        // Guard ALL required pipelines BEFORE creating any encoders to prevent Metal API violations.
+        // Creating an encoder without calling endEncoding() leaves the command buffer in an invalid state.
         guard let cb = commandQueue?.makeCommandBuffer(),
-              let simA = flameSimTextureA, let simB = flameSimTextureB else {
+              let simA = flameSimTextureA, let simB = flameSimTextureB,
+              let computePL = flamePropPipeline, let renderPL = flameRenderPipeline else {
             inFlightSemaphore.signal(); return
         }
         var localSpectrum: [Float] = []; var localStyle: FlameStyle = .inferno; var localTime: Float = 0
@@ -1438,8 +1513,8 @@ class SpectrumAnalyzerView: NSView {
         flameCurrentTex = 1 - flameCurrentTex
         let tgSize = MTLSize(width: 16, height: 16, depth: 1)
         let tgs = MTLSize(width: (flameGridWidth + 15) / 16, height: (flameGridHeight + 15) / 16, depth: 1)
-        if let enc = cb.makeComputeCommandEncoder(), let pl = flamePropPipeline {
-            enc.setComputePipelineState(pl)
+        if let enc = cb.makeComputeCommandEncoder() {
+            enc.setComputePipelineState(computePL)
             enc.setTexture(readTex, index: 0); enc.setTexture(writeTex, index: 1)
             enc.setBuffer(flameParamsBuffer, offset: 0, index: 0)
             enc.setBuffer(flameSpectrumBuffer, offset: 0, index: 1)
@@ -1449,8 +1524,8 @@ class SpectrumAnalyzerView: NSView {
         rpd.colorAttachments[0].texture = drawable.texture
         rpd.colorAttachments[0].loadAction = .clear; rpd.colorAttachments[0].storeAction = .store
         rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd), let pl = flameRenderPipeline {
-            enc.setRenderPipelineState(pl)
+        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd) {
+            enc.setRenderPipelineState(renderPL)
             enc.setFragmentTexture(writeTex, index: 0)
             enc.setFragmentBuffer(flameParamsBuffer, offset: 0, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6); enc.endEncoding()
@@ -1552,6 +1627,11 @@ class SpectrumAnalyzerView: NSView {
         rpd.colorAttachments[0].storeAction = .store
         rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         
+        // Guard pipeline BEFORE creating encoder to prevent Metal API violations
+        guard let pl = cosmicRenderPipeline else {
+            inFlightSemaphore.signal(); return
+        }
+        
         // Update spectrum buffer for frequency-aligned flares
         // Uses displaySpectrum (already normalized by AudioEngine) not rawSpectrum
         var localSpectrum: [Float] = []
@@ -1566,7 +1646,7 @@ class SpectrumAnalyzerView: NSView {
             }
         }
         
-        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd), let pl = cosmicRenderPipeline {
+        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd) {
             enc.setRenderPipelineState(pl)
             enc.setFragmentBuffer(cosmicParamsBuffer, offset: 0, index: 0)
             enc.setFragmentBuffer(flameSpectrumBuffer, offset: 0, index: 1)
@@ -1663,6 +1743,11 @@ class SpectrumAnalyzerView: NSView {
             )
         }
         
+        // Guard pipeline BEFORE creating encoder to prevent Metal API violations
+        guard let pl = electricityRenderPipeline else {
+            inFlightSemaphore.signal(); return
+        }
+        
         // Render full-screen quad
         let rpd = MTLRenderPassDescriptor()
         rpd.colorAttachments[0].texture = drawable.texture
@@ -1670,7 +1755,7 @@ class SpectrumAnalyzerView: NSView {
         rpd.colorAttachments[0].storeAction = .store
         rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         
-        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd), let pl = electricityRenderPipeline {
+        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd) {
             enc.setRenderPipelineState(pl)
             enc.setFragmentBuffer(electricityParamsBuffer, offset: 0, index: 0)
             enc.setFragmentBuffer(flameSpectrumBuffer, offset: 0, index: 1)
@@ -1782,6 +1867,11 @@ class SpectrumAnalyzerView: NSView {
             )
         }
         
+        // Guard pipeline BEFORE creating encoder to prevent Metal API violations
+        guard let pl = matrixRenderPipeline else {
+            inFlightSemaphore.signal(); return
+        }
+        
         // Render full-screen quad
         let rpd = MTLRenderPassDescriptor()
         rpd.colorAttachments[0].texture = drawable.texture
@@ -1789,7 +1879,7 @@ class SpectrumAnalyzerView: NSView {
         rpd.colorAttachments[0].storeAction = .store
         rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         
-        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd), let pl = matrixRenderPipeline {
+        if let enc = cb.makeRenderCommandEncoder(descriptor: rpd) {
             enc.setRenderPipelineState(pl)
             enc.setFragmentBuffer(matrixParamsBuffer, offset: 0, index: 0)
             enc.setFragmentBuffer(flameSpectrumBuffer, offset: 0, index: 1)
@@ -1816,7 +1906,9 @@ class SpectrumAnalyzerView: NSView {
     private func updateDisplaySpectrumLocked() -> Bool {
         var hasData = false
         
-        let decay = renderDecayFactor
+        // Decay factor is tuned for 60fps; square it for 30fps to maintain same visual decay speed
+        // (at 30fps each frame spans 2x the time, so decay^2 gives equivalent per-second decay)
+        let decay = renderDecayFactor * renderDecayFactor
         let outputCount = renderBarCount
         let ultraOutputCount = ultraBarCount
         
@@ -2062,9 +2154,9 @@ class SpectrumAnalyzerView: NSView {
         let bounceCoeff: Float = 0.3          // Energy retained on bounce
         let minBounceVelocity: Float = 0.01   // Minimum velocity to trigger bounce
         
-        // Smooth exponential decay factor (per frame)
-        // 0.94 means each frame retains 94% of brightness → smooth natural fadeout
-        let decayMultiplier: Float = 0.94
+        // Smooth exponential decay factor (per frame at effective 30fps)
+        // Original 0.94 at 60fps → squared for 30fps to maintain same visual decay speed
+        let decayMultiplier: Float = 0.94 * 0.94  // ≈ 0.8836
         
         // Soft gradient zone at bar top (in normalized 0-1 space)
         // Instead of hard cutoff, brightness ramps smoothly over this range
@@ -2075,8 +2167,8 @@ class SpectrumAnalyzerView: NSView {
         let ceiling: Float = 1.0
         let range = ceiling - floor
         
-        // Update animation time
-        animationTime += 1.0 / 60.0
+        // Update animation time (effective 30fps due to frame skipping)
+        animationTime += 1.0 / 30.0
         
         for col in 0..<min(colCount, ultraDisplaySpectrum.count) {
             let rawLevel = ultraDisplaySpectrum[col]
@@ -2424,6 +2516,12 @@ class SpectrumAnalyzerView: NSView {
     
     /// Update colors from current skin
     func updateColorsFromSkin() {
+        // If modern skin override is set, use that instead
+        if spectrumColors != nil {
+            applySpectrumColorOverride()
+            return
+        }
+        
         let skin = WindowManager.shared.currentSkin ?? SkinLoader.shared.loadDefault()
         let nsColors = skin.visColors
         
@@ -2442,6 +2540,29 @@ class SpectrumAnalyzerView: NSView {
         }
         
         // Sync to render-safe variable
+        let colors = colorPalette
+        dataLock.withLock {
+            renderColorPalette = colors
+        }
+    }
+    
+    /// Apply the spectrumColors override from the modern skin system
+    private func applySpectrumColorOverride() {
+        guard let overrideColors = spectrumColors else { return }
+        
+        colorPalette = overrideColors.map { color in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            let rgbColor = color.usingColorSpace(.deviceRGB) ?? color
+            rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return SIMD4<Float>(Float(r), Float(g), Float(b), Float(a))
+        }
+        
+        // Ensure we have at least 24 colors
+        while colorPalette.count < 24 {
+            let brightness = Float(colorPalette.count) / 23.0
+            colorPalette.append(SIMD4<Float>(0, brightness, 0, 1))
+        }
+        
         let colors = colorPalette
         dataLock.withLock {
             renderColorPalette = colors
