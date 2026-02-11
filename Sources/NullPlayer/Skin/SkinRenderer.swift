@@ -21,7 +21,7 @@ class SkinRenderer {
     /// Scale factor for Retina displays (renders at 1x then scales)
     var scaleFactor: CGFloat = 2.0
 
-    private let plexTitleText = "NULLPLAYER LIBRARY"
+    private var plexTitleText: String { "\(WindowManager.shared.classicTitleName) LIBRARY" }
     
     /// Cached white-tinted version of the text font image
     private var _whiteTextImage: NSImage?
@@ -258,9 +258,9 @@ class SkinRenderer {
             }
         }
         
-        // Draw "NULLPLAYER" text using GenFont with dark background gap
+        // Draw title text using GenFont with dark background gap
         // fontScale: 1.0 because the view already applies context scaling
-        drawGenFontTitleText("NULLPLAYER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
+        drawGenFontTitleText(WindowManager.shared.classicTitleName, in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
     }
     
     // MARK: - Button Rendering
@@ -1488,9 +1488,9 @@ class SkinRenderer {
                 }
             }
             
-            // Draw "NULLPLAYER EQUALIZER" text using GenFont with dark background gap
+            // Draw title text using GenFont with dark background gap
             // fontScale: 1.0 because the view already applies context scaling
-            drawGenFontTitleText("NULLPLAYER EQUALIZER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
+            drawGenFontTitleText("\(WindowManager.shared.classicTitleName) EQUALIZER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
         } else {
             // Fallback EQ background
             drawFallbackEQBackground(in: context, bounds: bounds)
@@ -1857,7 +1857,7 @@ class SkinRenderer {
         drawSpectrumAnalyzerTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
     }
     
-    /// Draw spectrum analyzer title bar using PLEDIT.BMP sprites with "NULLPLAYER ANALYZER" text
+    /// Draw spectrum analyzer title bar using PLEDIT.BMP sprites with custom title text
     private func drawSpectrumAnalyzerTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: ProjectMButtonType?) {
         guard let pleditImage = skin.pledit else {
             drawFallbackProjectMTitleBar(in: context, bounds: bounds, isActive: isActive)
@@ -1893,8 +1893,8 @@ class SkinRenderer {
             x += tileWidth
         }
         
-        // Draw "NULLPLAYER ANALYZER" text using GenFont with dark background gap
-        drawGenFontTitleText("NULLPLAYER ANALYZER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        // Draw title text using GenFont with dark background gap
+        drawGenFontTitleText("\(WindowManager.shared.classicTitleName) ANALYZER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw close button pressed state if needed
         if pressedButton == .close {
@@ -1905,7 +1905,7 @@ class SkinRenderer {
         }
     }
     
-    /// Draw "NULLPLAYER ANALYZER" text using GenFont from gen.png
+    /// Draw spectrum analyzer title text using GenFont from gen.png
     private func drawSpectrumAnalyzerTitleText(in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
         // Load gen.png from skin or bundle
         let genImage = skin.genWindowImage
@@ -1914,7 +1914,7 @@ class SkinRenderer {
             return  // GenFont required - no fallback
         }
         
-        let text = "NULLPLAYER ANALYZER"
+        let text = "\(WindowManager.shared.classicTitleName) ANALYZER"
         let scale = Skin.scaleFactor  // 1.25 - match other windows
         let charHeight = SkinElements.GenFont.charHeight * scale  // 6px * 1.25 = 7.5px
         let charSpacing: CGFloat = 0  // No extra spacing between letters
@@ -2045,8 +2045,8 @@ class SkinRenderer {
             x += tile.width
         }
         
-        // Draw "NULLPLAYER ANALYZER" text (smaller for shade mode)
-        drawGenFontTitleText("NULLPLAYER ANALYZER", in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
+        // Draw title text (smaller for shade mode)
+        drawGenFontTitleText("\(WindowManager.shared.classicTitleName) ANALYZER", in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
         
         // Close button pressed state
         if pressedButton == .close {
@@ -2056,9 +2056,9 @@ class SkinRenderer {
         }
     }
     
-    /// Draw "NULLPLAYER LIBRARY" text using GenFont from gen.png
+    /// Draw library title text using GenFont from gen.png
     private func drawLibraryTitleText(in context: CGContext, bounds: NSRect, titleHeight: CGFloat, isActive: Bool = true) {
-        drawGenFontTitleText("NULLPLAYER LIBRARY", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        drawGenFontTitleText("\(WindowManager.shared.classicTitleName) LIBRARY", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
     }
     
     /// Draw title text using GenFont from gen.png with a dark background gap
@@ -2632,9 +2632,9 @@ class SkinRenderer {
         drawSprite(from: pleditImage, sourceRect: rightCorner,
                   to: NSRect(x: bounds.width - rightCornerWidth - cornerOverlap, y: 0, width: rightCornerWidth + cornerOverlap, height: titleHeight), in: context)
         
-        // Draw "NULLPLAYER PLAYLIST" text CENTERED over the tiles (instead of skin sprite with baked-in text)
+        // Draw title text CENTERED over the tiles (instead of skin sprite with baked-in text)
         // fontScale: 1.0 because the view already applies context scaling
-        drawGenFontTitleText("NULLPLAYER PLAYLIST", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
+        drawGenFontTitleText("\(WindowManager.shared.classicTitleName) PLAYLIST", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
         
         // Draw window control button pressed states if needed
         if pressedButton == .close {
@@ -2825,7 +2825,7 @@ class SkinRenderer {
         context.translateBy(x: 0, y: titleHeight)
         context.scaleBy(x: 1, y: -1)
         
-        let title = "NULLPLAYER PLAYLIST"
+        let title = "\(WindowManager.shared.classicTitleName) PLAYLIST"
         let attrs: [NSAttributedString.Key: Any] = [
             .foregroundColor: NSColor.white,
             .font: NSFont.boldSystemFont(ofSize: 8)
@@ -3073,7 +3073,7 @@ class SkinRenderer {
         NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.18, alpha: 1.0).setFill()
         context.fill(NSRect(x: tileEnd, y: 0, width: buttonAreaWidth, height: titleHeight))
         
-        // Draw "NULLPLAYER LIBRARY" text using GenFont with proper active/inactive colors
+        // Draw library title text using GenFont with proper active/inactive colors
         drawLibraryTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
         
         // Draw window control buttons using skin titlebar sprites (same style as main window)
@@ -3284,7 +3284,7 @@ class SkinRenderer {
             "X": [0b10001, 0b01010, 0b00100, 0b00100, 0b01010, 0b10001],
             "B": [0b11110, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
             "O": [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-            // Additional letters for "NULLPLAYER LIBRARY"
+            // Additional letters for title bars
             "I": [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
             "N": [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001],
             "A": [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001],
@@ -3331,7 +3331,7 @@ class SkinRenderer {
     }
 
     private func buildTitleSpriteFont() -> TitleSpriteFont? {
-        let playlistText = "NULLPLAYER PLAYLIST"
+        let playlistText = "\(WindowManager.shared.classicTitleName) PLAYLIST"
         let eqText = "EQUALIZER"
 
         let playlistFont = skin.pledit.flatMap { image in
