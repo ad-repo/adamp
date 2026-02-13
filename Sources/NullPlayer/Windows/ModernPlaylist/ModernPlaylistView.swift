@@ -550,6 +550,8 @@ class ModernPlaylistView: NSView {
             } else if let subsonicId = track.subsonicId {
                 // Subsonic track - load cover art
                 image = await self.loadSubsonicArtwork(songId: subsonicId)
+            } else if let jellyfinId = track.jellyfinId {
+                image = await self.loadJellyfinArtwork(itemId: jellyfinId)
             } else if track.url.isFileURL {
                 // Local file - extract embedded artwork
                 image = await self.loadLocalArtwork(url: track.url)
@@ -601,6 +603,21 @@ class ModernPlaylistView: NSView {
             let (data, response) = try await URLSession.shared.data(from: artworkURL)
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200,
+                  let image = NSImage(data: data) else { return nil }
+            Self.artworkCache.setObject(image, forKey: cacheKey)
+            return image
+        } catch {
+            return nil
+        }
+    }
+    
+    private func loadJellyfinArtwork(itemId: String) async -> NSImage? {
+        let cacheKey = NSString(string: "playlist_jellyfin:\(itemId)")
+        if let cached = Self.artworkCache.object(forKey: cacheKey) { return cached }
+        guard let artworkURL = JellyfinManager.shared.imageURL(itemId: itemId, imageTag: nil, size: 400) else { return nil }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: artworkURL)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200,
                   let image = NSImage(data: data) else { return nil }
             Self.artworkCache.setObject(image, forKey: cacheKey)
             return image

@@ -103,6 +103,7 @@ pgrep -l NullPlayer  # Shows PID if running
 | [AGENT_DOCS/CHROMECAST.md](AGENT_DOCS/CHROMECAST.md) | Google Cast protocol, debugging, test scripts |
 | [AGENT_DOCS/NON_RETINA_DISPLAY_FIXES.md](AGENT_DOCS/NON_RETINA_DISPLAY_FIXES.md) | Non-Retina display artifacts, blue line fixes, tile seam fixes |
 | [AGENT_DOCS/MODERN_SKIN_GUIDE.md](AGENT_DOCS/MODERN_SKIN_GUIDE.md) | Modern skin engine, skin.json schema, element catalog, custom skin creation |
+| [AGENT_DOCS/JELLYFIN.md](AGENT_DOCS/JELLYFIN.md) | Jellyfin API, auth flow, rating scale, streaming, scrobbling |
 
 ## Architecture
 
@@ -117,6 +118,7 @@ Sources/NullPlayer/
 ├── Windows/          # All window views (MainWindow, ModernMainWindow, ModernSpectrum, ModernPlaylist, ModernEQ, ModernProjectM, ModernLibraryBrowser, Playlist, EQ, etc.)
 ├── Plex/             # Plex server integration
 ├── Subsonic/         # Navidrome/Subsonic server integration
+├── Jellyfin/         # Jellyfin media server integration
 ├── Visualization/    # ProjectM wrapper, Metal spectrum analyzer + flame mode
 └── Models/           # Track, Playlist, MediaLibrary
 ```
@@ -133,6 +135,7 @@ Sources/NullPlayer/
 | Marquee | `Skin/MarqueeLayer.swift` (classic), `ModernSkin/ModernMarqueeLayer.swift` (modern), `Windows/Playlist/PlaylistView.swift` |
 | Plex | `Plex/PlexManager.swift`, `Plex/PlexServerClient.swift` |
 | Subsonic | `Subsonic/SubsonicManager.swift`, `Subsonic/SubsonicServerClient.swift`, `Subsonic/SubsonicModels.swift` |
+| Jellyfin | `Jellyfin/JellyfinManager.swift`, `Jellyfin/JellyfinServerClient.swift`, `Jellyfin/JellyfinModels.swift`, `Jellyfin/JellyfinPlaybackReporter.swift` |
 | Radio | `Radio/RadioManager.swift`, `Data/Models/RadioStation.swift`, `Windows/Radio/AddRadioStationSheet.swift` |
 | Casting | `Casting/CastManager.swift`, `Casting/CastProtocol.swift`, `Casting/ChromecastManager.swift`, `Casting/UPnPManager.swift`, `Casting/LocalMediaServer.swift` |
 | App | `App/WindowManager.swift`, `App/ContextMenuBuilder.swift`, `App/MainWindowProviding.swift`, `App/SpectrumWindowProviding.swift`, `App/PlaylistWindowProviding.swift`, `App/EQWindowProviding.swift`, `App/ProjectMWindowProviding.swift`, `App/LibraryBrowserWindowProviding.swift` |

@@ -498,17 +498,18 @@ class CastManager {
     /// Cast a specific track to a device
     func castTrack(_ track: Track, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
         NSLog("CastManager: castTrack called for '%@' - track.url: %@", track.title, track.url.absoluteString)
-        NSLog("CastManager: track.subsonicId=%@, track.plexRatingKey=%@", 
-              track.subsonicId ?? "nil", track.plexRatingKey ?? "nil")
+        NSLog("CastManager: track.subsonicId=%@, track.jellyfinId=%@, track.plexRatingKey=%@", 
+              track.subsonicId ?? "nil", track.jellyfinId ?? "nil", track.plexRatingKey ?? "nil")
         
         // Get castable URL
         let castURL: URL
         
-        // Check if this is a Subsonic track casting to Sonos - needs proxy due to query string issues
+        // Check if this is a Subsonic/Jellyfin track casting to Sonos - needs proxy due to query string issues
         let needsSubsonicProxy = track.subsonicId != nil && device.type == .sonos
+        let needsJellyfinProxy = track.jellyfinId != nil && device.type == .sonos
         
         if track.url.scheme == "http" || track.url.scheme == "https" {
-            if needsSubsonicProxy {
+            if needsSubsonicProxy || needsJellyfinProxy {
                 // Subsonic to Sonos: Use proxy to avoid query string issues
                 // Ensure server is running
                 if !LocalMediaServer.shared.isRunning {
@@ -525,7 +526,7 @@ class CastManager {
                     throw CastError.localServerError("Could not register stream with local media server")
                 }
                 castURL = proxyURL
-                NSLog("CastManager: Using proxy for Subsonic->Sonos: %@", proxyURL.absoluteString)
+                NSLog("CastManager: Using proxy for Subsonic/Jellyfin->Sonos: %@", proxyURL.absoluteString)
             } else {
                 // For Plex/remote URLs, ensure token is included
                 if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
@@ -555,16 +556,21 @@ class CastManager {
         var artworkURL: URL?
         if let plexTrack = findPlexTrack(matching: track) {
             artworkURL = PlexManager.shared.artworkURL(thumb: plexTrack.thumb)
-        } else if let coverArtId = track.artworkThumb {
+        } else if track.subsonicId != nil, let coverArtId = track.artworkThumb {
             // Subsonic/Navidrome tracks have artwork via coverArt ID
             if let subsonicArtwork = SubsonicManager.shared.coverArtURL(coverArtId: coverArtId) {
                 artworkURL = rewriteLocalhostForCasting(subsonicArtwork)
             }
+        } else if track.jellyfinId != nil, let imageTag = track.artworkThumb {
+            // Jellyfin track - use server's image URL
+            if let jellyfinArtwork = JellyfinManager.shared.imageURL(itemId: track.jellyfinId!, imageTag: imageTag, size: 300) {
+                artworkURL = rewriteLocalhostForCasting(jellyfinArtwork)
+            }
         }
         
-        // Use audio/flac for Subsonic proxy since that's what Navidrome typically serves
+        // Use audio/flac for Subsonic/Jellyfin proxy since that's what the servers typically serve
         // For other sources, use audio/mpeg as a safe default
-        let contentType = needsSubsonicProxy ? "audio/flac" : "audio/mpeg"
+        let contentType = (needsSubsonicProxy || needsJellyfinProxy) ? "audio/flac" : "audio/mpeg"
         
         let metadata = CastMetadata(
             title: track.title,
@@ -589,13 +595,14 @@ class CastManager {
         // Check if this is a local file (needs loading state due to async registration)
         let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
         
-        // Check if Subsonic track to Sonos - also needs loading state since we use proxy
+        // Check if Subsonic/Jellyfin track to Sonos - also needs loading state since we use proxy
         let needsSubsonicProxy = track.subsonicId != nil && session.device.type == .sonos
+        let needsJellyfinProxy = track.jellyfinId != nil && session.device.type == .sonos
         
         // Check if this is a radio station to Sonos - needs loading state for click guarding
         let isRadioToSonos = RadioManager.shared.isActive && session.device.type == .sonos
         
-        let needsLoadingState = isLocalFile || needsSubsonicProxy || isRadioToSonos
+        let needsLoadingState = isLocalFile || needsSubsonicProxy || needsJellyfinProxy || isRadioToSonos
         
         // Increment generation to invalidate any in-flight cast operations
         // This prevents race conditions when user rapidly clicks through tracks
@@ -633,8 +640,8 @@ class CastManager {
         // Get castable URL
         let castURL: URL
         if track.url.scheme == "http" || track.url.scheme == "https" {
-            if needsSubsonicProxy {
-                // Subsonic to Sonos: Use proxy to avoid query string issues
+            if needsSubsonicProxy || needsJellyfinProxy {
+                // Subsonic/Jellyfin to Sonos: Use proxy to avoid query string issues
                 // Ensure server is running before registering
                 if !LocalMediaServer.shared.isRunning {
                     do {
@@ -651,7 +658,7 @@ class CastManager {
                     throw CastError.localServerError("Could not register stream with local media server")
                 }
                 castURL = proxyURL
-                NSLog("CastManager: castNewTrack using proxy for Subsonic->Sonos: %@", proxyURL.absoluteString)
+                NSLog("CastManager: castNewTrack using proxy for Subsonic/Jellyfin->Sonos: %@", proxyURL.absoluteString)
             } else if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
                 castURL = rewriteLocalhostForCasting(tokenizedURL)
             } else {
@@ -696,15 +703,20 @@ class CastManager {
         var artworkURL: URL?
         if let plexTrack = findPlexTrack(matching: track) {
             artworkURL = PlexManager.shared.artworkURL(thumb: plexTrack.thumb)
-        } else if let coverArtId = track.artworkThumb {
+        } else if track.subsonicId != nil, let coverArtId = track.artworkThumb {
             // Subsonic/Navidrome tracks have artwork via coverArt ID
             if let subsonicArtwork = SubsonicManager.shared.coverArtURL(coverArtId: coverArtId) {
                 artworkURL = rewriteLocalhostForCasting(subsonicArtwork)
             }
+        } else if track.jellyfinId != nil, let imageTag = track.artworkThumb {
+            // Jellyfin track - use server's image URL
+            if let jellyfinArtwork = JellyfinManager.shared.imageURL(itemId: track.jellyfinId!, imageTag: imageTag, size: 300) {
+                artworkURL = rewriteLocalhostForCasting(jellyfinArtwork)
+            }
         }
         
-        // Use audio/flac for Subsonic proxy since that's what Navidrome typically serves
-        let contentType = needsSubsonicProxy ? "audio/flac" : "audio/mpeg"
+        // Use audio/flac for Subsonic/Jellyfin proxy since that's what the servers typically serve
+        let contentType = (needsSubsonicProxy || needsJellyfinProxy) ? "audio/flac" : "audio/mpeg"
         
         let metadata = CastMetadata(
             title: track.title,

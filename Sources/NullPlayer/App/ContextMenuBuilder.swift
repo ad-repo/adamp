@@ -51,6 +51,9 @@ class ContextMenuBuilder {
         // Subsonic submenu
         menu.addItem(buildSubsonicMenuItem())
         
+        // Jellyfin submenu
+        menu.addItem(buildJellyfinMenuItem())
+        
         // Output Devices submenu (includes local, AirPlay, and casting)
         menu.addItem(buildOutputDevicesMenuItem())
         
@@ -1013,6 +1016,96 @@ class ContextMenuBuilder {
         return subsonicItem
     }
     
+    // MARK: - Jellyfin Submenu
+    
+    private static func buildJellyfinMenuItem() -> NSMenuItem {
+        let jellyfinItem = NSMenuItem(title: "Jellyfin", action: nil, keyEquivalent: "")
+        let jellyfinMenu = NSMenu()
+        jellyfinMenu.autoenablesItems = false
+        
+        let servers = JellyfinManager.shared.servers
+        let currentServer = JellyfinManager.shared.currentServer
+        
+        // Add Server / Manage Servers
+        if servers.isEmpty {
+            let addItem = NSMenuItem(title: "Add Server...", action: #selector(MenuActions.addJellyfinServer), keyEquivalent: "")
+            addItem.target = MenuActions.shared
+            jellyfinMenu.addItem(addItem)
+        } else {
+            // Connection status
+            switch JellyfinManager.shared.connectionState {
+            case .connected:
+                if let server = currentServer {
+                    let statusItem = NSMenuItem(title: "✓ Connected to \(server.name)", action: nil, keyEquivalent: "")
+                    jellyfinMenu.addItem(statusItem)
+                }
+            case .connecting:
+                let statusItem = NSMenuItem(title: "Connecting...", action: nil, keyEquivalent: "")
+                jellyfinMenu.addItem(statusItem)
+            case .error:
+                let statusItem = NSMenuItem(title: "⚠ Connection Error", action: nil, keyEquivalent: "")
+                jellyfinMenu.addItem(statusItem)
+            case .disconnected:
+                let statusItem = NSMenuItem(title: "Not Connected", action: nil, keyEquivalent: "")
+                jellyfinMenu.addItem(statusItem)
+            }
+            
+            jellyfinMenu.addItem(NSMenuItem.separator())
+            
+            // Servers submenu
+            let serversItem = NSMenuItem(title: "Servers", action: nil, keyEquivalent: "")
+            let serversMenu = NSMenu()
+            serversMenu.autoenablesItems = false
+            
+            for server in servers {
+                let serverItem = NSMenuItem(title: server.name, action: #selector(MenuActions.selectJellyfinServer(_:)), keyEquivalent: "")
+                serverItem.target = MenuActions.shared
+                serverItem.representedObject = server.id
+                serverItem.state = server.id == currentServer?.id ? .on : .off
+                serversMenu.addItem(serverItem)
+            }
+            
+            serversMenu.addItem(NSMenuItem.separator())
+            
+            let addServerItem = NSMenuItem(title: "Add Server...", action: #selector(MenuActions.addJellyfinServer), keyEquivalent: "")
+            addServerItem.target = MenuActions.shared
+            serversMenu.addItem(addServerItem)
+            
+            let manageItem = NSMenuItem(title: "Manage Servers...", action: #selector(MenuActions.manageJellyfinServers), keyEquivalent: "")
+            manageItem.target = MenuActions.shared
+            serversMenu.addItem(manageItem)
+            
+            serversItem.submenu = serversMenu
+            jellyfinMenu.addItem(serversItem)
+            
+            jellyfinMenu.addItem(NSMenuItem.separator())
+            
+            // Disconnect option (if connected)
+            if currentServer != nil {
+                let disconnectItem = NSMenuItem(title: "Disconnect", action: #selector(MenuActions.disconnectJellyfin), keyEquivalent: "")
+                disconnectItem.target = MenuActions.shared
+                jellyfinMenu.addItem(disconnectItem)
+                
+                jellyfinMenu.addItem(NSMenuItem.separator())
+            }
+        }
+        
+        // Refresh Library
+        let refreshItem = NSMenuItem(title: "Refresh Library", action: #selector(MenuActions.refreshJellyfinLibrary), keyEquivalent: "")
+        refreshItem.target = MenuActions.shared
+        refreshItem.isEnabled = currentServer != nil
+        jellyfinMenu.addItem(refreshItem)
+        
+        // Show in Browser
+        let browserItem = NSMenuItem(title: "Show in Library Browser", action: #selector(MenuActions.showJellyfinInBrowser), keyEquivalent: "")
+        browserItem.target = MenuActions.shared
+        browserItem.isEnabled = currentServer != nil
+        jellyfinMenu.addItem(browserItem)
+        
+        jellyfinItem.submenu = jellyfinMenu
+        return jellyfinItem
+    }
+    
     // MARK: - Output Devices Submenu (Unified)
     
     /// Public access to the output devices menu (used by modern skin CAST button)
@@ -1641,6 +1734,12 @@ class MenuActions: NSObject {
             return
         }
         
+        // Check if this is a Jellyfin track
+        if let jellyfinId = track.jellyfinId {
+            showJellyfinTrackInfo(track, jellyfinId: jellyfinId)
+            return
+        }
+        
         // Local file
         showLocalTrackInfo(track)
     }
@@ -1748,6 +1847,35 @@ class MenuActions: NSObject {
             info.append("Source: Subsonic")
         }
         info.append("Track ID: \(subsonicId)")
+        
+        alert.informativeText = info.joined(separator: "\n")
+        alert.runModal()
+    }
+    
+    private func showJellyfinTrackInfo(_ track: Track, jellyfinId: String) {
+        let alert = NSAlert()
+        alert.messageText = track.displayTitle
+        
+        var info = [String]()
+        
+        info.append("Title: \(track.title)")
+        if let artist = track.artist { info.append("Artist: \(artist)") }
+        if let album = track.album { info.append("Album: \(album)") }
+        info.append("")
+        
+        info.append("Duration: \(track.formattedDuration)")
+        if let bitrate = track.bitrate { info.append("Bitrate: \(bitrate) kbps") }
+        if let sampleRate = track.sampleRate { info.append("Sample Rate: \(sampleRate) Hz") }
+        if let channels = track.channels { info.append("Channels: \(formatChannels(channels))") }
+        info.append("")
+        
+        // Source
+        if let serverName = JellyfinManager.shared.currentServer?.name {
+            info.append("Source: Jellyfin (\(serverName))")
+        } else {
+            info.append("Source: Jellyfin")
+        }
+        info.append("Track ID: \(jellyfinId)")
         
         alert.informativeText = info.joined(separator: "\n")
         alert.runModal()
@@ -2282,6 +2410,44 @@ class MenuActions: NSObject {
             name: NSNotification.Name("SetBrowserSource"),
             object: BrowserSource.subsonic(serverId: serverId)
         )
+    }
+    
+    // MARK: - Jellyfin
+    
+    @objc func addJellyfinServer() {
+        WindowManager.shared.showJellyfinLinkSheet()
+    }
+    
+    @objc func manageJellyfinServers() {
+        WindowManager.shared.showJellyfinServerList()
+    }
+    
+    @objc func selectJellyfinServer(_ sender: NSMenuItem) {
+        guard let serverID = sender.representedObject as? String,
+              let server = JellyfinManager.shared.servers.first(where: { $0.id == serverID }) else { return }
+        Task {
+            do {
+                try await JellyfinManager.shared.connect(to: server)
+                await MainActor.run { NotificationCenter.default.post(name: JellyfinManager.serversDidChangeNotification, object: nil) }
+            } catch {
+                await MainActor.run { let a = NSAlert(); a.messageText = "Failed to Connect"; a.informativeText = error.localizedDescription; a.runModal() }
+            }
+        }
+    }
+    
+    @objc func disconnectJellyfin() {
+        JellyfinManager.shared.disconnect()
+        NotificationCenter.default.post(name: JellyfinManager.connectionStateDidChangeNotification, object: nil)
+    }
+    
+    @objc func refreshJellyfinLibrary() {
+        Task { await JellyfinManager.shared.preloadLibraryContent() }
+    }
+    
+    @objc func showJellyfinInBrowser() {
+        guard let serverId = JellyfinManager.shared.currentServer?.id else { return }
+        WindowManager.shared.showPlexBrowser()
+        NotificationCenter.default.post(name: NSNotification.Name("SetBrowserSource"), object: nil, userInfo: ["source": "jellyfin", "serverId": serverId])
     }
     
     // MARK: - Output Device

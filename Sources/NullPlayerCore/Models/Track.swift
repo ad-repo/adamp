@@ -27,6 +27,12 @@ public struct Track: Identifiable, Equatable, Sendable {
     /// Subsonic server ID to identify which server the track belongs to
     public let subsonicServerId: String?
     
+    /// Jellyfin item ID for scrobbling (nil for non-Jellyfin tracks)
+    public let jellyfinId: String?
+    
+    /// Jellyfin server ID to identify which server the track belongs to
+    public let jellyfinServerId: String?
+    
     /// Artwork identifier for casting (Plex thumb path or Subsonic coverArt ID)
     public let artworkThumb: String?
     
@@ -45,6 +51,8 @@ public struct Track: Identifiable, Equatable, Sendable {
                 plexRatingKey: String? = nil,
                 subsonicId: String? = nil,
                 subsonicServerId: String? = nil,
+                jellyfinId: String? = nil,
+                jellyfinServerId: String? = nil,
                 artworkThumb: String? = nil,
                 mediaType: MediaType = .audio) {
         self.id = id
@@ -59,6 +67,8 @@ public struct Track: Identifiable, Equatable, Sendable {
         self.plexRatingKey = plexRatingKey
         self.subsonicId = subsonicId
         self.subsonicServerId = subsonicServerId
+        self.jellyfinId = jellyfinId
+        self.jellyfinServerId = jellyfinServerId
         self.artworkThumb = artworkThumb
         self.mediaType = mediaType
     }
@@ -77,6 +87,8 @@ public struct Track: Identifiable, Equatable, Sendable {
         self.plexRatingKey = nil
         self.subsonicId = nil
         self.subsonicServerId = nil
+        self.jellyfinId = nil
+        self.jellyfinServerId = nil
         self.artworkThumb = nil
         self.mediaType = .audio
     }

@@ -6,6 +6,7 @@ enum BrowserSource: Equatable, Codable {
     case local
     case plex(serverId: String)
     case subsonic(serverId: String)
+    case jellyfin(serverId: String)
     case radio
     
     /// Display name for the source
@@ -23,6 +24,11 @@ enum BrowserSource: Equatable, Codable {
                 return "SUBSONIC: \(server.name)"
             }
             return "SUBSONIC"
+        case .jellyfin(let serverId):
+            if let server = JellyfinManager.shared.servers.first(where: { $0.id == serverId }) {
+                return "JELLYFIN: \(server.name)"
+            }
+            return "JELLYFIN"
         case .radio:
             return "INTERNET RADIO"
         }
@@ -43,6 +49,11 @@ enum BrowserSource: Equatable, Codable {
                 return server.name
             }
             return "Subsonic"
+        case .jellyfin(let serverId):
+            if let server = JellyfinManager.shared.servers.first(where: { $0.id == serverId }) {
+                return server.name
+            }
+            return "Jellyfin"
         case .radio:
             return "Radio"
         }
@@ -51,6 +62,12 @@ enum BrowserSource: Equatable, Codable {
     /// Whether this is a Subsonic source
     var isSubsonic: Bool {
         if case .subsonic = self { return true }
+        return false
+    }
+    
+    /// Whether this is a Jellyfin source
+    var isJellyfin: Bool {
+        if case .jellyfin = self { return true }
         return false
     }
     
@@ -66,12 +83,12 @@ enum BrowserSource: Equatable, Codable {
         return false
     }
     
-    /// Whether this is a remote source (Plex or Subsonic)
+    /// Whether this is a remote source (Plex, Subsonic, or Jellyfin)
     var isRemote: Bool {
         switch self {
         case .local, .radio:
             return false
-        case .plex, .subsonic:
+        case .plex, .subsonic, .jellyfin:
             return true
         }
     }
@@ -280,11 +297,11 @@ class PlexBrowserView: NSView {
     /// Get columns for a specific item (nil = use simple list rendering)
     private func columnsForItem(_ item: PlexDisplayItem) -> [BrowserColumn]? {
         switch item.type {
-        case .track, .subsonicTrack, .localTrack:
+        case .track, .subsonicTrack, .localTrack, .jellyfinTrack:
             return BrowserColumn.trackColumns
-        case .album, .subsonicAlbum, .localAlbum:
+        case .album, .subsonicAlbum, .localAlbum, .jellyfinAlbum:
             return BrowserColumn.albumColumns
-        case .artist, .subsonicArtist, .localArtist:
+        case .artist, .subsonicArtist, .localArtist, .jellyfinArtist:
             // Only show columns for top-level artists (not nested under search results)
             if item.indentLevel == 0 {
                 return BrowserColumn.artistColumns
@@ -349,6 +366,8 @@ class PlexBrowserView: NSView {
                               !expandedLocalArtists.isEmpty || !expandedLocalAlbums.isEmpty ||
                               !expandedSubsonicArtists.isEmpty || !expandedSubsonicAlbums.isEmpty ||
                               !expandedSubsonicPlaylists.isEmpty || !expandedPlexPlaylists.isEmpty ||
+                              !expandedJellyfinArtists.isEmpty || !expandedJellyfinAlbums.isEmpty ||
+                              !expandedJellyfinPlaylists.isEmpty ||
                               !expandedShows.isEmpty || !expandedSeasons.isEmpty
             if hadExpanded {
                 expandedArtists.removeAll()
@@ -359,6 +378,9 @@ class PlexBrowserView: NSView {
                 expandedSubsonicArtists.removeAll()
                 expandedSubsonicAlbums.removeAll()
                 expandedSubsonicPlaylists.removeAll()
+                expandedJellyfinArtists.removeAll()
+                expandedJellyfinAlbums.removeAll()
+                expandedJellyfinPlaylists.removeAll()
                 expandedPlexPlaylists.removeAll()
                 expandedShows.removeAll()
                 expandedSeasons.removeAll()
@@ -535,6 +557,19 @@ class PlexBrowserView: NSView {
     private var subsonicAlbumSongs: [String: [SubsonicSong]] = [:]
     private var subsonicLoadTask: Task<Void, Never>?
     private var subsonicExpandTask: Task<Void, Never>?
+    
+    /// Cached data - Music (Jellyfin)
+    private var cachedJellyfinArtists: [JellyfinArtist] = []
+    private var cachedJellyfinAlbums: [JellyfinAlbum] = []
+    private var cachedJellyfinPlaylists: [JellyfinPlaylist] = []
+    private var expandedJellyfinArtists: Set<String> = []
+    private var expandedJellyfinAlbums: Set<String> = []
+    private var expandedJellyfinPlaylists: Set<String> = []
+    private var jellyfinArtistAlbums: [String: [JellyfinAlbum]] = [:]
+    private var jellyfinPlaylistTracks: [String: [JellyfinSong]] = [:]
+    private var jellyfinAlbumSongs: [String: [JellyfinSong]] = [:]
+    private var jellyfinLoadTask: Task<Void, Never>?
+    private var jellyfinExpandTask: Task<Void, Never>?
     
     /// Cached data - Radio Stations
     private var cachedRadioStations: [RadioStation] = []
@@ -799,6 +834,18 @@ class PlexBrowserView: NSView {
                     currentSource = .local  // Temporary
                 } else if let firstServer = SubsonicManager.shared.servers.first {
                     currentSource = .subsonic(serverId: firstServer.id)
+                } else {
+                    currentSource = .local
+                }
+            case .jellyfin(let serverId):
+                // Only restore Jellyfin source if server still exists
+                if JellyfinManager.shared.servers.contains(where: { $0.id == serverId }) {
+                    currentSource = savedSource
+                } else if JellyfinManager.shared.servers.isEmpty {
+                    pendingSourceRestore = savedSource
+                    currentSource = .local
+                } else if let firstServer = JellyfinManager.shared.servers.first {
+                    currentSource = .jellyfin(serverId: firstServer.id)
                 } else {
                     currentSource = .local
                 }
@@ -1089,7 +1136,7 @@ class PlexBrowserView: NSView {
     /// Show the rating overlay
     private func showRatingOverlay() {
         guard let currentTrack = WindowManager.shared.audioEngine.currentTrack,
-              currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL else { return }
+              currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.jellyfinId != nil || currentTrack.url.isFileURL else { return }
         
         ratingOverlay.frame = bounds
         ratingOverlay.setRating(currentTrackRating ?? 0)
@@ -1134,6 +1181,9 @@ class PlexBrowserView: NSView {
                     let subsonicRating = rating / 2
                     try await SubsonicManager.shared.setRating(songId: subsonicId, rating: subsonicRating)
                     NSLog("PlexBrowser: Rated Subsonic track %@ with %d stars", subsonicId, subsonicRating)
+                } else if currentTrack.jellyfinId != nil {
+                    // Jellyfin: rating not yet supported
+                    NSLog("PlexBrowser: Jellyfin rating not yet supported")
                 } else if currentTrack.url.isFileURL {
                     // Local file: 0-10 scale in MediaLibrary
                     await MainActor.run {
@@ -1192,6 +1242,10 @@ class PlexBrowserView: NSView {
                     NSLog("PlexBrowser: Failed to fetch Subsonic track rating: %@", error.localizedDescription)
                 }
             }
+        } else if currentTrack.jellyfinId != nil {
+            // Jellyfin: favorite = 10, not favorite = 0
+            currentTrackRating = 0  // Default; could fetch from server if needed
+            needsDisplay = true
         } else if currentTrack.url.isFileURL {
             // Local file: read from library (already 0-10 scale)
             if let libraryTrack = MediaLibrary.shared.findTrack(byURL: currentTrack.url) {
@@ -1231,6 +1285,9 @@ class PlexBrowserView: NSView {
             browseMode = .artists
         } else if browseMode == .radio, case .subsonic = currentSource {
             // Subsonic doesn't support radio tab, switch to artists tab
+            browseMode = .artists
+        } else if browseMode == .radio, case .jellyfin = currentSource {
+            // Jellyfin doesn't support radio tab, switch to artists tab
             browseMode = .artists
         }
         
@@ -1592,7 +1649,7 @@ class PlexBrowserView: NSView {
             // Star rating (art-only mode) or item count (list mode)
             if isArtOnlyMode,
                let currentTrack = WindowManager.shared.audioEngine.currentTrack,
-               currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
+               currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.jellyfinId != nil || currentTrack.url.isFileURL {
                 let starSize: CGFloat = 12
                 let starSpacing: CGFloat = 2
                 let totalStars = 5
@@ -1723,7 +1780,7 @@ class PlexBrowserView: NSView {
                 // Star rating (art-only mode) or item count (list mode)
                 if isArtOnlyMode,
                    let currentTrack = WindowManager.shared.audioEngine.currentTrack,
-                   currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
+                   currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.jellyfinId != nil || currentTrack.url.isFileURL {
                     let starSize: CGFloat = 12
                     let starSpacing: CGFloat = 2
                     let totalStars = 5
@@ -1841,7 +1898,7 @@ class PlexBrowserView: NSView {
                 // Star rating (art-only mode) or item count (list mode)
                 if isArtOnlyMode,
                    let currentTrack = WindowManager.shared.audioEngine.currentTrack,
-                   currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
+                   currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.jellyfinId != nil || currentTrack.url.isFileURL {
                     let starSize: CGFloat = 12
                     let starSpacing: CGFloat = 2
                     let totalStars = 5
@@ -1879,6 +1936,92 @@ class PlexBrowserView: NSView {
             } else {
                 // No Subsonic server configured - show add server message
                 let linkText = "Click to add a Subsonic server"
+                let linkWidth = CGFloat(linkText.count) * scaledCharWidth
+                let linkX = barRect.midX - linkWidth / 2
+                drawScaledSkinText(linkText, at: NSPoint(x: linkX, y: textY), scale: textScale, renderer: renderer, in: context)
+            }
+        
+        case .jellyfin(let serverId):
+            let jfManager = JellyfinManager.shared
+            let configuredServer = jfManager.servers.first(where: { $0.id == serverId })
+            
+            if configuredServer != nil {
+                let maxServerChars = 20
+                let maxServerWidth = CGFloat(maxServerChars) * scaledCharWidth
+                let serverName = configuredServer?.name ?? "Select Server"
+                let serverTextWidth = CGFloat(serverName.count) * scaledCharWidth
+                
+                if serverTextWidth <= maxServerWidth {
+                    drawScaledWhiteSkinText(serverName, at: NSPoint(x: sourceNameStartX, y: textY), scale: textScale, renderer: renderer, in: context)
+                } else {
+                    drawScrollingText(serverName, startX: sourceNameStartX, textY: textY,
+                                     availableWidth: maxServerWidth, scale: textScale,
+                                     scrollOffset: serverNameScrollOffset,
+                                     renderer: renderer, in: context)
+                }
+                
+                let refreshText = "F5"
+                let refreshX = barRect.maxX - (CGFloat(refreshText.count) * scaledCharWidth) - 8
+                drawScaledSkinText(refreshText, at: NSPoint(x: refreshX, y: textY), scale: textScale, renderer: renderer, in: context)
+                
+                let artText = "ART"
+                let artWidth = CGFloat(artText.count) * scaledCharWidth
+                var artX = refreshX - artWidth - 24
+                let visText = "VIS"
+                let visWidth = CGFloat(visText.count) * scaledCharWidth
+                var visX = artX - visWidth - 16
+                
+                if currentArtwork != nil {
+                    if isArtOnlyMode {
+                        drawScaledWhiteSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+                        if isVisualizingArt {
+                            drawScaledWhiteSkinText(visText, at: NSPoint(x: visX, y: textY), scale: textScale, renderer: renderer, in: context)
+                        } else {
+                            drawScaledSkinText(visText, at: NSPoint(x: visX, y: textY), scale: textScale, renderer: renderer, in: context)
+                        }
+                    } else {
+                        drawScaledSkinText(artText, at: NSPoint(x: artX, y: textY), scale: textScale, renderer: renderer, in: context)
+                        visX = artX
+                    }
+                } else {
+                    artX = refreshX
+                    visX = artX
+                }
+                
+                if isArtOnlyMode,
+                   let currentTrack = WindowManager.shared.audioEngine.currentTrack,
+                   currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.jellyfinId != nil || currentTrack.url.isFileURL {
+                    let starSize: CGFloat = 12
+                    let starSpacing: CGFloat = 2
+                    let totalStars = 5
+                    let starsWidth = CGFloat(totalStars) * starSize + CGFloat(totalStars - 1) * starSpacing
+                    let starsX = visX - starsWidth - 16
+                    let starY = barRect.minY + (barRect.height - starSize) / 2
+                    let rating = currentTrackRating ?? 0
+                    let filledCount = rating / 2
+                    let greenColor = renderer.skinTextColor()
+                    let dimGreen = NSColor(red: greenColor.redComponent * 0.4,
+                                          green: greenColor.greenComponent * 0.4,
+                                          blue: greenColor.blueComponent * 0.4,
+                                          alpha: 0.6)
+                    for i in 0..<totalStars {
+                        let x = starsX + CGFloat(i) * (starSize + starSpacing)
+                        let starRect = NSRect(x: x, y: starY, width: starSize, height: starSize)
+                        let isFilled = i < filledCount
+                        drawPixelStar(in: starRect, color: isFilled ? greenColor : dimGreen, context: context)
+                    }
+                    rateButtonRect = NSRect(x: starsX, y: barRect.minY, width: starsWidth, height: barRect.height)
+                } else if !isArtOnlyMode {
+                    let countNumber = "\(displayItems.count)"
+                    let countLabel = " items"
+                    let countWidth = CGFloat(countNumber.count + countLabel.count) * scaledCharWidth
+                    let countX = visX - countWidth - 24
+                    drawScaledWhiteSkinText(countNumber, at: NSPoint(x: countX, y: textY), scale: textScale, renderer: renderer, in: context)
+                    let labelX = countX + CGFloat(countNumber.count) * scaledCharWidth
+                    drawScaledWhiteSkinText(countLabel, at: NSPoint(x: labelX, y: textY), scale: textScale, renderer: renderer, in: context)
+                }
+            } else {
+                let linkText = "Click to add a Jellyfin server"
                 let linkWidth = CGFloat(linkText.count) * scaledCharWidth
                 let linkX = barRect.midX - linkWidth / 2
                 drawScaledSkinText(linkText, at: NSPoint(x: linkX, y: textY), scale: textScale, renderer: renderer, in: context)
@@ -2227,21 +2370,21 @@ class PlexBrowserView: NSView {
         let headerColumns: [BrowserColumn]?
         if displayItems.contains(where: { 
             switch $0.type { 
-            case .track, .subsonicTrack, .localTrack: return true 
+            case .track, .subsonicTrack, .localTrack, .jellyfinTrack: return true 
             default: return false 
             }
         }) {
             headerColumns = BrowserColumn.trackColumns
         } else if displayItems.contains(where: {
             switch $0.type {
-            case .album, .subsonicAlbum, .localAlbum: return true
+            case .album, .subsonicAlbum, .localAlbum, .jellyfinAlbum: return true
             default: return false
             }
         }) {
             headerColumns = BrowserColumn.albumColumns
         } else if displayItems.contains(where: {
             switch $0.type {
-            case .artist, .subsonicArtist, .localArtist: return true
+            case .artist, .subsonicArtist, .localArtist, .jellyfinArtist: return true
             default: return false
             }
         }) {
@@ -4539,6 +4682,12 @@ class PlexBrowserView: NSView {
             return
         }
         
+        // For Jellyfin source
+        if case .jellyfin(let serverId) = currentSource {
+            loadJellyfinData(serverId: serverId)
+            return
+        }
+        
         // For Plex source, check if linked
         guard PlexManager.shared.isLinked else {
             displayItems = []
@@ -4723,6 +4872,16 @@ class PlexBrowserView: NSView {
                         self.currentSource = .subsonic(serverId: firstServer.id)
                         return
                     }
+                case .jellyfin(let serverId):
+                    if JellyfinManager.shared.servers.contains(where: { $0.id == serverId }) {
+                        NSLog("PlexBrowserView: Restoring pending Jellyfin source: %@", serverId)
+                        self.currentSource = pending
+                        return
+                    } else if let firstServer = JellyfinManager.shared.servers.first {
+                        NSLog("PlexBrowserView: Pending Jellyfin server not found, using first server")
+                        self.currentSource = .jellyfin(serverId: firstServer.id)
+                        return
+                    }
                 case .local:
                     break
                 case .radio:
@@ -4827,6 +4986,9 @@ class PlexBrowserView: NSView {
             } else if let subsonicId = track.subsonicId {
                 // Subsonic track - load from server
                 image = await self.loadSubsonicArtwork(songId: subsonicId, albumName: track.album)
+            } else if let jellyfinId = track.jellyfinId {
+                // Jellyfin track - load from server
+                image = await self.loadJellyfinArtwork(itemId: jellyfinId, imageTag: nil)
             } else if track.url.isFileURL {
                 // Local file - extract embedded artwork
                 image = await self.loadLocalArtwork(url: track.url)
@@ -5244,6 +5406,11 @@ class PlexBrowserView: NSView {
                 if let image = await self.loadSubsonicArtwork(songId: subsonicId, albumName: currentTrack.album) {
                     images.append(image)
                 }
+            } else if let jellyfinId = currentTrack.jellyfinId {
+                // Jellyfin track - load cover art
+                if let image = await self.loadJellyfinArtwork(itemId: jellyfinId, imageTag: nil) {
+                    images.append(image)
+                }
             }
             
             // Check if task was cancelled
@@ -5358,6 +5525,18 @@ class PlexBrowserView: NSView {
                     image = await self.loadSubsonicArtworkByCoverId(coverArt: coverArt, cacheKey: "subsonic:playlist:\(playlist.id)")
                 }
                 
+            case .jellyfinTrack(let song):
+                image = await self.loadJellyfinArtwork(itemId: song.albumId ?? song.id, imageTag: song.imageTag)
+                
+            case .jellyfinAlbum(let album):
+                image = await self.loadJellyfinArtwork(itemId: album.id, imageTag: album.imageTag)
+                
+            case .jellyfinArtist(let artist):
+                image = await self.loadJellyfinArtwork(itemId: artist.id, imageTag: artist.imageTag)
+                
+            case .jellyfinPlaylist(let playlist):
+                image = await self.loadJellyfinArtwork(itemId: playlist.id, imageTag: playlist.imageTag)
+                
             case .plexPlaylist(let playlist):
                 if let thumb = playlist.thumb {
                     image = await self.loadPlexArtworkByThumb(thumb: thumb, cacheKey: "plex:playlist:\(playlist.id)")
@@ -5441,6 +5620,20 @@ class PlexBrowserView: NSView {
         } catch {
             return nil
         }
+    }
+    
+    /// Load artwork from Jellyfin using item ID and image tag
+    private func loadJellyfinArtwork(itemId: String, imageTag: String?) async -> NSImage? {
+        let cacheKey = NSString(string: "jellyfin:\(itemId)")
+        if let cached = Self.artworkCache.object(forKey: cacheKey) { return cached }
+        guard let url = JellyfinManager.shared.imageURL(itemId: itemId, imageTag: imageTag, size: 400) else { return nil }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let image = NSImage(data: data) else { return nil }
+            Self.artworkCache.setObject(image, forKey: cacheKey)
+            return image
+        } catch { return nil }
     }
     
     /// Load movie poster from TMDb (The Movie Database) as fallback
@@ -5683,11 +5876,11 @@ class PlexBrowserView: NSView {
         // Determine which columns to check (priority: tracks > albums > artists)
         let columns: [BrowserColumn]
         if displayItems.contains(where: {
-            switch $0.type { case .track, .subsonicTrack, .localTrack: return true; default: return false }
+            switch $0.type { case .track, .subsonicTrack, .localTrack, .jellyfinTrack: return true; default: return false }
         }) {
             columns = BrowserColumn.trackColumns
         } else if displayItems.contains(where: {
-            switch $0.type { case .album, .subsonicAlbum, .localAlbum: return true; default: return false }
+            switch $0.type { case .album, .subsonicAlbum, .localAlbum, .jellyfinAlbum: return true; default: return false }
         }) {
             columns = BrowserColumn.albumColumns
         } else {
@@ -5739,11 +5932,11 @@ class PlexBrowserView: NSView {
         // Determine which columns to check (priority: tracks > albums > artists)
         let columns: [BrowserColumn]
         if displayItems.contains(where: {
-            switch $0.type { case .track, .subsonicTrack, .localTrack: return true; default: return false }
+            switch $0.type { case .track, .subsonicTrack, .localTrack, .jellyfinTrack: return true; default: return false }
         }) {
             columns = BrowserColumn.trackColumns
         } else if displayItems.contains(where: {
-            switch $0.type { case .album, .subsonicAlbum, .localAlbum: return true; default: return false }
+            switch $0.type { case .album, .subsonicAlbum, .localAlbum, .jellyfinAlbum: return true; default: return false }
         }) {
             columns = BrowserColumn.albumColumns
         } else {
@@ -6318,6 +6511,15 @@ class PlexBrowserView: NSView {
                 // Source/server area = source dropdown
                 showSourceMenu(at: event)
             }
+        } else if case .jellyfin = currentSource {
+            // Jellyfin mode - Server name on left (no library selector)
+            let maxJellyfinServerChars = 20
+            let maxJellyfinServerWidth = CGFloat(maxJellyfinServerChars) * charWidth
+            let serverZoneEnd = sourcePrefix + maxJellyfinServerWidth
+            
+            if relativeX < serverZoneEnd {
+                showSourceMenu(at: event)
+            }
         } else if case .radio = currentSource {
             // Radio mode - Source and +ADD on left
             let radioNameWidth: CGFloat = 14 * charWidth  // "Internet Radio"
@@ -6367,6 +6569,14 @@ class PlexBrowserView: NSView {
             // Refresh Subsonic data
             Task {
                 await SubsonicManager.shared.preloadLibraryContent()
+                await MainActor.run {
+                    self.refreshData()
+                }
+            }
+        case .jellyfin:
+            // Refresh Jellyfin data
+            Task {
+                await JellyfinManager.shared.preloadLibraryContent()
                 await MainActor.run {
                     self.refreshData()
                 }
@@ -6434,6 +6644,26 @@ class PlexBrowserView: NSView {
         } else {
             menu.addItem(NSMenuItem.separator())
             let addItem = NSMenuItem(title: "Add Navidrome/Subsonic...", action: #selector(addSubsonicServer), keyEquivalent: "")
+            addItem.target = self
+            menu.addItem(addItem)
+        }
+        
+        // Jellyfin servers
+        let jellyfinServers = JellyfinManager.shared.servers
+        if !jellyfinServers.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            for server in jellyfinServers {
+                let serverItem = NSMenuItem(title: "🟣 \(server.name)", action: #selector(selectJellyfinServer(_:)), keyEquivalent: "")
+                serverItem.target = self
+                serverItem.representedObject = server.id
+                if case .jellyfin(let currentServerId) = currentSource, currentServerId == server.id {
+                    serverItem.state = .on
+                }
+                menu.addItem(serverItem)
+            }
+        } else {
+            menu.addItem(NSMenuItem.separator())
+            let addItem = NSMenuItem(title: "Add Jellyfin Server...", action: #selector(addJellyfinServer), keyEquivalent: "")
             addItem.target = self
             menu.addItem(addItem)
         }
@@ -6784,6 +7014,27 @@ class PlexBrowserView: NSView {
         WindowManager.shared.showSubsonicLinkSheet()
     }
     
+    @objc private func selectJellyfinServer(_ sender: NSMenuItem) {
+        guard let serverId = sender.representedObject as? String else { return }
+        currentSource = .jellyfin(serverId: serverId)
+        
+        if let server = JellyfinManager.shared.servers.first(where: { $0.id == serverId }) {
+            Task { @MainActor in
+                do {
+                    try await JellyfinManager.shared.connect(to: server)
+                    reloadData()
+                } catch {
+                    errorMessage = error.localizedDescription
+                    needsDisplay = true
+                }
+            }
+        }
+    }
+    
+    @objc private func addJellyfinServer() {
+        WindowManager.shared.showJellyfinLinkSheet()
+    }
+    
     @objc private func addWatchFolder() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -7088,15 +7339,15 @@ class PlexBrowserView: NSView {
         // Determine which columns are active for horizontal scroll calculation
         let columns: [BrowserColumn]?
         if displayItems.contains(where: { 
-            switch $0.type { case .track, .subsonicTrack, .localTrack: return true; default: return false }
+            switch $0.type { case .track, .subsonicTrack, .localTrack, .jellyfinTrack: return true; default: return false }
         }) {
             columns = BrowserColumn.trackColumns
         } else if displayItems.contains(where: {
-            switch $0.type { case .album, .subsonicAlbum, .localAlbum: return true; default: return false }
+            switch $0.type { case .album, .subsonicAlbum, .localAlbum, .jellyfinAlbum: return true; default: return false }
         }) {
             columns = BrowserColumn.albumColumns
         } else if displayItems.contains(where: {
-            switch $0.type { case .artist, .subsonicArtist, .localArtist: return true; default: return false }
+            switch $0.type { case .artist, .subsonicArtist, .localArtist, .jellyfinArtist: return true; default: return false }
         }) {
             columns = BrowserColumn.artistColumns
         } else {
@@ -7833,6 +8084,70 @@ class PlexBrowserView: NSView {
             expandItem.representedObject = item
             menu.addItem(expandItem)
             
+        case .jellyfinTrack(let song):
+            let playItem = NSMenuItem(title: "Play", action: #selector(contextMenuPlayJellyfinSong(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = song
+            menu.addItem(playItem)
+            
+            let playNextItem = NSMenuItem(title: "Play Next", action: #selector(contextMenuPlayJellyfinSongNext(_:)), keyEquivalent: "")
+            playNextItem.target = self
+            playNextItem.representedObject = song
+            menu.addItem(playNextItem)
+            
+            let queueItem = NSMenuItem(title: "Add to Queue", action: #selector(contextMenuAddJellyfinSongToQueue(_:)), keyEquivalent: "")
+            queueItem.target = self
+            queueItem.representedObject = song
+            menu.addItem(queueItem)
+            
+        case .jellyfinAlbum(let album):
+            let playItem = NSMenuItem(title: "Play Album", action: #selector(contextMenuPlayJellyfinAlbum(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = album
+            menu.addItem(playItem)
+            
+            let playNextItem = NSMenuItem(title: "Play Album Next", action: #selector(contextMenuPlayJellyfinAlbumNext(_:)), keyEquivalent: "")
+            playNextItem.target = self
+            playNextItem.representedObject = album
+            menu.addItem(playNextItem)
+            
+            let queueItem = NSMenuItem(title: "Add Album to Queue", action: #selector(contextMenuAddJellyfinAlbumToQueue(_:)), keyEquivalent: "")
+            queueItem.target = self
+            queueItem.representedObject = album
+            menu.addItem(queueItem)
+            
+        case .jellyfinArtist(let artist):
+            let playItem = NSMenuItem(title: "Play All by Artist", action: #selector(contextMenuPlayJellyfinArtist(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = artist
+            menu.addItem(playItem)
+            
+            let playNextItem = NSMenuItem(title: "Play Artist Next", action: #selector(contextMenuPlayJellyfinArtistNext(_:)), keyEquivalent: "")
+            playNextItem.target = self
+            playNextItem.representedObject = artist
+            menu.addItem(playNextItem)
+            
+            let queueItem = NSMenuItem(title: "Add Artist to Queue", action: #selector(contextMenuAddJellyfinArtistToQueue(_:)), keyEquivalent: "")
+            queueItem.target = self
+            queueItem.representedObject = artist
+            menu.addItem(queueItem)
+            
+            let expandItem2 = NSMenuItem(title: expandedJellyfinArtists.contains(artist.id) ? "Collapse" : "Expand", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem2.target = self
+            expandItem2.representedObject = item
+            menu.addItem(expandItem2)
+            
+        case .jellyfinPlaylist(let playlist):
+            let playItem = NSMenuItem(title: "Play Playlist", action: #selector(contextMenuPlayJellyfinPlaylist(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = playlist
+            menu.addItem(playItem)
+            
+            let expandItem3 = NSMenuItem(title: expandedJellyfinPlaylists.contains(playlist.id) ? "Collapse" : "Expand", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem3.target = self
+            expandItem3.representedObject = item
+            menu.addItem(expandItem3)
+            
         case .plexPlaylist(let playlist):
             let playItem = NSMenuItem(title: "Play Playlist", action: #selector(contextMenuPlayPlexPlaylist(_:)), keyEquivalent: "")
             playItem.target = self
@@ -8498,6 +8813,90 @@ class PlexBrowserView: NSView {
             } catch { NSLog("Failed to add subsonic artist to queue: %@", error.localizedDescription) }
         }
     }
+    // MARK: - Jellyfin Context Menu Actions
+    @objc private func contextMenuPlayJellyfinSong(_ sender: NSMenuItem) {
+        guard let song = sender.representedObject as? JellyfinSong else { return }
+        playJellyfinSong(song)
+    }
+    @objc private func contextMenuPlayJellyfinAlbum(_ sender: NSMenuItem) {
+        guard let album = sender.representedObject as? JellyfinAlbum else { return }
+        playJellyfinAlbum(album)
+    }
+    @objc private func contextMenuPlayJellyfinArtist(_ sender: NSMenuItem) {
+        guard let artist = sender.representedObject as? JellyfinArtist else { return }
+        playJellyfinArtist(artist)
+    }
+    @objc private func contextMenuPlayJellyfinPlaylist(_ sender: NSMenuItem) {
+        guard let playlist = sender.representedObject as? JellyfinPlaylist else { return }
+        playJellyfinPlaylist(playlist)
+    }
+    @objc private func contextMenuPlayJellyfinSongNext(_ sender: NSMenuItem) {
+        guard let song = sender.representedObject as? JellyfinSong,
+              let track = JellyfinManager.shared.convertToTrack(song) else { return }
+        WindowManager.shared.audioEngine.insertTracksAfterCurrent([track])
+    }
+    @objc private func contextMenuAddJellyfinSongToQueue(_ sender: NSMenuItem) {
+        guard let song = sender.representedObject as? JellyfinSong,
+              let track = JellyfinManager.shared.convertToTrack(song) else { return }
+        let engine = WindowManager.shared.audioEngine
+        let wasEmpty = engine.playlist.isEmpty
+        engine.appendTracks([track])
+        if wasEmpty { engine.playTrack(at: 0) }
+    }
+    @objc private func contextMenuPlayJellyfinAlbumNext(_ sender: NSMenuItem) {
+        guard let album = sender.representedObject as? JellyfinAlbum else { return }
+        Task { @MainActor in
+            do {
+                let songs = try await JellyfinManager.shared.fetchSongs(forAlbum: album)
+                let tracks = JellyfinManager.shared.convertToTracks(songs)
+                WindowManager.shared.audioEngine.insertTracksAfterCurrent(tracks)
+            } catch { NSLog("Failed to play Jellyfin album next: %@", error.localizedDescription) }
+        }
+    }
+    @objc private func contextMenuAddJellyfinAlbumToQueue(_ sender: NSMenuItem) {
+        guard let album = sender.representedObject as? JellyfinAlbum else { return }
+        Task { @MainActor in
+            do {
+                let songs = try await JellyfinManager.shared.fetchSongs(forAlbum: album)
+                let tracks = JellyfinManager.shared.convertToTracks(songs)
+                let engine = WindowManager.shared.audioEngine
+                let wasEmpty = engine.playlist.isEmpty
+                engine.appendTracks(tracks)
+                if wasEmpty { engine.playTrack(at: 0) }
+            } catch { NSLog("Failed to add Jellyfin album to queue: %@", error.localizedDescription) }
+        }
+    }
+    @objc private func contextMenuPlayJellyfinArtistNext(_ sender: NSMenuItem) {
+        guard let artist = sender.representedObject as? JellyfinArtist else { return }
+        Task { @MainActor in
+            do {
+                let albums = try await JellyfinManager.shared.fetchAlbums(forArtist: artist)
+                var allTracks: [Track] = []
+                for album in albums {
+                    let songs = try await JellyfinManager.shared.fetchSongs(forAlbum: album)
+                    allTracks.append(contentsOf: JellyfinManager.shared.convertToTracks(songs))
+                }
+                WindowManager.shared.audioEngine.insertTracksAfterCurrent(allTracks)
+            } catch { NSLog("Failed to play Jellyfin artist next: %@", error.localizedDescription) }
+        }
+    }
+    @objc private func contextMenuAddJellyfinArtistToQueue(_ sender: NSMenuItem) {
+        guard let artist = sender.representedObject as? JellyfinArtist else { return }
+        Task { @MainActor in
+            do {
+                let albums = try await JellyfinManager.shared.fetchAlbums(forArtist: artist)
+                var allTracks: [Track] = []
+                for album in albums {
+                    let songs = try await JellyfinManager.shared.fetchSongs(forAlbum: album)
+                    allTracks.append(contentsOf: JellyfinManager.shared.convertToTracks(songs))
+                }
+                let engine = WindowManager.shared.audioEngine
+                let wasEmpty = engine.playlist.isEmpty
+                engine.appendTracks(allTracks)
+                if wasEmpty { engine.playTrack(at: 0) }
+            } catch { NSLog("Failed to add Jellyfin artist to queue: %@", error.localizedDescription) }
+        }
+    }
     @objc private func contextMenuPlayMovieNext(_ sender: NSMenuItem) {
         guard let movie = sender.representedObject as? PlexMovie,
               let track = PlexManager.shared.convertToTrack(movie) else { return }
@@ -8637,6 +9036,28 @@ class PlexBrowserView: NSView {
                     WindowManager.shared.audioEngine.insertTracksAfterCurrent(allTracks)
                 }
             }
+        case .jellyfinTrack(let song):
+            if let track = JellyfinManager.shared.convertToTrack(song) {
+                WindowManager.shared.audioEngine.insertTracksAfterCurrent([track])
+            }
+        case .jellyfinAlbum(let album):
+            Task { @MainActor in
+                if let songs = try? await JellyfinManager.shared.fetchSongs(forAlbum: album) {
+                    WindowManager.shared.audioEngine.insertTracksAfterCurrent(JellyfinManager.shared.convertToTracks(songs))
+                }
+            }
+        case .jellyfinArtist(let artist):
+            Task { @MainActor in
+                if let albums = try? await JellyfinManager.shared.fetchAlbums(forArtist: artist) {
+                    var allTracks: [Track] = []
+                    for album in albums {
+                        if let songs = try? await JellyfinManager.shared.fetchSongs(forAlbum: album) {
+                            allTracks.append(contentsOf: JellyfinManager.shared.convertToTracks(songs))
+                        }
+                    }
+                    WindowManager.shared.audioEngine.insertTracksAfterCurrent(allTracks)
+                }
+            }
         case .movie(let movie):
             if let track = PlexManager.shared.convertToTrack(movie) {
                 WindowManager.shared.audioEngine.insertTracksAfterCurrent([track])
@@ -8736,6 +9157,34 @@ class PlexBrowserView: NSView {
                     for album in albums {
                         if let songs = try? await SubsonicManager.shared.fetchSongs(forAlbum: album) {
                             allTracks.append(contentsOf: songs.compactMap { SubsonicManager.shared.convertToTrack($0) })
+                        }
+                    }
+                    let wasEmpty = engine.playlist.isEmpty
+                    engine.appendTracks(allTracks)
+                    if wasEmpty { engine.playTrack(at: 0) }
+                }
+            }
+        case .jellyfinTrack(let song):
+            if let track = JellyfinManager.shared.convertToTrack(song) {
+                engine.appendTracks([track])
+                if wasEmpty { engine.playTrack(at: 0) }
+            }
+        case .jellyfinAlbum(let album):
+            Task { @MainActor in
+                if let songs = try? await JellyfinManager.shared.fetchSongs(forAlbum: album) {
+                    let tracks = JellyfinManager.shared.convertToTracks(songs)
+                    let wasEmpty = engine.playlist.isEmpty
+                    engine.appendTracks(tracks)
+                    if wasEmpty { engine.playTrack(at: 0) }
+                }
+            }
+        case .jellyfinArtist(let artist):
+            Task { @MainActor in
+                if let albums = try? await JellyfinManager.shared.fetchAlbums(forArtist: artist) {
+                    var allTracks: [Track] = []
+                    for album in albums {
+                        if let songs = try? await JellyfinManager.shared.fetchSongs(forAlbum: album) {
+                            allTracks.append(contentsOf: JellyfinManager.shared.convertToTracks(songs))
                         }
                     }
                     let wasEmpty = engine.playlist.isEmpty
@@ -9473,6 +9922,12 @@ class PlexBrowserView: NSView {
         // Subsonic source - use Subsonic loading
         if case .subsonic(let serverId) = currentSource {
             loadSubsonicData(serverId: serverId)
+            return
+        }
+        
+        // Jellyfin source - use Jellyfin loading
+        if case .jellyfin(let serverId) = currentSource {
+            loadJellyfinData(serverId: serverId)
             return
         }
         
@@ -10617,6 +11072,226 @@ class PlexBrowserView: NSView {
         return String(format: "%d:%02d", mins, secs)
     }
     
+    // MARK: - Jellyfin Data Loading
+    
+    private func loadJellyfinData(serverId: String) {
+        isLoading = true
+        errorMessage = nil
+        startLoadingAnimation()
+        needsDisplay = true
+        
+        let manager = JellyfinManager.shared
+        
+        if manager.currentServer?.id != serverId {
+            if let server = manager.servers.first(where: { $0.id == serverId }) {
+                Task { @MainActor in
+                    do {
+                        try await manager.connect(to: server)
+                        loadJellyfinDataForCurrentMode()
+                    } catch {
+                        isLoading = false
+                        stopLoadingAnimation()
+                        errorMessage = error.localizedDescription
+                        needsDisplay = true
+                    }
+                }
+            } else {
+                isLoading = false
+                stopLoadingAnimation()
+                errorMessage = "Server not found"
+                needsDisplay = true
+            }
+            return
+        }
+        
+        loadJellyfinDataForCurrentMode()
+    }
+    
+    private func loadJellyfinDataForCurrentMode() {
+        let manager = JellyfinManager.shared
+        
+        jellyfinLoadTask?.cancel()
+        
+        jellyfinLoadTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                try Task.checkCancellation()
+                
+                switch browseMode {
+                case .artists:
+                    if cachedJellyfinArtists.isEmpty {
+                        if manager.isContentPreloaded && !manager.cachedArtists.isEmpty {
+                            cachedJellyfinArtists = manager.cachedArtists
+                            cachedJellyfinAlbums = manager.cachedAlbums
+                        } else {
+                            try Task.checkCancellation()
+                            cachedJellyfinArtists = try await manager.fetchArtists()
+                            try Task.checkCancellation()
+                            cachedJellyfinAlbums = try await manager.fetchAlbums()
+                        }
+                    }
+                    buildJellyfinArtistItems()
+                    
+                case .albums:
+                    if cachedJellyfinAlbums.isEmpty {
+                        if manager.isContentPreloaded && !manager.cachedAlbums.isEmpty {
+                            cachedJellyfinAlbums = manager.cachedAlbums
+                        } else {
+                            try Task.checkCancellation()
+                            cachedJellyfinAlbums = try await manager.fetchAlbums()
+                        }
+                    }
+                    buildJellyfinAlbumItems()
+                    
+                case .tracks:
+                    buildJellyfinAlbumItems()
+                    
+                case .plists:
+                    NSLog("PlexBrowserView: Loading Jellyfin playlists...")
+                    if cachedJellyfinPlaylists.isEmpty {
+                        if manager.isContentPreloaded && !manager.cachedPlaylists.isEmpty {
+                            cachedJellyfinPlaylists = manager.cachedPlaylists
+                        } else {
+                            try Task.checkCancellation()
+                            cachedJellyfinPlaylists = try await manager.fetchPlaylists()
+                        }
+                    }
+                    buildJellyfinPlaylistItems()
+                    
+                case .search:
+                    displayItems = []
+                    
+                case .movies, .shows:
+                    displayItems = []
+                    
+                case .radio:
+                    break
+                }
+                
+                isLoading = false
+                stopLoadingAnimation()
+                needsDisplay = true
+            } catch is CancellationError {
+                // Task was cancelled, don't update UI
+            } catch {
+                isLoading = false
+                stopLoadingAnimation()
+                errorMessage = error.localizedDescription
+                needsDisplay = true
+            }
+        }
+    }
+    
+    // MARK: - Build Jellyfin Display Items
+    
+    private func buildJellyfinArtistItems() {
+        displayItems.removeAll()
+        
+        let sortedArtists = cachedJellyfinArtists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        
+        for artist in sortedArtists {
+            let albumCount = artist.albumCount
+            let info = albumCount > 0 ? "\(albumCount) album\(albumCount == 1 ? "" : "s")" : nil
+            let isExpanded = expandedJellyfinArtists.contains(artist.id)
+            
+            displayItems.append(PlexDisplayItem(
+                id: artist.id,
+                title: artist.name,
+                info: info,
+                indentLevel: 0,
+                hasChildren: true,
+                type: .jellyfinArtist(artist)
+            ))
+            
+            if isExpanded {
+                if let albums = jellyfinArtistAlbums[artist.id] {
+                    for album in albums {
+                        let albumExpanded = expandedJellyfinAlbums.contains(album.id)
+                        displayItems.append(PlexDisplayItem(
+                            id: album.id,
+                            title: album.name,
+                            info: album.year.map { String($0) },
+                            indentLevel: 1,
+                            hasChildren: true,
+                            type: .jellyfinAlbum(album)
+                        ))
+                        
+                        if albumExpanded, let songs = jellyfinAlbumSongs[album.id] {
+                            let sortedSongs = songs.sorted {
+                                let disc0 = $0.discNumber ?? 1
+                                let disc1 = $1.discNumber ?? 1
+                                if disc0 != disc1 { return disc0 < disc1 }
+                                return ($0.track ?? 0) < ($1.track ?? 0)
+                            }
+                            for song in sortedSongs {
+                                displayItems.append(PlexDisplayItem(
+                                    id: song.id,
+                                    title: song.title,
+                                    info: formatDuration(song.duration),
+                                    indentLevel: 2,
+                                    hasChildren: false,
+                                    type: .jellyfinTrack(song)
+                                ))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func buildJellyfinAlbumItems() {
+        displayItems = cachedJellyfinAlbums
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { album in
+                PlexDisplayItem(
+                    id: album.id,
+                    title: "\(album.artist ?? "Unknown") - \(album.name)",
+                    info: album.year.map { String($0) },
+                    indentLevel: 0,
+                    hasChildren: true,
+                    type: .jellyfinAlbum(album)
+                )
+            }
+    }
+    
+    private func buildJellyfinPlaylistItems() {
+        displayItems.removeAll()
+        
+        let sortedPlaylists = cachedJellyfinPlaylists.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        
+        for playlist in sortedPlaylists {
+            let isExpanded = expandedJellyfinPlaylists.contains(playlist.id)
+            let songCount = playlist.songCount
+            let info = "\(songCount) \(songCount == 1 ? "track" : "tracks")"
+            
+            displayItems.append(PlexDisplayItem(
+                id: playlist.id,
+                title: playlist.name,
+                info: info,
+                indentLevel: 0,
+                hasChildren: songCount > 0,
+                type: .jellyfinPlaylist(playlist)
+            ))
+            
+            if isExpanded, let tracks = jellyfinPlaylistTracks[playlist.id] {
+                for track in tracks {
+                    displayItems.append(PlexDisplayItem(
+                        id: "\(playlist.id)-\(track.id)",
+                        title: track.title,
+                        info: formatDuration(track.duration),
+                        indentLevel: 1,
+                        hasChildren: false,
+                        type: .jellyfinTrack(track)
+                    ))
+                }
+            }
+        }
+    }
+    
     /// Load artwork from browsed local content
     private func loadLocalBrowseArtwork() {
         guard case .local = currentSource else { return }
@@ -11014,6 +11689,23 @@ class PlexBrowserView: NSView {
                 // Handled above
                 break
             }
+        } else if case .jellyfin = currentSource {
+            switch browseMode {
+            case .artists:
+                buildJellyfinArtistItems()
+            case .albums:
+                buildJellyfinAlbumItems()
+            case .tracks:
+                buildJellyfinAlbumItems() // Show albums for tracks mode
+            case .search:
+                displayItems = [] // TODO: Implement Jellyfin search
+            case .plists:
+                buildJellyfinPlaylistItems()
+            case .movies, .shows:
+                displayItems = []
+            case .radio:
+                break
+            }
         } else {
             switch browseMode {
             case .artists:
@@ -11070,6 +11762,12 @@ class PlexBrowserView: NSView {
             return expandedSubsonicAlbums.contains(album.id)
         case .subsonicPlaylist(let playlist):
             return expandedSubsonicPlaylists.contains(playlist.id)
+        case .jellyfinArtist(let artist):
+            return expandedJellyfinArtists.contains(artist.id)
+        case .jellyfinAlbum(let album):
+            return expandedJellyfinAlbums.contains(album.id)
+        case .jellyfinPlaylist(let playlist):
+            return expandedJellyfinPlaylists.contains(playlist.id)
         case .plexPlaylist(let playlist):
             return expandedPlexPlaylists.contains(playlist.id)
         default:
@@ -11324,6 +12022,87 @@ class PlexBrowserView: NSView {
             }
             rebuildCurrentModeItems()
             
+        case .jellyfinArtist(let artist):
+            if expandedJellyfinArtists.contains(artist.id) {
+                expandedJellyfinArtists.remove(artist.id)
+            } else {
+                expandedJellyfinArtists.insert(artist.id)
+                if jellyfinArtistAlbums[artist.id] == nil {
+                    let artistId = artist.id
+                    jellyfinExpandTask?.cancel()
+                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do {
+                            try Task.checkCancellation()
+                            let albums = try await JellyfinManager.shared.fetchAlbums(forArtist: artist)
+                            try Task.checkCancellation()
+                            jellyfinArtistAlbums[artistId] = albums
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                        } catch is CancellationError {
+                        } catch {
+                            NSLog("Failed to load Jellyfin albums for artist: \(error)")
+                        }
+                    }
+                    return
+                }
+            }
+            rebuildCurrentModeItems()
+            
+        case .jellyfinAlbum(let album):
+            if expandedJellyfinAlbums.contains(album.id) {
+                expandedJellyfinAlbums.remove(album.id)
+            } else {
+                expandedJellyfinAlbums.insert(album.id)
+                if jellyfinAlbumSongs[album.id] == nil {
+                    let albumId = album.id
+                    jellyfinExpandTask?.cancel()
+                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do {
+                            try Task.checkCancellation()
+                            let songs = try await JellyfinManager.shared.fetchSongs(forAlbum: album)
+                            try Task.checkCancellation()
+                            jellyfinAlbumSongs[albumId] = songs
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                        } catch is CancellationError {
+                        } catch {
+                            NSLog("Failed to load Jellyfin songs for album: \(error)")
+                        }
+                    }
+                    return
+                }
+            }
+            rebuildCurrentModeItems()
+            
+        case .jellyfinPlaylist(let playlist):
+            if expandedJellyfinPlaylists.contains(playlist.id) {
+                expandedJellyfinPlaylists.remove(playlist.id)
+            } else {
+                expandedJellyfinPlaylists.insert(playlist.id)
+                if jellyfinPlaylistTracks[playlist.id] == nil {
+                    let playlistId = playlist.id
+                    jellyfinExpandTask?.cancel()
+                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do {
+                            try Task.checkCancellation()
+                            let (_, tracks) = try await JellyfinManager.shared.serverClient?.fetchPlaylist(id: playlistId) ?? (playlist, [])
+                            try Task.checkCancellation()
+                            jellyfinPlaylistTracks[playlistId] = tracks
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                        } catch is CancellationError {
+                        } catch {
+                            NSLog("Failed to load Jellyfin tracks for playlist: \(error)")
+                        }
+                    }
+                    return
+                }
+            }
+            rebuildCurrentModeItems()
+            
         case .plexPlaylist(let playlist):
             if expandedPlexPlaylists.contains(playlist.id) {
                 expandedPlexPlaylists.remove(playlist.id)
@@ -11507,6 +12286,18 @@ class PlexBrowserView: NSView {
         case .subsonicPlaylist(let playlist):
             playSubsonicPlaylist(playlist)
             
+        case .jellyfinTrack(let song):
+            playJellyfinSong(song)
+            
+        case .jellyfinAlbum(let album):
+            playJellyfinAlbum(album)
+            
+        case .jellyfinArtist:
+            toggleExpand(item)
+            
+        case .jellyfinPlaylist(let playlist):
+            playJellyfinPlaylist(playlist)
+            
         case .plexPlaylist(let playlist):
             playPlexPlaylist(playlist)
             
@@ -11631,6 +12422,72 @@ class PlexBrowserView: NSView {
                 WindowManager.shared.audioEngine.playNow(tracks)
             } catch {
                 NSLog("Failed to play subsonic playlist: %@", error.localizedDescription)
+                isLoading = false
+                stopLoadingAnimation()
+                errorMessage = "Failed to load playlist: \(error.localizedDescription)"
+                needsDisplay = true
+            }
+        }
+    }
+    
+    // MARK: - Jellyfin Playback
+    
+    private func playJellyfinSong(_ song: JellyfinSong) {
+        NSLog("playJellyfinSong: %@", song.title)
+        if let track = JellyfinManager.shared.convertToTrack(song) {
+            WindowManager.shared.audioEngine.playNow([track])
+        }
+    }
+    
+    private func playJellyfinAlbum(_ album: JellyfinAlbum) {
+        Task { @MainActor in
+            do {
+                let songs = try await JellyfinManager.shared.fetchSongs(forAlbum: album)
+                let tracks = JellyfinManager.shared.convertToTracks(songs)
+                NSLog("Playing Jellyfin album %@ with %d tracks", album.name, tracks.count)
+                WindowManager.shared.audioEngine.playNow(tracks)
+            } catch {
+                NSLog("Failed to play Jellyfin album: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    private func playJellyfinArtist(_ artist: JellyfinArtist) {
+        Task { @MainActor in
+            do {
+                let albums = try await JellyfinManager.shared.fetchAlbums(forArtist: artist)
+                var allTracks: [Track] = []
+                for album in albums {
+                    let songs = try await JellyfinManager.shared.fetchSongs(forAlbum: album)
+                    allTracks.append(contentsOf: JellyfinManager.shared.convertToTracks(songs))
+                }
+                NSLog("Playing Jellyfin artist %@ with %d tracks", artist.name, allTracks.count)
+                WindowManager.shared.audioEngine.playNow(allTracks)
+            } catch {
+                NSLog("Failed to play Jellyfin artist: %@", error.localizedDescription)
+            }
+        }
+    }
+    
+    private func playJellyfinPlaylist(_ playlist: JellyfinPlaylist) {
+        isLoading = true
+        errorMessage = nil
+        startLoadingAnimation()
+        needsDisplay = true
+        
+        Task { @MainActor in
+            do {
+                let (_, songs) = try await JellyfinManager.shared.serverClient?.fetchPlaylist(id: playlist.id) ?? (playlist, [])
+                let tracks = JellyfinManager.shared.convertToTracks(songs)
+                NSLog("Playing Jellyfin playlist %@ with %d tracks", playlist.name, tracks.count)
+                
+                isLoading = false
+                stopLoadingAnimation()
+                needsDisplay = true
+                
+                WindowManager.shared.audioEngine.playNow(tracks)
+            } catch {
+                NSLog("Failed to play Jellyfin playlist: %@", error.localizedDescription)
                 isLoading = false
                 stopLoadingAnimation()
                 errorMessage = "Failed to load playlist: \(error.localizedDescription)"
@@ -11874,6 +12731,11 @@ private struct PlexDisplayItem {
         case subsonicAlbum(SubsonicAlbum)
         case subsonicTrack(SubsonicSong)
         case subsonicPlaylist(SubsonicPlaylist)
+        // Jellyfin content types
+        case jellyfinArtist(JellyfinArtist)
+        case jellyfinAlbum(JellyfinAlbum)
+        case jellyfinTrack(JellyfinSong)
+        case jellyfinPlaylist(JellyfinPlaylist)
         // Plex playlist type
         case plexPlaylist(PlexPlaylist)
         // Radio station type (Internet Radio - Shoutcast/Icecast)
@@ -12014,6 +12876,12 @@ extension PlexDisplayItem {
             return subsonicArtistValue(artist, for: column)
         case .localArtist(let artist):
             return localArtistValue(artist, for: column)
+        case .jellyfinTrack(let song):
+            return jellyfinTrackValue(song, for: column)
+        case .jellyfinAlbum(let album):
+            return jellyfinAlbumValue(album, for: column)
+        case .jellyfinArtist(let artist):
+            return jellyfinArtistValue(artist, for: column)
         default:
             return ""
         }
@@ -12202,6 +13070,68 @@ extension PlexDisplayItem {
             return String(artist.albums.count)
         case "genre":
             return ""  // Local artists don't have genre at artist level
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Jellyfin Track Values
+    
+    private func jellyfinTrackValue(_ song: JellyfinSong, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "trackNum":
+            if let disc = song.discNumber, disc > 1, let num = song.track {
+                return "\(disc)-\(num)"
+            }
+            return song.track.map { String($0) } ?? ""
+        case "artist":
+            return song.artist ?? ""
+        case "album":
+            return song.album ?? ""
+        case "year":
+            return song.year.map { String($0) } ?? ""
+        case "genre":
+            return song.genre ?? ""
+        case "duration":
+            return PlexDisplayItem.formatDuration(TimeInterval(song.duration))
+        case "bitrate":
+            return song.bitRate.map { "\($0)k" } ?? ""
+        case "size":
+            return ""
+        case "rating":
+            return song.isFavorite ? "★★★★★" : ""
+        case "plays":
+            return song.playCount.map { String($0) } ?? ""
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Jellyfin Album Values
+    
+    private func jellyfinAlbumValue(_ album: JellyfinAlbum, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "year":
+            return album.year.map { String($0) } ?? ""
+        case "genre":
+            return album.genre ?? ""
+        case "duration":
+            return ""
+        case "rating":
+            return ""
+        default:
+            return ""
+        }
+    }
+    
+    // MARK: - Jellyfin Artist Values
+    
+    private func jellyfinArtistValue(_ artist: JellyfinArtist, for column: BrowserColumn) -> String {
+        switch column.id {
+        case "albums":
+            return String(artist.albumCount)
+        case "genre":
+            return ""
         default:
             return ""
         }

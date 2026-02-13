@@ -31,6 +31,8 @@ struct RadioStation: Identifiable, Codable, Equatable, Hashable {
             plexRatingKey: nil,
             subsonicId: nil,
             subsonicServerId: nil,
+            jellyfinId: nil,
+            jellyfinServerId: nil,
             artworkThumb: iconURL?.absoluteString,
             mediaType: .audio,
             genre: genre

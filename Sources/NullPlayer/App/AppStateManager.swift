@@ -30,6 +30,10 @@ class AppStateManager {
         var subsonicId: String?
         var subsonicServerId: String?
         
+        // For Jellyfin tracks
+        var jellyfinId: String?
+        var jellyfinServerId: String?
+        
         // Display metadata (shown while loading streaming tracks)
         var title: String
         var artist: String?
@@ -64,6 +68,15 @@ class AppStateManager {
                     album: track.album,
                     duration: track.duration
                 )
+            } else if let jfId = track.jellyfinId {
+                return SavedTrack(
+                    jellyfinId: jfId,
+                    jellyfinServerId: track.jellyfinServerId,
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    duration: track.duration
+                )
             } else {
                 // Unknown streaming source - save as local URL fallback
                 return SavedTrack(
@@ -84,6 +97,9 @@ class AppStateManager {
         
         /// Whether this is a Subsonic track
         var isSubsonic: Bool { subsonicId != nil }
+        
+        /// Whether this is a Jellyfin track
+        var isJellyfin: Bool { jellyfinId != nil }
     }
     
     /// Complete application state that can be saved/restored
@@ -580,6 +596,7 @@ class AppStateManager {
         var localTracks: [Track] = []
         var plexTracksToFetch: [(SavedTrack, Int)] = []  // (savedTrack, originalIndex)
         var subsonicTracksToFetch: [(SavedTrack, Int)] = []
+        var jellyfinTracksToFetch: [(SavedTrack, Int)] = []
         
         for (index, savedTrack) in state.playlistTracks.enumerated() {
             if let urlString = savedTrack.localURL,
@@ -590,6 +607,8 @@ class AppStateManager {
                 plexTracksToFetch.append((savedTrack, index))
             } else if savedTrack.isSubsonic {
                 subsonicTracksToFetch.append((savedTrack, index))
+            } else if savedTrack.isJellyfin {
+                jellyfinTracksToFetch.append((savedTrack, index))
             }
         }
         
@@ -600,7 +619,7 @@ class AppStateManager {
         }
         
         // Fetch streaming tracks asynchronously
-        let hasStreamingTracks = !plexTracksToFetch.isEmpty || !subsonicTracksToFetch.isEmpty
+        let hasStreamingTracks = !plexTracksToFetch.isEmpty || !subsonicTracksToFetch.isEmpty || !jellyfinTracksToFetch.isEmpty
         if hasStreamingTracks {
             Task {
                 var restoredTracks: [(Track, Int)] = []  // (track, originalIndex)
@@ -636,6 +655,25 @@ class AppStateManager {
                             }
                         } catch {
                             NSLog("AppStateManager: Failed to restore Subsonic track %@: %@",
+                                  savedTrack.title, error.localizedDescription)
+                        }
+                    }
+                }
+                
+                // Fetch Jellyfin tracks
+                for (savedTrack, index) in jellyfinTracksToFetch {
+                    if let jellyfinId = savedTrack.jellyfinId,
+                       let serverId = savedTrack.jellyfinServerId,
+                       JellyfinManager.shared.servers.contains(where: { $0.id == serverId }),
+                       let credentials = KeychainHelper.shared.getJellyfinServer(id: serverId),
+                       let client = JellyfinServerClient(credentials: credentials) {
+                        do {
+                            if let song = try await client.fetchSong(id: jellyfinId),
+                               let track = JellyfinManager.shared.convertToTrack(song) {
+                                restoredTracks.append((track, index))
+                            }
+                        } catch {
+                            NSLog("AppStateManager: Failed to restore Jellyfin track %@: %@",
                                   savedTrack.title, error.localizedDescription)
                         }
                     }

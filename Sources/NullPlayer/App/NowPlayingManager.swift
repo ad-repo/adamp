@@ -296,6 +296,11 @@ class NowPlayingManager {
                 if let coverArt = track.artworkThumb {
                     image = await self.loadSubsonicArtwork(coverArt: coverArt)
                 }
+            } else if track.jellyfinId != nil {
+                // Jellyfin track - load cover art
+                if let imageTag = track.artworkThumb {
+                    image = await self.loadJellyfinArtwork(itemId: track.jellyfinId!, imageTag: imageTag)
+                }
             }
             
             // Check if cancelled
@@ -433,6 +438,19 @@ class NowPlayingManager {
             return NSImage(data: data)
         } catch {
             NSLog("NowPlayingManager: Failed to load Subsonic artwork: %@", error.localizedDescription)
+            return nil
+        }
+    }
+    
+    /// Load cover art from Jellyfin server
+    private func loadJellyfinArtwork(itemId: String, imageTag: String) async -> NSImage? {
+        guard let artworkURL = JellyfinManager.shared.imageURL(itemId: itemId, imageTag: imageTag, size: 400) else { return nil }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: artworkURL)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else { return nil }
+            return NSImage(data: data)
+        } catch {
+            NSLog("NowPlayingManager: Failed to load Jellyfin artwork: %@", error.localizedDescription)
             return nil
         }
     }

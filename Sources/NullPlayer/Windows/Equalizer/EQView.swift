@@ -205,6 +205,13 @@ class EQView: NSView {
             return
         }
         
+        // For Jellyfin tracks without genre, try to fetch it
+        if let jellyfinId = track.jellyfinId {
+            NSLog("Auto EQ: Track '%@' has no genre, fetching from Jellyfin...", track.title)
+            Task { await fetchAndApplyJellyfinGenre(itemId: jellyfinId, trackTitle: track.title) }
+            return
+        }
+        
         NSLog("Auto EQ: Track '%@' has no genre metadata", track.title)
     }
     
@@ -261,6 +268,17 @@ class EQView: NSView {
             }
         } catch {
             NSLog("Auto EQ: Failed to fetch Subsonic song details: %@", error.localizedDescription)
+        }
+    }
+    
+    private func fetchAndApplyJellyfinGenre(itemId: String, trackTitle: String) async {
+        guard let client = JellyfinManager.shared.serverClient else { return }
+        do {
+            if let song = try await client.fetchSong(id: itemId), let genre = song.genre {
+                await MainActor.run { self.applyPresetForGenre(genre) }
+            }
+        } catch {
+            NSLog("Auto EQ: Failed to fetch Jellyfin track details: %@", error.localizedDescription)
         }
     }
     

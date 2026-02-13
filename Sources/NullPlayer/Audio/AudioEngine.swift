@@ -972,6 +972,9 @@ class AudioEngine {
             
             // Report resume to Subsonic
             SubsonicPlaybackReporter.shared.trackResumed()
+            
+            // Report resume to Jellyfin
+            JellyfinPlaybackReporter.shared.trackResumed()
         } else {
             // Local file playback via AVAudioEngine
             // Ensure we have a valid audio file loaded before attempting to play
@@ -1001,6 +1004,9 @@ class AudioEngine {
                 
                 // Report resume to Subsonic
                 SubsonicPlaybackReporter.shared.trackResumed()
+                
+                // Report resume to Jellyfin
+                JellyfinPlaybackReporter.shared.trackResumed()
             } catch {
                 print("Failed to start audio engine: \(error)")
             }
@@ -1058,6 +1064,9 @@ class AudioEngine {
         
         // Report pause to Subsonic
         SubsonicPlaybackReporter.shared.trackPaused()
+        
+        // Report pause to Jellyfin
+        JellyfinPlaybackReporter.shared.trackPaused()
     }
     
     func stop() {
@@ -1106,6 +1115,9 @@ class AudioEngine {
         
         // Report stop to Subsonic
         SubsonicPlaybackReporter.shared.trackStopped()
+        
+        // Report stop to Jellyfin
+        JellyfinPlaybackReporter.shared.trackStopped()
         
         // Clear spectrum analyzer
         clearSpectrum()
@@ -1768,6 +1780,18 @@ class AudioEngine {
                 )
             }
             
+            // Update Jellyfin playback position (for scrobbling)
+            if let track = self.currentTrack,
+               let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId {
+                JellyfinPlaybackReporter.shared.updatePlayback(
+                    trackId: jellyfinId,
+                    serverId: serverId,
+                    position: current,
+                    duration: trackDuration
+                )
+            }
+            
             // Decay spectrum when not playing locally (casting or stopped)
             if self.isCastingActive || self.state != .playing {
                 self.decaySpectrum()
@@ -2397,6 +2421,13 @@ class AudioEngine {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
             }
             
+            // Report track start to Jellyfin
+            if let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
+            }
+            
             NSLog("loadLocalTrack: file scheduled, EQ bypass = %d, normGain = %.2f", eqNode.bypass, normalizationGain)
             return true
         } catch {
@@ -2510,6 +2541,13 @@ class AudioEngine {
             SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
         }
         
+        // Report track start to Jellyfin
+        if let jellyfinId = track.jellyfinId,
+           let serverId = track.jellyfinServerId,
+           let trackDuration = track.duration {
+            JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
+        }
+        
         NSLog("  Created StreamingAudioPlayer, starting playback with EQ")
     }
     
@@ -2552,6 +2590,9 @@ class AudioEngine {
         // Report track finished to Subsonic (track stopped is called since it finished)
         SubsonicPlaybackReporter.shared.trackStopped()
         
+        // Report stop to Jellyfin
+        JellyfinPlaybackReporter.shared.trackStopped()
+        
         // Check if we have a gaplessly pre-scheduled next track (local files)
         if gaplessPlaybackEnabled && nextScheduledFile != nil && nextScheduledTrackIndex >= 0 {
             // Gapless transition - the next file is already scheduled
@@ -2577,6 +2618,14 @@ class AudioEngine {
                let serverId = track.subsonicServerId,
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
+            }
+            
+            // Report track start to Jellyfin
+            if let track = currentTrack,
+               let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
             }
             
             // Apply normalization for the new track
@@ -2616,6 +2665,14 @@ class AudioEngine {
                let serverId = track.subsonicServerId,
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
+            }
+            
+            // Report track start to Jellyfin
+            if let track = currentTrack,
+               let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
             }
             
             // Schedule the next track for gapless
@@ -2949,6 +3006,13 @@ class AudioEngine {
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
             }
+            
+            // Report track start to Jellyfin
+            if let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
+            }
         }
         
         // Apply normalization for new track
@@ -3003,6 +3067,13 @@ class AudioEngine {
                let serverId = track.subsonicServerId,
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
+            }
+            
+            // Report track start to Jellyfin
+            if let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
             }
         }
         
@@ -3271,6 +3342,9 @@ class AudioEngine {
         
         // Stop Subsonic playback tracking
         SubsonicPlaybackReporter.shared.trackStopped()
+        
+        // Report stop to Jellyfin
+        JellyfinPlaybackReporter.shared.trackStopped()
         
         NSLog("clearPlaylist: done, playlist count=%d", playlist.count)
         delegate?.audioEngineDidChangePlaylist()
@@ -3581,6 +3655,8 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
                 plexRatingKey: track.plexRatingKey,
                 subsonicId: track.subsonicId,
                 subsonicServerId: track.subsonicServerId,
+                jellyfinId: track.jellyfinId,
+                jellyfinServerId: track.jellyfinServerId,
                 artworkThumb: track.artworkThumb,
                 mediaType: track.mediaType,
                 genre: track.genre

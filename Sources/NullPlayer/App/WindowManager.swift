@@ -611,6 +611,31 @@ class WindowManager {
         }
     }
     
+    // MARK: - Jellyfin Sheets
+    
+    private var jellyfinLinkSheet: JellyfinLinkSheet?
+    private var jellyfinServerListSheet: JellyfinServerListSheet?
+    
+    /// Show the Jellyfin server add dialog
+    func showJellyfinLinkSheet() {
+        jellyfinLinkSheet = JellyfinLinkSheet()
+        jellyfinLinkSheet?.showDialog { [weak self] server in
+            self?.jellyfinLinkSheet = nil
+            if server != nil {
+                self?.plexBrowserWindowController?.reloadData()
+            }
+        }
+    }
+    
+    /// Show the Jellyfin server list management dialog
+    func showJellyfinServerList() {
+        jellyfinServerListSheet = JellyfinServerListSheet()
+        jellyfinServerListSheet?.showDialog { [weak self] _ in
+            self?.jellyfinServerListSheet = nil
+            self?.plexBrowserWindowController?.reloadData()
+        }
+    }
+    
     // MARK: - Video Player Window
     
     /// Show the video player with a URL and title

@@ -1095,15 +1095,30 @@ The `SubsonicPlaybackReporter` reports playback activity to the Subsonic server:
 
 Standard scrobbling rules: track is scrobbled when played 50% or 4 minutes, whichever comes first.
 
+### Jellyfin Scrobbling
+
+The `JellyfinPlaybackReporter` reports playback activity to the Jellyfin server using the Sessions API:
+
+| Event | Endpoint | Description |
+|-------|----------|-------------|
+| Track starts | `POST /Sessions/Playing` | "Now playing" indicator |
+| Position updates | `POST /Sessions/Playing/Progress` | Periodic progress reports |
+| 50% played OR 4 minutes | `POST /Users/{userId}/PlayedItems/{itemId}` | Track marked as played |
+| Track stops | `POST /Sessions/Playing/Stopped` | Playback ended |
+
+Same scrobbling rules as Subsonic. Jellyfin uses ticks for position (1 tick = 10,000 nanoseconds).
+
 ### Track Model Integration
 
-Subsonic items include identifiers in the Track model:
+Subsonic and Jellyfin items include identifiers in the Track model:
 
 ```swift
 struct Track {
     // ... other properties ...
     let subsonicId: String?       // Song ID for scrobbling (nil for non-Subsonic)
     let subsonicServerId: String? // Which server the track belongs to
+    let jellyfinId: String?       // Item ID for scrobbling (nil for non-Jellyfin)
+    let jellyfinServerId: String? // Which Jellyfin server the track belongs to
 }
 ```
 
