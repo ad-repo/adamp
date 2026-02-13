@@ -746,9 +746,8 @@ class JellyfinServerClient {
     }
     
     /// Generate an image URL for an item
+    /// Note: imageTag is optional — Jellyfin serves images without it, the tag is just for caching/ETag
     func imageURL(itemId: String, imageTag: String?, size: Int = 300) -> URL? {
-        guard imageTag != nil else { return nil }
-        
         var components = URLComponents(url: baseURL.appendingPathComponent("/Items/\(itemId)/Images/Primary"), resolvingAgainstBaseURL: false)
         var params = [
             URLQueryItem(name: "maxHeight", value: String(size)),
