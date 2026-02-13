@@ -255,6 +255,145 @@ class JellyfinServerClient {
             .map { $0.toMusicLibrary() }
     }
     
+    // MARK: - Video Libraries
+    
+    /// Fetch video libraries (movies and tvshows collection types)
+    func fetchVideoLibraries() async throws -> [JellyfinMusicLibrary] {
+        guard let request = buildRequest(path: "/Users/\(server.userId)/Views") else {
+            throw JellyfinClientError.invalidURL
+        }
+        
+        let response: JellyfinViewsResponse = try await performRequest(request)
+        
+        return response.Items
+            .filter { $0.CollectionType == "movies" || $0.CollectionType == "tvshows" }
+            .map { $0.toMusicLibrary() }
+    }
+    
+    // MARK: - Movie Operations
+    
+    /// Fetch all movies from a library (paginated)
+    func fetchMovies(libraryId: String) async throws -> [JellyfinMovie] {
+        var allMovies: [JellyfinMovie] = []
+        var offset = 0
+        let pageSize = 500
+        
+        while true {
+            let params = [
+                URLQueryItem(name: "parentId", value: libraryId),
+                URLQueryItem(name: "IncludeItemTypes", value: "Movie"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "SortBy", value: "SortName"),
+                URLQueryItem(name: "SortOrder", value: "Ascending"),
+                URLQueryItem(name: "Fields", value: "Overview,MediaSources"),
+                URLQueryItem(name: "Limit", value: String(pageSize)),
+                URLQueryItem(name: "StartIndex", value: String(offset))
+            ]
+            
+            guard let request = buildRequest(path: "/Users/\(server.userId)/Items", params: params) else {
+                throw JellyfinClientError.invalidURL
+            }
+            
+            let response: JellyfinQueryResult = try await performRequest(request)
+            let movies = response.Items.map { $0.toMovie() }
+            allMovies.append(contentsOf: movies)
+            
+            if movies.count < pageSize {
+                break
+            }
+            offset += pageSize
+        }
+        
+        return allMovies
+    }
+    
+    /// Fetch a single movie by ID
+    func fetchMovie(id: String) async throws -> JellyfinMovie {
+        guard let request = buildRequest(path: "/Users/\(server.userId)/Items/\(id)") else {
+            throw JellyfinClientError.invalidURL
+        }
+        
+        let dto: JellyfinItemDTO = try await performRequest(request)
+        return dto.toMovie()
+    }
+    
+    // MARK: - Show Operations
+    
+    /// Fetch all TV shows from a library (paginated)
+    func fetchShows(libraryId: String) async throws -> [JellyfinShow] {
+        var allShows: [JellyfinShow] = []
+        var offset = 0
+        let pageSize = 500
+        
+        while true {
+            let params = [
+                URLQueryItem(name: "parentId", value: libraryId),
+                URLQueryItem(name: "IncludeItemTypes", value: "Series"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "SortBy", value: "SortName"),
+                URLQueryItem(name: "SortOrder", value: "Ascending"),
+                URLQueryItem(name: "Fields", value: "Overview"),
+                URLQueryItem(name: "Limit", value: String(pageSize)),
+                URLQueryItem(name: "StartIndex", value: String(offset))
+            ]
+            
+            guard let request = buildRequest(path: "/Users/\(server.userId)/Items", params: params) else {
+                throw JellyfinClientError.invalidURL
+            }
+            
+            let response: JellyfinQueryResult = try await performRequest(request)
+            let shows = response.Items.map { $0.toShow() }
+            allShows.append(contentsOf: shows)
+            
+            if shows.count < pageSize {
+                break
+            }
+            offset += pageSize
+        }
+        
+        return allShows
+    }
+    
+    /// Fetch seasons for a TV show
+    func fetchSeasons(seriesId: String) async throws -> [JellyfinSeason] {
+        let params = [
+            URLQueryItem(name: "userId", value: server.userId)
+        ]
+        
+        guard let request = buildRequest(path: "/Shows/\(seriesId)/Seasons", params: params) else {
+            throw JellyfinClientError.invalidURL
+        }
+        
+        let response: JellyfinQueryResult = try await performRequest(request)
+        return response.Items.map { $0.toSeason() }
+    }
+    
+    /// Fetch episodes for a season of a TV show
+    func fetchEpisodes(seriesId: String, seasonId: String) async throws -> [JellyfinEpisode] {
+        let params = [
+            URLQueryItem(name: "userId", value: server.userId),
+            URLQueryItem(name: "seasonId", value: seasonId),
+            URLQueryItem(name: "Fields", value: "Overview,MediaSources")
+        ]
+        
+        guard let request = buildRequest(path: "/Shows/\(seriesId)/Episodes", params: params) else {
+            throw JellyfinClientError.invalidURL
+        }
+        
+        let response: JellyfinQueryResult = try await performRequest(request)
+        return response.Items.map { $0.toEpisode() }
+    }
+    
+    /// Fetch a single episode by ID
+    func fetchEpisode(id: String) async throws -> JellyfinEpisode {
+        guard let request = buildRequest(path: "/Users/\(server.userId)/Items/\(id)") else {
+            throw JellyfinClientError.invalidURL
+        }
+        
+        let dto: JellyfinItemDTO = try await performRequest(request)
+        return dto.toEpisode()
+    }
+    
     // MARK: - Artist Operations
     
     /// Fetch all artists (paginated)
@@ -400,13 +539,14 @@ class JellyfinServerClient {
     
     // MARK: - Search
     
-    /// Search for artists, albums, and songs
+    /// Search for artists, albums, songs, movies, shows, and episodes
     func search(query: String) async throws -> JellyfinSearchResults {
         let params = [
             URLQueryItem(name: "searchTerm", value: query),
-            URLQueryItem(name: "IncludeItemTypes", value: "Audio,MusicAlbum,MusicArtist"),
+            URLQueryItem(name: "IncludeItemTypes", value: "Audio,MusicAlbum,MusicArtist,Movie,Series,Episode"),
             URLQueryItem(name: "Recursive", value: "true"),
             URLQueryItem(name: "userId", value: server.userId),
+            URLQueryItem(name: "Fields", value: "Overview,MediaSources"),
             URLQueryItem(name: "Limit", value: "50")
         ]
         
@@ -425,6 +565,12 @@ class JellyfinServerClient {
                 results.albums.append(item.toAlbum())
             case "Audio":
                 results.songs.append(item.toSong())
+            case "Movie":
+                results.movies.append(item.toMovie())
+            case "Series":
+                results.shows.append(item.toShow())
+            case "Episode":
+                results.episodes.append(item.toEpisode())
             default:
                 break
             }
@@ -579,9 +725,19 @@ class JellyfinServerClient {
         streamURL(itemId: song.id)
     }
     
-    /// Generate a streaming URL for an item ID
+    /// Generate a streaming URL for an item ID (audio)
     func streamURL(itemId: String) -> URL? {
         var components = URLComponents(url: baseURL.appendingPathComponent("/Audio/\(itemId)/stream"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "static", value: "true"),
+            URLQueryItem(name: "api_key", value: accessToken)
+        ]
+        return components?.url
+    }
+    
+    /// Generate a video streaming URL for an item ID
+    func videoStreamURL(itemId: String) -> URL? {
+        var components = URLComponents(url: baseURL.appendingPathComponent("/Videos/\(itemId)/stream"), resolvingAgainstBaseURL: false)
         components?.queryItems = [
             URLQueryItem(name: "static", value: "true"),
             URLQueryItem(name: "api_key", value: accessToken)

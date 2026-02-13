@@ -1090,6 +1090,29 @@ class ContextMenuBuilder {
             }
         }
         
+        // Video libraries submenu (if multiple video libraries)
+        let videoLibs = JellyfinManager.shared.videoLibraries
+        if videoLibs.count > 1 {
+            let videoLibItem = NSMenuItem(title: "Video Libraries", action: nil, keyEquivalent: "")
+            let videoLibMenu = NSMenu()
+            videoLibMenu.autoenablesItems = false
+            
+            for lib in videoLibs {
+                let libItem = NSMenuItem(title: lib.name, action: #selector(MenuActions.selectJellyfinVideoLibrary(_:)), keyEquivalent: "")
+                libItem.target = MenuActions.shared
+                libItem.representedObject = lib.id
+                let isMovieLib = lib.id == JellyfinManager.shared.currentMovieLibrary?.id
+                let isShowLib = lib.id == JellyfinManager.shared.currentShowLibrary?.id
+                libItem.state = (isMovieLib || isShowLib) ? .on : .off
+                videoLibMenu.addItem(libItem)
+            }
+            
+            videoLibItem.submenu = videoLibMenu
+            jellyfinMenu.addItem(videoLibItem)
+            
+            jellyfinMenu.addItem(NSMenuItem.separator())
+        }
+        
         // Refresh Library
         let refreshItem = NSMenuItem(title: "Refresh Library", action: #selector(MenuActions.refreshJellyfinLibrary), keyEquivalent: "")
         refreshItem.target = MenuActions.shared
@@ -2448,6 +2471,14 @@ class MenuActions: NSObject {
         guard let serverId = JellyfinManager.shared.currentServer?.id else { return }
         WindowManager.shared.showPlexBrowser()
         NotificationCenter.default.post(name: NSNotification.Name("SetBrowserSource"), object: nil, userInfo: ["source": "jellyfin", "serverId": serverId])
+    }
+    
+    @objc func selectJellyfinVideoLibrary(_ sender: NSMenuItem) {
+        guard let libId = sender.representedObject as? String,
+              let lib = JellyfinManager.shared.videoLibraries.first(where: { $0.id == libId }) else { return }
+        // Select for both movie and show (Jellyfin video libs can contain both)
+        JellyfinManager.shared.selectMovieLibrary(lib)
+        JellyfinManager.shared.selectShowLibrary(lib)
     }
     
     // MARK: - Output Device

@@ -214,6 +214,148 @@ public struct JellyfinMusicLibrary: Identifiable, Equatable {
     }
 }
 
+// MARK: - Video Content
+
+/// A movie in a Jellyfin video library
+public struct JellyfinMovie: Identifiable, Equatable {
+    public let id: String
+    public let title: String
+    public let year: Int?
+    public let overview: String?
+    public let duration: Int?          // seconds
+    public let contentRating: String?
+    public let imageTag: String?
+    public let backdropTag: String?
+    public let isFavorite: Bool
+    public let playCount: Int?
+    public let container: String?
+    
+    public init(id: String, title: String, year: Int?, overview: String?, duration: Int?,
+                contentRating: String?, imageTag: String?, backdropTag: String?,
+                isFavorite: Bool, playCount: Int?, container: String?) {
+        self.id = id
+        self.title = title
+        self.year = year
+        self.overview = overview
+        self.duration = duration
+        self.contentRating = contentRating
+        self.imageTag = imageTag
+        self.backdropTag = backdropTag
+        self.isFavorite = isFavorite
+        self.playCount = playCount
+        self.container = container
+    }
+    
+    public var formattedDuration: String? {
+        guard let dur = duration else { return nil }
+        let hours = dur / 3600
+        let minutes = (dur % 3600) / 60
+        if hours > 0 {
+            return String(format: "%dh %dm", hours, minutes)
+        }
+        return String(format: "%dm", minutes)
+    }
+}
+
+/// A TV show (series) in a Jellyfin video library
+public struct JellyfinShow: Identifiable, Equatable {
+    public let id: String
+    public let title: String
+    public let year: Int?
+    public let overview: String?
+    public let imageTag: String?
+    public let backdropTag: String?
+    public let childCount: Int
+    public let isFavorite: Bool
+    
+    public init(id: String, title: String, year: Int?, overview: String?, imageTag: String?,
+                backdropTag: String?, childCount: Int, isFavorite: Bool) {
+        self.id = id
+        self.title = title
+        self.year = year
+        self.overview = overview
+        self.imageTag = imageTag
+        self.backdropTag = backdropTag
+        self.childCount = childCount
+        self.isFavorite = isFavorite
+    }
+}
+
+/// A season of a TV show in Jellyfin
+public struct JellyfinSeason: Identifiable, Equatable {
+    public let id: String
+    public let title: String
+    public let index: Int?
+    public let seriesId: String
+    public let seriesName: String?
+    public let imageTag: String?
+    public let childCount: Int
+    
+    public init(id: String, title: String, index: Int?, seriesId: String, seriesName: String?,
+                imageTag: String?, childCount: Int) {
+        self.id = id
+        self.title = title
+        self.index = index
+        self.seriesId = seriesId
+        self.seriesName = seriesName
+        self.imageTag = imageTag
+        self.childCount = childCount
+    }
+}
+
+/// An episode of a TV show in Jellyfin
+public struct JellyfinEpisode: Identifiable, Equatable {
+    public let id: String
+    public let title: String
+    public let index: Int?
+    public let parentIndex: Int?
+    public let seriesId: String
+    public let seriesName: String?
+    public let seasonId: String?
+    public let seasonName: String?
+    public let overview: String?
+    public let duration: Int?
+    public let imageTag: String?
+    public let isFavorite: Bool
+    public let playCount: Int?
+    public let container: String?
+    
+    public init(id: String, title: String, index: Int?, parentIndex: Int?, seriesId: String,
+                seriesName: String?, seasonId: String?, seasonName: String?, overview: String?,
+                duration: Int?, imageTag: String?, isFavorite: Bool, playCount: Int?, container: String?) {
+        self.id = id
+        self.title = title
+        self.index = index
+        self.parentIndex = parentIndex
+        self.seriesId = seriesId
+        self.seriesName = seriesName
+        self.seasonId = seasonId
+        self.seasonName = seasonName
+        self.overview = overview
+        self.duration = duration
+        self.imageTag = imageTag
+        self.isFavorite = isFavorite
+        self.playCount = playCount
+        self.container = container
+    }
+    
+    public var episodeIdentifier: String {
+        let s = parentIndex.map { String(format: "S%02d", $0) } ?? ""
+        let e = index.map { String(format: "E%02d", $0) } ?? ""
+        return "\(s)\(e)"
+    }
+    
+    public var formattedDuration: String? {
+        guard let dur = duration else { return nil }
+        let hours = dur / 3600
+        let minutes = (dur % 3600) / 60
+        if hours > 0 {
+            return String(format: "%dh %dm", hours, minutes)
+        }
+        return String(format: "%dm", minutes)
+    }
+}
+
 // MARK: - Search Results
 
 /// Results from a Jellyfin search query
@@ -221,19 +363,26 @@ public struct JellyfinSearchResults {
     public var artists: [JellyfinArtist] = []
     public var albums: [JellyfinAlbum] = []
     public var songs: [JellyfinSong] = []
+    public var movies: [JellyfinMovie] = []
+    public var shows: [JellyfinShow] = []
+    public var episodes: [JellyfinEpisode] = []
     
-    public init(artists: [JellyfinArtist] = [], albums: [JellyfinAlbum] = [], songs: [JellyfinSong] = []) {
+    public init(artists: [JellyfinArtist] = [], albums: [JellyfinAlbum] = [], songs: [JellyfinSong] = [],
+                movies: [JellyfinMovie] = [], shows: [JellyfinShow] = [], episodes: [JellyfinEpisode] = []) {
         self.artists = artists
         self.albums = albums
         self.songs = songs
+        self.movies = movies
+        self.shows = shows
+        self.episodes = episodes
     }
     
     public var isEmpty: Bool {
-        artists.isEmpty && albums.isEmpty && songs.isEmpty
+        artists.isEmpty && albums.isEmpty && songs.isEmpty && movies.isEmpty && shows.isEmpty && episodes.isEmpty
     }
     
     public var totalCount: Int {
-        artists.count + albums.count + songs.count
+        artists.count + albums.count + songs.count + movies.count + shows.count + episodes.count
     }
 }
 

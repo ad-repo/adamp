@@ -571,6 +571,14 @@ class PlexBrowserView: NSView {
     private var jellyfinLoadTask: Task<Void, Never>?
     private var jellyfinExpandTask: Task<Void, Never>?
     
+    /// Cached data - Video (Jellyfin)
+    private var cachedJellyfinMovies: [JellyfinMovie] = []
+    private var cachedJellyfinShows: [JellyfinShow] = []
+    private var jellyfinShowSeasons: [String: [JellyfinSeason]] = [:]
+    private var jellyfinSeasonEpisodes: [String: [JellyfinEpisode]] = [:]
+    private var expandedJellyfinShows: Set<String> = []
+    private var expandedJellyfinSeasons: Set<String> = []
+    
     /// Cached data - Radio Stations
     private var cachedRadioStations: [RadioStation] = []
     
@@ -1181,9 +1189,11 @@ class PlexBrowserView: NSView {
                     let subsonicRating = rating / 2
                     try await SubsonicManager.shared.setRating(songId: subsonicId, rating: subsonicRating)
                     NSLog("PlexBrowser: Rated Subsonic track %@ with %d stars", subsonicId, subsonicRating)
-                } else if currentTrack.jellyfinId != nil {
-                    // Jellyfin: rating not yet supported
-                    NSLog("PlexBrowser: Jellyfin rating not yet supported")
+                } else if let jellyfinId = currentTrack.jellyfinId {
+                    // Jellyfin: convert 0-10 to 0-100
+                    let jellyfinRating = rating * 10
+                    try await JellyfinManager.shared.setRating(itemId: jellyfinId, rating: jellyfinRating)
+                    NSLog("PlexBrowser: Rated Jellyfin track %@ with %d stars", jellyfinId, rating / 2)
                 } else if currentTrack.url.isFileURL {
                     // Local file: 0-10 scale in MediaLibrary
                     await MainActor.run {
@@ -1242,10 +1252,20 @@ class PlexBrowserView: NSView {
                     NSLog("PlexBrowser: Failed to fetch Subsonic track rating: %@", error.localizedDescription)
                 }
             }
-        } else if currentTrack.jellyfinId != nil {
-            // Jellyfin: favorite = 10, not favorite = 0
-            currentTrackRating = 0  // Default; could fetch from server if needed
-            needsDisplay = true
+        } else if let jellyfinId = currentTrack.jellyfinId {
+            // Jellyfin: fetch from server (0-100 scale, convert to 0-10)
+            Task {
+                do {
+                    if let song = try await JellyfinManager.shared.serverClient?.fetchSong(id: jellyfinId) {
+                        await MainActor.run {
+                            currentTrackRating = song.userRating.map { $0 / 10 }
+                            needsDisplay = true
+                        }
+                    }
+                } catch {
+                    NSLog("PlexBrowser: Failed to fetch Jellyfin track rating: %@", error.localizedDescription)
+                }
+            }
         } else if currentTrack.url.isFileURL {
             // Local file: read from library (already 0-10 scale)
             if let libraryTrack = MediaLibrary.shared.findTrack(byURL: currentTrack.url) {
@@ -4913,6 +4933,13 @@ class PlexBrowserView: NSView {
         expandedShows = []
         expandedSeasons = []
         
+        cachedJellyfinMovies = []
+        cachedJellyfinShows = []
+        jellyfinShowSeasons = [:]
+        jellyfinSeasonEpisodes = [:]
+        expandedJellyfinShows = []
+        expandedJellyfinSeasons = []
+        
         searchResults = nil
     }
     
@@ -5536,6 +5563,18 @@ class PlexBrowserView: NSView {
                 
             case .jellyfinPlaylist(let playlist):
                 image = await self.loadJellyfinArtwork(itemId: playlist.id, imageTag: playlist.imageTag)
+                
+            case .jellyfinMovie(let movie):
+                image = await self.loadJellyfinArtwork(itemId: movie.id, imageTag: movie.imageTag)
+                
+            case .jellyfinShow(let show):
+                image = await self.loadJellyfinArtwork(itemId: show.id, imageTag: show.imageTag)
+                
+            case .jellyfinSeason(let season):
+                image = await self.loadJellyfinArtwork(itemId: season.id, imageTag: season.imageTag)
+                
+            case .jellyfinEpisode(let episode):
+                image = await self.loadJellyfinArtwork(itemId: episode.id, imageTag: episode.imageTag)
                 
             case .plexPlaylist(let playlist):
                 if let thumb = playlist.thumb {
@@ -8148,6 +8187,30 @@ class PlexBrowserView: NSView {
             expandItem3.representedObject = item
             menu.addItem(expandItem3)
             
+        case .jellyfinMovie(let movie):
+            let playItem = NSMenuItem(title: "Play Movie", action: #selector(contextMenuPlayJellyfinMovie(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = movie
+            menu.addItem(playItem)
+            
+        case .jellyfinShow:
+            let expandItem4 = NSMenuItem(title: "Expand/Collapse", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem4.target = self
+            expandItem4.representedObject = item
+            menu.addItem(expandItem4)
+            
+        case .jellyfinSeason:
+            let expandItem5 = NSMenuItem(title: "Expand/Collapse", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem5.target = self
+            expandItem5.representedObject = item
+            menu.addItem(expandItem5)
+            
+        case .jellyfinEpisode(let episode):
+            let playItem = NSMenuItem(title: "Play Episode", action: #selector(contextMenuPlayJellyfinEpisode(_:)), keyEquivalent: "")
+            playItem.target = self
+            playItem.representedObject = episode
+            menu.addItem(playItem)
+            
         case .plexPlaylist(let playlist):
             let playItem = NSMenuItem(title: "Play Playlist", action: #selector(contextMenuPlayPlexPlaylist(_:)), keyEquivalent: "")
             playItem.target = self
@@ -9366,6 +9429,16 @@ class PlexBrowserView: NSView {
         playEpisode(episode)
     }
     
+    @objc private func contextMenuPlayJellyfinMovie(_ sender: NSMenuItem) {
+        guard let movie = sender.representedObject as? JellyfinMovie else { return }
+        playJellyfinMovie(movie)
+    }
+    
+    @objc private func contextMenuPlayJellyfinEpisode(_ sender: NSMenuItem) {
+        guard let episode = sender.representedObject as? JellyfinEpisode else { return }
+        playJellyfinEpisode(episode)
+    }
+    
     @objc private func contextMenuCastMovie(_ sender: NSMenuItem) {
         NSLog("PlexBrowserView: contextMenuCastMovie ENTER")
         guard let (movie, device) = sender.representedObject as? (PlexMovie, CastDevice) else {
@@ -10245,6 +10318,32 @@ class PlexBrowserView: NSView {
                                 hasChildren: false,
                                 type: .episode(episode)
                             ))
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func buildJellyfinMovieItems() {
+        displayItems = cachedJellyfinMovies.map { movie in
+            let info = [movie.year.map { String($0) }, movie.formattedDuration].compactMap { $0 }.joined(separator: " • ")
+            return PlexDisplayItem(id: movie.id, title: movie.title, info: info.isEmpty ? nil : info, indentLevel: 0, hasChildren: false, type: .jellyfinMovie(movie))
+        }
+    }
+    
+    private func buildJellyfinShowItems() {
+        displayItems.removeAll()
+        for show in cachedJellyfinShows {
+            let expanded = expandedJellyfinShows.contains(show.id)
+            let info = [show.year.map { String($0) }, "\(show.childCount) seasons"].compactMap { $0 }.joined(separator: " • ")
+            displayItems.append(PlexDisplayItem(id: show.id, title: show.title, info: info, indentLevel: 0, hasChildren: true, type: .jellyfinShow(show)))
+            if expanded, let seasons = jellyfinShowSeasons[show.id] {
+                for season in seasons {
+                    displayItems.append(PlexDisplayItem(id: season.id, title: season.title, info: "\(season.childCount) episodes", indentLevel: 1, hasChildren: true, type: .jellyfinSeason(season)))
+                    if expandedJellyfinSeasons.contains(season.id), let episodes = jellyfinSeasonEpisodes[season.id] {
+                        for ep in episodes {
+                            displayItems.append(PlexDisplayItem(id: ep.id, title: "\(ep.episodeIdentifier) - \(ep.title)", info: ep.formattedDuration, indentLevel: 2, hasChildren: false, type: .jellyfinEpisode(ep)))
                         }
                     }
                 }
@@ -11162,8 +11261,27 @@ class PlexBrowserView: NSView {
                 case .search:
                     displayItems = []
                     
-                case .movies, .shows:
-                    displayItems = []
+                case .movies:
+                    if cachedJellyfinMovies.isEmpty {
+                        if manager.isContentPreloaded && !manager.cachedMovies.isEmpty {
+                            cachedJellyfinMovies = manager.cachedMovies
+                        } else {
+                            try Task.checkCancellation()
+                            cachedJellyfinMovies = try await manager.fetchMovies()
+                        }
+                    }
+                    buildJellyfinMovieItems()
+                    
+                case .shows:
+                    if cachedJellyfinShows.isEmpty {
+                        if manager.isContentPreloaded && !manager.cachedShows.isEmpty {
+                            cachedJellyfinShows = manager.cachedShows
+                        } else {
+                            try Task.checkCancellation()
+                            cachedJellyfinShows = try await manager.fetchShows()
+                        }
+                    }
+                    buildJellyfinShowItems()
                     
                 case .radio:
                     break
@@ -11701,8 +11819,10 @@ class PlexBrowserView: NSView {
                 displayItems = [] // TODO: Implement Jellyfin search
             case .plists:
                 buildJellyfinPlaylistItems()
-            case .movies, .shows:
-                displayItems = []
+            case .movies:
+                buildJellyfinMovieItems()
+            case .shows:
+                buildJellyfinShowItems()
             case .radio:
                 break
             }
@@ -11768,6 +11888,10 @@ class PlexBrowserView: NSView {
             return expandedJellyfinAlbums.contains(album.id)
         case .jellyfinPlaylist(let playlist):
             return expandedJellyfinPlaylists.contains(playlist.id)
+        case .jellyfinShow(let show):
+            return expandedJellyfinShows.contains(show.id)
+        case .jellyfinSeason(let season):
+            return expandedJellyfinSeasons.contains(season.id)
         case .plexPlaylist(let playlist):
             return expandedPlexPlaylists.contains(playlist.id)
         default:
@@ -12076,6 +12200,64 @@ class PlexBrowserView: NSView {
             }
             rebuildCurrentModeItems()
             
+        case .jellyfinShow(let show):
+            if expandedJellyfinShows.contains(show.id) {
+                expandedJellyfinShows.remove(show.id)
+            } else {
+                expandedJellyfinShows.insert(show.id)
+                if jellyfinShowSeasons[show.id] == nil {
+                    let showId = show.id
+                    jellyfinExpandTask?.cancel()
+                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do {
+                            try Task.checkCancellation()
+                            let seasons = try await JellyfinManager.shared.fetchSeasons(forShow: show)
+                            jellyfinShowSeasons[showId] = seasons
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                        } catch is CancellationError {
+                        } catch {
+                            expandedJellyfinShows.remove(showId)
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                            NSLog("Failed to load Jellyfin seasons: \(error)")
+                        }
+                    }
+                    return
+                }
+            }
+            rebuildCurrentModeItems()
+            
+        case .jellyfinSeason(let season):
+            if expandedJellyfinSeasons.contains(season.id) {
+                expandedJellyfinSeasons.remove(season.id)
+            } else {
+                expandedJellyfinSeasons.insert(season.id)
+                if jellyfinSeasonEpisodes[season.id] == nil {
+                    let seasonId = season.id
+                    jellyfinExpandTask?.cancel()
+                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do {
+                            try Task.checkCancellation()
+                            let episodes = try await JellyfinManager.shared.fetchEpisodes(forSeason: season)
+                            jellyfinSeasonEpisodes[seasonId] = episodes
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                        } catch is CancellationError {
+                        } catch {
+                            expandedJellyfinSeasons.remove(seasonId)
+                            rebuildCurrentModeItems()
+                            needsDisplay = true
+                            NSLog("Failed to load Jellyfin episodes: \(error)")
+                        }
+                    }
+                    return
+                }
+            }
+            rebuildCurrentModeItems()
+            
         case .jellyfinPlaylist(let playlist):
             if expandedJellyfinPlaylists.contains(playlist.id) {
                 expandedJellyfinPlaylists.remove(playlist.id)
@@ -12205,6 +12387,16 @@ class PlexBrowserView: NSView {
         WindowManager.shared.playEpisode(episode)
     }
     
+    private func playJellyfinMovie(_ movie: JellyfinMovie) {
+        NSLog("Playing Jellyfin movie: %@", movie.title)
+        WindowManager.shared.playJellyfinMovie(movie)
+    }
+    
+    private func playJellyfinEpisode(_ episode: JellyfinEpisode) {
+        NSLog("Playing Jellyfin episode: %@ - %@", episode.episodeIdentifier, episode.title)
+        WindowManager.shared.playJellyfinEpisode(episode)
+    }
+    
     private func playPlexPlaylist(_ playlist: PlexPlaylist) {
         // Show loading screen while fetching playlist tracks
         isLoading = true
@@ -12297,6 +12489,18 @@ class PlexBrowserView: NSView {
             
         case .jellyfinPlaylist(let playlist):
             playJellyfinPlaylist(playlist)
+            
+        case .jellyfinMovie(let movie):
+            playJellyfinMovie(movie)
+            
+        case .jellyfinShow:
+            toggleExpand(item)
+            
+        case .jellyfinSeason:
+            toggleExpand(item)
+            
+        case .jellyfinEpisode(let episode):
+            playJellyfinEpisode(episode)
             
         case .plexPlaylist(let playlist):
             playPlexPlaylist(playlist)
@@ -12731,12 +12935,16 @@ private struct PlexDisplayItem {
         case subsonicAlbum(SubsonicAlbum)
         case subsonicTrack(SubsonicSong)
         case subsonicPlaylist(SubsonicPlaylist)
-        // Jellyfin content types
-        case jellyfinArtist(JellyfinArtist)
-        case jellyfinAlbum(JellyfinAlbum)
-        case jellyfinTrack(JellyfinSong)
-        case jellyfinPlaylist(JellyfinPlaylist)
-        // Plex playlist type
+    // Jellyfin content types
+    case jellyfinArtist(JellyfinArtist)
+    case jellyfinAlbum(JellyfinAlbum)
+    case jellyfinTrack(JellyfinSong)
+    case jellyfinPlaylist(JellyfinPlaylist)
+    case jellyfinMovie(JellyfinMovie)
+    case jellyfinShow(JellyfinShow)
+    case jellyfinSeason(JellyfinSeason)
+    case jellyfinEpisode(JellyfinEpisode)
+    // Plex playlist type
         case plexPlaylist(PlexPlaylist)
         // Radio station type (Internet Radio - Shoutcast/Icecast)
         case radioStation(RadioStation)

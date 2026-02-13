@@ -54,6 +54,25 @@ class JellyfinManager {
         }
     }
     
+    // MARK: - Video Libraries
+    
+    /// All video libraries (movies + tvshows) on the current server
+    private(set) var videoLibraries: [JellyfinMusicLibrary] = []
+    
+    /// Currently selected movie library
+    private(set) var currentMovieLibrary: JellyfinMusicLibrary? {
+        didSet {
+            UserDefaults.standard.set(currentMovieLibrary?.id, forKey: "JellyfinCurrentMovieLibraryID")
+        }
+    }
+    
+    /// Currently selected TV show library
+    private(set) var currentShowLibrary: JellyfinMusicLibrary? {
+        didSet {
+            UserDefaults.standard.set(currentShowLibrary?.id, forKey: "JellyfinCurrentShowLibraryID")
+        }
+    }
+    
     // MARK: - Connection State
     
     enum ConnectionState {
@@ -79,6 +98,12 @@ class JellyfinManager {
     
     /// Cached playlists
     private(set) var cachedPlaylists: [JellyfinPlaylist] = []
+    
+    /// Cached movies
+    private(set) var cachedMovies: [JellyfinMovie] = []
+    
+    /// Cached TV shows
+    private(set) var cachedShows: [JellyfinShow] = []
     
     /// Whether library content has been preloaded
     private(set) var isContentPreloaded: Bool = false
@@ -270,13 +295,17 @@ class JellyfinManager {
         do {
             _ = try await client.ping()
             
-            // Fetch music libraries
-            let libraries = try await client.fetchMusicLibraries()
+            // Fetch music and video libraries in parallel
+            async let musicLibTask = client.fetchMusicLibraries()
+            async let videoLibTask = client.fetchVideoLibraries()
+            
+            let (libraries, vidLibraries) = try await (musicLibTask, videoLibTask)
             
             await MainActor.run {
                 self.currentServer = server
                 self.serverClient = client
                 self.musicLibraries = libraries
+                self.videoLibraries = vidLibraries
                 self.connectionState = .connected
                 
                 // Auto-select music library
@@ -286,9 +315,24 @@ class JellyfinManager {
                 } else if libraries.count == 1 {
                     self.currentMusicLibrary = libraries.first
                 }
+                
+                // Auto-select movie library
+                if let savedMovieLibId = UserDefaults.standard.string(forKey: "JellyfinCurrentMovieLibraryID"),
+                   let savedLib = vidLibraries.first(where: { $0.id == savedMovieLibId }) {
+                    self.currentMovieLibrary = savedLib
+                } else if vidLibraries.count == 1 {
+                    // Single video library serves both movies and shows
+                    self.currentMovieLibrary = vidLibraries.first
+                    self.currentShowLibrary = vidLibraries.first
+                }
+                
+                if let savedShowLibId = UserDefaults.standard.string(forKey: "JellyfinCurrentShowLibraryID"),
+                   let savedLib = vidLibraries.first(where: { $0.id == savedShowLibId }) {
+                    self.currentShowLibrary = savedLib
+                }
             }
             
-            NSLog("JellyfinManager: Connected to '%@' with %d music libraries", server.name, libraries.count)
+            NSLog("JellyfinManager: Connected to '%@' with %d music libraries, %d video libraries", server.name, libraries.count, vidLibraries.count)
             
             // Preload library content in background
             await preloadLibraryContent()
@@ -317,9 +361,14 @@ class JellyfinManager {
         connectionState = .disconnected
         musicLibraries = []
         currentMusicLibrary = nil
+        videoLibraries = []
+        currentMovieLibrary = nil
+        currentShowLibrary = nil
         clearCachedContent()
         UserDefaults.standard.removeObject(forKey: "JellyfinCurrentServerID")
         UserDefaults.standard.removeObject(forKey: "JellyfinCurrentMusicLibraryID")
+        UserDefaults.standard.removeObject(forKey: "JellyfinCurrentMovieLibraryID")
+        UserDefaults.standard.removeObject(forKey: "JellyfinCurrentShowLibraryID")
     }
     
     /// Select a music library
@@ -331,6 +380,22 @@ class JellyfinManager {
         Task {
             await preloadLibraryContent()
         }
+    }
+    
+    /// Select a movie library
+    func selectMovieLibrary(_ library: JellyfinMusicLibrary) {
+        currentMovieLibrary = library
+        cachedMovies = []
+        
+        NSLog("JellyfinManager: Selected movie library '%@'", library.name)
+    }
+    
+    /// Select a TV show library
+    func selectShowLibrary(_ library: JellyfinMusicLibrary) {
+        currentShowLibrary = library
+        cachedShows = []
+        
+        NSLog("JellyfinManager: Selected show library '%@'", library.name)
     }
     
     // MARK: - Library Preloading
@@ -363,15 +428,37 @@ class JellyfinManager {
             
             let (artists, albums, playlists) = try await (artistsTask, albumsTask, playlistsTask)
             
+            // Also preload movies and shows if video libraries are configured
+            var movies: [JellyfinMovie] = []
+            var shows: [JellyfinShow] = []
+            
+            if let movieLibId = currentMovieLibrary?.id {
+                do {
+                    movies = try await client.fetchMovies(libraryId: movieLibId)
+                } catch {
+                    NSLog("JellyfinManager: Movie preload failed: %@", error.localizedDescription)
+                }
+            }
+            
+            if let showLibId = currentShowLibrary?.id {
+                do {
+                    shows = try await client.fetchShows(libraryId: showLibId)
+                } catch {
+                    NSLog("JellyfinManager: Show preload failed: %@", error.localizedDescription)
+                }
+            }
+            
             await MainActor.run {
                 self.cachedArtists = artists
                 self.cachedAlbums = albums
                 self.cachedPlaylists = playlists
+                self.cachedMovies = movies
+                self.cachedShows = shows
                 self.isContentPreloaded = true
                 self.isPreloading = false
                 
-                NSLog("JellyfinManager: Preloaded %d artists, %d albums, %d playlists",
-                      artists.count, albums.count, playlists.count)
+                NSLog("JellyfinManager: Preloaded %d artists, %d albums, %d playlists, %d movies, %d shows",
+                      artists.count, albums.count, playlists.count, movies.count, shows.count)
                 
                 NotificationCenter.default.post(name: Self.libraryContentDidPreloadNotification, object: self)
             }
@@ -389,6 +476,8 @@ class JellyfinManager {
         cachedArtists = []
         cachedAlbums = []
         cachedPlaylists = []
+        cachedMovies = []
+        cachedShows = []
         isContentPreloaded = false
     }
     
@@ -436,6 +525,113 @@ class JellyfinManager {
         guard let client = serverClient else { return [] }
         let (_, songs) = try await client.fetchAlbum(id: album.id)
         return songs
+    }
+    
+    // MARK: - Video Content Fetching
+    
+    /// Fetch movies (uses cache if available)
+    func fetchMovies() async throws -> [JellyfinMovie] {
+        if isContentPreloaded && !cachedMovies.isEmpty {
+            return cachedMovies
+        }
+        
+        guard let client = serverClient, let libraryId = currentMovieLibrary?.id else { return [] }
+        let movies = try await client.fetchMovies(libraryId: libraryId)
+        await MainActor.run { self.cachedMovies = movies }
+        return movies
+    }
+    
+    /// Fetch TV shows (uses cache if available)
+    func fetchShows() async throws -> [JellyfinShow] {
+        if isContentPreloaded && !cachedShows.isEmpty {
+            return cachedShows
+        }
+        
+        guard let client = serverClient, let libraryId = currentShowLibrary?.id else { return [] }
+        let shows = try await client.fetchShows(libraryId: libraryId)
+        await MainActor.run { self.cachedShows = shows }
+        return shows
+    }
+    
+    /// Fetch seasons for a TV show
+    func fetchSeasons(forShow show: JellyfinShow) async throws -> [JellyfinSeason] {
+        guard let client = serverClient else { return [] }
+        return try await client.fetchSeasons(seriesId: show.id)
+    }
+    
+    /// Fetch episodes for a season
+    func fetchEpisodes(forSeason season: JellyfinSeason) async throws -> [JellyfinEpisode] {
+        guard let client = serverClient else { return [] }
+        return try await client.fetchEpisodes(seriesId: season.seriesId, seasonId: season.id)
+    }
+    
+    // MARK: - Video URL Generation
+    
+    /// Get video streaming URL for a movie
+    func videoStreamURL(for movie: JellyfinMovie) -> URL? {
+        serverClient?.videoStreamURL(itemId: movie.id)
+    }
+    
+    /// Get video streaming URL for an episode
+    func videoStreamURL(for episode: JellyfinEpisode) -> URL? {
+        serverClient?.videoStreamURL(itemId: episode.id)
+    }
+    
+    // MARK: - Video Track Conversion
+    
+    /// Convert a Jellyfin movie to a Track for video playback
+    func convertToTrack(_ movie: JellyfinMovie) -> Track? {
+        guard let streamURL = videoStreamURL(for: movie) else { return nil }
+        
+        return Track(
+            url: streamURL,
+            title: movie.title,
+            artist: nil,
+            album: nil,
+            duration: movie.duration.map { TimeInterval($0) } ?? 0,
+            bitrate: nil,
+            sampleRate: nil,
+            channels: nil,
+            plexRatingKey: nil,
+            subsonicId: nil,
+            subsonicServerId: nil,
+            jellyfinId: movie.id,
+            jellyfinServerId: currentServer?.id,
+            artworkThumb: movie.imageTag,
+            mediaType: .video,
+            genre: nil
+        )
+    }
+    
+    /// Convert a Jellyfin episode to a Track for video playback
+    func convertToTrack(_ episode: JellyfinEpisode) -> Track? {
+        guard let streamURL = videoStreamURL(for: episode) else { return nil }
+        
+        let title: String
+        if let showName = episode.seriesName {
+            title = "\(showName) - \(episode.episodeIdentifier) - \(episode.title)"
+        } else {
+            title = episode.title
+        }
+        
+        return Track(
+            url: streamURL,
+            title: title,
+            artist: episode.seriesName,
+            album: episode.seasonName,
+            duration: episode.duration.map { TimeInterval($0) } ?? 0,
+            bitrate: nil,
+            sampleRate: nil,
+            channels: nil,
+            plexRatingKey: nil,
+            subsonicId: nil,
+            subsonicServerId: nil,
+            jellyfinId: episode.id,
+            jellyfinServerId: currentServer?.id,
+            artworkThumb: episode.imageTag,
+            mediaType: .video,
+            genre: nil
+        )
     }
     
     /// Search the library

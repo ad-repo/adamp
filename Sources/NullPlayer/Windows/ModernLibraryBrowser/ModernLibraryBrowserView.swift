@@ -253,11 +253,19 @@ class ModernLibraryBrowserView: NSView {
     private var cachedRadioStations: [RadioStation] = []
     private var activeRadioStationSheet: AddRadioStationSheet?
     
-    // Cached data - Video
+    // Cached data - Video (Plex)
     private var cachedMovies: [PlexMovie] = []
     private var cachedShows: [PlexShow] = []
     private var showSeasons: [String: [PlexSeason]] = [:]
     private var seasonEpisodes: [String: [PlexEpisode]] = [:]
+    
+    // Cached data - Video (Jellyfin)
+    private var cachedJellyfinMovies: [JellyfinMovie] = []
+    private var cachedJellyfinShows: [JellyfinShow] = []
+    private var jellyfinShowSeasons: [String: [JellyfinSeason]] = [:]
+    private var jellyfinSeasonEpisodes: [String: [JellyfinEpisode]] = [:]
+    private var expandedJellyfinShows: Set<String> = []
+    private var expandedJellyfinSeasons: Set<String> = []
     
     // Cached data - Playlists (Plex)
     private var cachedPlexPlaylists: [PlexPlaylist] = []
@@ -759,7 +767,7 @@ class ModernLibraryBrowserView: NSView {
         // Star rating (art-only mode with a track playing)
         if isArtOnlyMode,
            let currentTrack = WindowManager.shared.audioEngine.currentTrack,
-           currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
+           currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.jellyfinId != nil || currentTrack.url.isFileURL {
             let starSize: CGFloat = 14 * m
             let starSpacing: CGFloat = 4 * m
             let totalStars = 5
@@ -2725,7 +2733,7 @@ class ModernLibraryBrowserView: NSView {
         
         // Rate submenu (when a rateable track is playing)
         if let currentTrack = WindowManager.shared.audioEngine.currentTrack,
-           currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL {
+           currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.jellyfinId != nil || currentTrack.url.isFileURL {
             menu.addItem(NSMenuItem.separator())
             let rateMenu = buildRateSubmenu()
             let rateItem = NSMenuItem(title: "Rate", action: nil, keyEquivalent: "")
@@ -3013,6 +3021,18 @@ class ModernLibraryBrowserView: NSView {
         case .episode(let episode):
             let playItem = NSMenuItem(title: "Play Episode", action: #selector(contextMenuPlayEpisode(_:)), keyEquivalent: "")
             playItem.target = self; playItem.representedObject = episode; menu.addItem(playItem)
+        case .jellyfinMovie(let movie):
+            let playItem = NSMenuItem(title: "Play Movie", action: #selector(contextMenuPlayJellyfinMovie(_:)), keyEquivalent: "")
+            playItem.target = self; playItem.representedObject = movie; menu.addItem(playItem)
+        case .jellyfinShow:
+            let expandItem = NSMenuItem(title: "Expand/Collapse", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem.target = self; expandItem.representedObject = item; menu.addItem(expandItem)
+        case .jellyfinSeason:
+            let expandItem = NSMenuItem(title: "Expand/Collapse", action: #selector(contextMenuToggleExpand(_:)), keyEquivalent: "")
+            expandItem.target = self; expandItem.representedObject = item; menu.addItem(expandItem)
+        case .jellyfinEpisode(let episode):
+            let playItem = NSMenuItem(title: "Play Episode", action: #selector(contextMenuPlayJellyfinEpisode(_:)), keyEquivalent: "")
+            playItem.target = self; playItem.representedObject = episode; menu.addItem(playItem)
         case .subsonicPlaylist(let playlist):
             let playItem = NSMenuItem(title: "Play Playlist", action: #selector(contextMenuPlaySubsonicPlaylist(_:)), keyEquivalent: "")
             playItem.target = self; playItem.representedObject = playlist; menu.addItem(playItem)
@@ -3271,6 +3291,12 @@ class ModernLibraryBrowserView: NSView {
     }
     @objc private func contextMenuPlayEpisode(_ sender: NSMenuItem) {
         guard let episode = sender.representedObject as? PlexEpisode else { return }; playEpisode(episode)
+    }
+    @objc private func contextMenuPlayJellyfinMovie(_ sender: NSMenuItem) {
+        guard let movie = sender.representedObject as? JellyfinMovie else { return }; playJellyfinMovie(movie)
+    }
+    @objc private func contextMenuPlayJellyfinEpisode(_ sender: NSMenuItem) {
+        guard let episode = sender.representedObject as? JellyfinEpisode else { return }; playJellyfinEpisode(episode)
     }
     
     // MARK: - Play and Replace Queue Handlers
@@ -3974,6 +4000,9 @@ class ModernLibraryBrowserView: NSView {
         cachedJellyfinArtists = []; cachedJellyfinAlbums = []; cachedJellyfinPlaylists = []
         jellyfinArtistAlbums = [:]; jellyfinAlbumSongs = [:]; jellyfinPlaylistTracks = [:]
         expandedJellyfinArtists = []; expandedJellyfinAlbums = []; expandedJellyfinPlaylists = []
+        cachedJellyfinMovies = []; cachedJellyfinShows = []
+        jellyfinShowSeasons = [:]; jellyfinSeasonEpisodes = [:]
+        expandedJellyfinShows = []; expandedJellyfinSeasons = []
         searchResults = nil
     }
     
@@ -4088,7 +4117,7 @@ class ModernLibraryBrowserView: NSView {
     
     private func showRatingOverlay() {
         guard let currentTrack = WindowManager.shared.audioEngine.currentTrack,
-              currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.url.isFileURL else { return }
+              currentTrack.plexRatingKey != nil || currentTrack.subsonicId != nil || currentTrack.jellyfinId != nil || currentTrack.url.isFileURL else { return }
         ratingOverlay.frame = bounds; ratingOverlay.setRating(currentTrackRating ?? 0)
         ratingOverlay.isHidden = false; isRatingOverlayVisible = true; needsDisplay = true
     }
@@ -4113,6 +4142,10 @@ class ModernLibraryBrowserView: NSView {
                     // Subsonic: convert 0-10 to 0-5
                     let subsonicRating = rating / 2
                     try await SubsonicManager.shared.setRating(songId: subsonicId, rating: subsonicRating)
+                } else if let jellyfinId = currentTrack.jellyfinId {
+                    // Jellyfin: convert 0-10 to 0-100
+                    let jellyfinRating = rating * 10
+                    try await JellyfinManager.shared.setRating(itemId: jellyfinId, rating: jellyfinRating)
                 } else if currentTrack.url.isFileURL {
                     // Local file: store 0-10 scale
                     if let libraryTrack = MediaLibrary.shared.findTrack(byURL: currentTrack.url) {
@@ -4149,6 +4182,17 @@ class ModernLibraryBrowserView: NSView {
                     if let song = try await SubsonicManager.shared.serverClient?.fetchSong(id: subsonicId) {
                         await MainActor.run {
                             currentTrackRating = song.userRating.map { $0 * 2 }; needsDisplay = true
+                        }
+                    }
+                } catch { }
+            }
+        } else if let jellyfinId = currentTrack.jellyfinId {
+            // Jellyfin: fetch from server (0-100 scale, convert to 0-10)
+            Task {
+                do {
+                    if let song = try await JellyfinManager.shared.serverClient?.fetchSong(id: jellyfinId) {
+                        await MainActor.run {
+                            currentTrackRating = song.userRating.map { $0 / 10 }; needsDisplay = true
                         }
                     }
                 } catch { }
@@ -4524,6 +4568,14 @@ class ModernLibraryBrowserView: NSView {
                 image = await self.loadJellyfinArtwork(itemId: album.id, imageTag: album.imageTag)
             case .jellyfinArtist(let artist):
                 image = await self.loadJellyfinArtwork(itemId: artist.id, imageTag: artist.imageTag)
+            case .jellyfinMovie(let movie):
+                image = await self.loadJellyfinArtwork(itemId: movie.id, imageTag: movie.imageTag)
+            case .jellyfinShow(let show):
+                image = await self.loadJellyfinArtwork(itemId: show.id, imageTag: show.imageTag)
+            case .jellyfinSeason(let season):
+                image = await self.loadJellyfinArtwork(itemId: season.id, imageTag: season.imageTag)
+            case .jellyfinEpisode(let episode):
+                image = await self.loadJellyfinArtwork(itemId: episode.id, imageTag: episode.imageTag)
             default:
                 break
             }
@@ -4788,7 +4840,18 @@ class ModernLibraryBrowserView: NSView {
                     }
                     buildJellyfinPlaylistItems()
                 case .search: displayItems = []
-                case .movies, .shows: displayItems = []
+                case .movies:
+                    if cachedJellyfinMovies.isEmpty {
+                        if manager.isContentPreloaded && !manager.cachedMovies.isEmpty { cachedJellyfinMovies = manager.cachedMovies }
+                        else { cachedJellyfinMovies = try await manager.fetchMovies() }
+                    }
+                    buildJellyfinMovieItems()
+                case .shows:
+                    if cachedJellyfinShows.isEmpty {
+                        if manager.isContentPreloaded && !manager.cachedShows.isEmpty { cachedJellyfinShows = manager.cachedShows }
+                        else { cachedJellyfinShows = try await manager.fetchShows() }
+                    }
+                    buildJellyfinShowItems()
                 case .radio: break
                 }
                 isLoading = false; stopLoadingAnimation(); needsDisplay = true
@@ -4878,6 +4941,30 @@ class ModernLibraryBrowserView: NSView {
                     displayItems.append(ModernDisplayItem(id: season.id, title: season.title, info: "\(season.leafCount) episodes", indentLevel: 1, hasChildren: true, type: .season(season)))
                     if expandedSeasons.contains(season.id), let episodes = seasonEpisodes[season.id] {
                         for ep in episodes { displayItems.append(ModernDisplayItem(id: ep.id, title: "\(ep.episodeIdentifier) - \(ep.title)", info: ep.formattedDuration, indentLevel: 2, hasChildren: false, type: .episode(ep))) }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func buildJellyfinMovieItems() {
+        displayItems = cachedJellyfinMovies.map { movie in
+            let info = [movie.year.map { String($0) }, movie.formattedDuration].compactMap { $0 }.joined(separator: " • ")
+            return ModernDisplayItem(id: movie.id, title: movie.title, info: info.isEmpty ? nil : info, indentLevel: 0, hasChildren: false, type: .jellyfinMovie(movie))
+        }
+    }
+    
+    private func buildJellyfinShowItems() {
+        displayItems.removeAll()
+        for show in cachedJellyfinShows {
+            let expanded = expandedJellyfinShows.contains(show.id)
+            let info = [show.year.map { String($0) }, "\(show.childCount) seasons"].compactMap { $0 }.joined(separator: " • ")
+            displayItems.append(ModernDisplayItem(id: show.id, title: show.title, info: info, indentLevel: 0, hasChildren: true, type: .jellyfinShow(show)))
+            if expanded, let seasons = jellyfinShowSeasons[show.id] {
+                for season in seasons {
+                    displayItems.append(ModernDisplayItem(id: season.id, title: season.title, info: "\(season.childCount) episodes", indentLevel: 1, hasChildren: true, type: .jellyfinSeason(season)))
+                    if expandedJellyfinSeasons.contains(season.id), let episodes = jellyfinSeasonEpisodes[season.id] {
+                        for ep in episodes { displayItems.append(ModernDisplayItem(id: ep.id, title: "\(ep.episodeIdentifier) - \(ep.title)", info: ep.formattedDuration, indentLevel: 2, hasChildren: false, type: .jellyfinEpisode(ep))) }
                     }
                 }
             }
@@ -5248,6 +5335,8 @@ class ModernLibraryBrowserView: NSView {
             case .albums: buildJellyfinAlbumItems()
             case .tracks: buildJellyfinTrackItems()
             case .plists: buildJellyfinPlaylistItems()
+            case .movies: buildJellyfinMovieItems()
+            case .shows: buildJellyfinShowItems()
             default: displayItems = []
             }
         } else {
@@ -5282,6 +5371,8 @@ class ModernLibraryBrowserView: NSView {
         case .jellyfinArtist(let a): return expandedJellyfinArtists.contains(a.id)
         case .jellyfinAlbum(let a): return expandedJellyfinAlbums.contains(a.id)
         case .jellyfinPlaylist(let p): return expandedJellyfinPlaylists.contains(p.id)
+        case .jellyfinShow(let s): return expandedJellyfinShows.contains(s.id)
+        case .jellyfinSeason(let s): return expandedJellyfinSeasons.contains(s.id)
         case .plexPlaylist(let p): return expandedPlexPlaylists.contains(p.id)
         default: return false
         }
@@ -5441,6 +5532,32 @@ class ModernLibraryBrowserView: NSView {
                     }; return
                 }
             }
+        case .jellyfinShow(let show):
+            if expandedJellyfinShows.contains(show.id) { expandedJellyfinShows.remove(show.id) }
+            else {
+                expandedJellyfinShows.insert(show.id)
+                if jellyfinShowSeasons[show.id] == nil {
+                    let id = show.id; jellyfinExpandTask?.cancel()
+                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do { let seasons = try await JellyfinManager.shared.fetchSeasons(forShow: show); jellyfinShowSeasons[id] = seasons; rebuildCurrentModeItems() }
+                        catch is CancellationError { } catch { expandedJellyfinShows.remove(id); rebuildCurrentModeItems(); NSLog("Failed: \(error)") }
+                    }; return
+                }
+            }
+        case .jellyfinSeason(let season):
+            if expandedJellyfinSeasons.contains(season.id) { expandedJellyfinSeasons.remove(season.id) }
+            else {
+                expandedJellyfinSeasons.insert(season.id)
+                if jellyfinSeasonEpisodes[season.id] == nil {
+                    let id = season.id; jellyfinExpandTask?.cancel()
+                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        do { let episodes = try await JellyfinManager.shared.fetchEpisodes(forSeason: season); jellyfinSeasonEpisodes[id] = episodes; rebuildCurrentModeItems() }
+                        catch is CancellationError { } catch { expandedJellyfinSeasons.remove(id); rebuildCurrentModeItems(); NSLog("Failed: \(error)") }
+                    }; return
+                }
+            }
         case .plexPlaylist(let playlist):
             if expandedPlexPlaylists.contains(playlist.id) { expandedPlexPlaylists.remove(playlist.id) }
             else {
@@ -5488,6 +5605,8 @@ class ModernLibraryBrowserView: NSView {
     }
     private func playMovie(_ movie: PlexMovie) { WindowManager.shared.playMovie(movie) }
     private func playEpisode(_ episode: PlexEpisode) { WindowManager.shared.playEpisode(episode) }
+    private func playJellyfinMovie(_ movie: JellyfinMovie) { WindowManager.shared.playJellyfinMovie(movie) }
+    private func playJellyfinEpisode(_ episode: JellyfinEpisode) { WindowManager.shared.playJellyfinEpisode(episode) }
     private func playLocalTrack(_ track: LibraryTrack) { WindowManager.shared.audioEngine.playNow([track.toTrack()]) }
     private func playLocalAlbum(_ album: Album) { WindowManager.shared.audioEngine.playNow(album.tracks.map { $0.toTrack() }) }
     private func playLocalArtist(_ artist: Artist) {
@@ -5602,6 +5721,10 @@ class ModernLibraryBrowserView: NSView {
         case .jellyfinAlbum(let a): playJellyfinAlbum(a)
         case .jellyfinArtist: toggleExpand(item)
         case .jellyfinPlaylist(let p): playJellyfinPlaylist(p)
+        case .jellyfinMovie(let m): playJellyfinMovie(m)
+        case .jellyfinShow: toggleExpand(item)
+        case .jellyfinSeason: toggleExpand(item)
+        case .jellyfinEpisode(let e): playJellyfinEpisode(e)
         case .plexPlaylist(let p): playPlexPlaylist(p)
         case .radioStation(let s): playRadioStation(s)
         case .plexRadioStation(let r): playPlexRadioStation(r)
@@ -5647,6 +5770,10 @@ private struct ModernDisplayItem {
         case jellyfinAlbum(JellyfinAlbum)
         case jellyfinTrack(JellyfinSong)
         case jellyfinPlaylist(JellyfinPlaylist)
+        case jellyfinMovie(JellyfinMovie)
+        case jellyfinShow(JellyfinShow)
+        case jellyfinSeason(JellyfinSeason)
+        case jellyfinEpisode(JellyfinEpisode)
         case plexPlaylist(PlexPlaylist)
         case radioStation(RadioStation)
         case plexRadioStation(PlexRadioType)

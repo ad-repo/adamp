@@ -916,6 +916,88 @@ class CastManager {
         try await cast(to: device, url: castURL, metadata: metadata, startPosition: startPosition)
     }
     
+    /// Cast a Jellyfin movie to a video-capable device
+    /// - Parameters:
+    ///   - movie: The JellyfinMovie to cast
+    ///   - device: Target cast device (must support video)
+    ///   - startPosition: Optional position to resume from (seconds)
+    func castJellyfinMovie(_ movie: JellyfinMovie, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
+        guard device.supportsVideo else {
+            throw CastError.unsupportedDevice
+        }
+        
+        guard let streamURL = JellyfinManager.shared.videoStreamURL(for: movie) else {
+            throw CastError.invalidURL
+        }
+        
+        // Get artwork URL
+        let artworkURL = JellyfinManager.shared.imageURL(itemId: movie.id, imageTag: movie.imageTag, size: 600)
+        
+        let contentType = "video/mp4"
+        
+        let metadata = CastMetadata(
+            title: movie.title,
+            artist: nil,
+            album: nil,
+            artworkURL: artworkURL,
+            duration: movie.duration.map { Double($0) },
+            contentType: contentType,
+            mediaType: .video,
+            resolution: nil,
+            year: movie.year,
+            summary: movie.overview
+        )
+        
+        NSLog("CastManager: Casting Jellyfin movie '%@' to %@", movie.title, device.name)
+        NSLog("CastManager: Cast URL: %@", redactedURL(streamURL))
+        try await cast(to: device, url: streamURL, metadata: metadata, startPosition: startPosition)
+    }
+    
+    /// Cast a Jellyfin episode to a video-capable device
+    /// - Parameters:
+    ///   - episode: The JellyfinEpisode to cast
+    ///   - device: Target cast device (must support video)
+    ///   - startPosition: Optional position to resume from (seconds)
+    func castJellyfinEpisode(_ episode: JellyfinEpisode, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
+        guard device.supportsVideo else {
+            throw CastError.unsupportedDevice
+        }
+        
+        guard let streamURL = JellyfinManager.shared.videoStreamURL(for: episode) else {
+            throw CastError.invalidURL
+        }
+        
+        // Get artwork URL
+        let artworkURL = JellyfinManager.shared.imageURL(itemId: episode.id, imageTag: episode.imageTag, size: 600)
+        
+        // Build title: "Show Name - S01E01 - Episode Title"
+        let title: String
+        if let showName = episode.seriesName {
+            title = "\(showName) - \(episode.episodeIdentifier) - \(episode.title)"
+        } else {
+            title = episode.title
+        }
+        
+        let contentType = "video/mp4"
+        
+        let metadata = CastMetadata(
+            title: title,
+            artist: episode.seriesName,
+            album: episode.seasonName,
+            artworkURL: artworkURL,
+            duration: episode.duration.map { Double($0) },
+            contentType: contentType,
+            mediaType: .video,
+            resolution: nil,
+            year: nil,
+            summary: episode.overview
+        )
+        
+        NSLog("CastManager: Casting Jellyfin episode '%@' to %@", title, device.name)
+        NSLog("CastManager: Cast URL: %@", redactedURL(streamURL))
+        try await cast(to: device, url: streamURL, metadata: metadata, startPosition: startPosition)
+    }
+    
     /// Cast a local video file to a video-capable device
     /// - Parameters:
     ///   - url: Local file URL

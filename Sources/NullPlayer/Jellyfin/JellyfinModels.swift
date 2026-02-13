@@ -128,6 +128,90 @@ struct JellyfinMusicLibrary: Identifiable, Equatable {
     let name: String
 }
 
+// MARK: - Video Content
+
+/// A movie in a Jellyfin video library
+struct JellyfinMovie: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let year: Int?
+    let overview: String?
+    let duration: Int?          // seconds
+    let contentRating: String?  // e.g. "PG-13"
+    let imageTag: String?
+    let backdropTag: String?
+    let isFavorite: Bool
+    let playCount: Int?
+    let container: String?
+    
+    var formattedDuration: String? {
+        guard let dur = duration else { return nil }
+        let hours = dur / 3600
+        let minutes = (dur % 3600) / 60
+        if hours > 0 {
+            return String(format: "%dh %dm", hours, minutes)
+        }
+        return String(format: "%dm", minutes)
+    }
+}
+
+/// A TV show (series) in a Jellyfin video library
+struct JellyfinShow: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let year: Int?
+    let overview: String?
+    let imageTag: String?
+    let backdropTag: String?
+    let childCount: Int         // number of seasons
+    let isFavorite: Bool
+}
+
+/// A season of a TV show in Jellyfin
+struct JellyfinSeason: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let index: Int?             // season number
+    let seriesId: String
+    let seriesName: String?
+    let imageTag: String?
+    let childCount: Int         // number of episodes
+}
+
+/// An episode of a TV show in Jellyfin
+struct JellyfinEpisode: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let index: Int?             // episode number
+    let parentIndex: Int?       // season number
+    let seriesId: String
+    let seriesName: String?
+    let seasonId: String?
+    let seasonName: String?
+    let overview: String?
+    let duration: Int?          // seconds
+    let imageTag: String?
+    let isFavorite: Bool
+    let playCount: Int?
+    let container: String?
+    
+    var episodeIdentifier: String {
+        let s = parentIndex.map { String(format: "S%02d", $0) } ?? ""
+        let e = index.map { String(format: "E%02d", $0) } ?? ""
+        return "\(s)\(e)"
+    }
+    
+    var formattedDuration: String? {
+        guard let dur = duration else { return nil }
+        let hours = dur / 3600
+        let minutes = (dur % 3600) / 60
+        if hours > 0 {
+            return String(format: "%dh %dm", hours, minutes)
+        }
+        return String(format: "%dm", minutes)
+    }
+}
+
 // MARK: - Search Results
 
 /// Results from a Jellyfin search query
@@ -135,13 +219,16 @@ struct JellyfinSearchResults {
     var artists: [JellyfinArtist] = []
     var albums: [JellyfinAlbum] = []
     var songs: [JellyfinSong] = []
+    var movies: [JellyfinMovie] = []
+    var shows: [JellyfinShow] = []
+    var episodes: [JellyfinEpisode] = []
     
     var isEmpty: Bool {
-        artists.isEmpty && albums.isEmpty && songs.isEmpty
+        artists.isEmpty && albums.isEmpty && songs.isEmpty && movies.isEmpty && shows.isEmpty && episodes.isEmpty
     }
     
     var totalCount: Int {
-        artists.count + albums.count + songs.count
+        artists.count + albums.count + songs.count + movies.count + shows.count + episodes.count
     }
 }
 
@@ -151,15 +238,15 @@ struct JellyfinSearchResults {
 struct JellyfinItemDTO: Decodable {
     let Id: String
     let Name: String
-    let ItemType: String?          // "MusicArtist", "MusicAlbum", "Audio", "Playlist", "CollectionFolder"
+    let ItemType: String?          // "MusicArtist", "MusicAlbum", "Audio", "Playlist", "CollectionFolder", "Movie", "Series", "Season", "Episode"
     let AlbumArtist: String?
     let AlbumArtists: [NameIdPair]?
     let Album: String?
     let AlbumId: String?
     let Artists: [String]?
     let ArtistItems: [NameIdPair]?
-    let IndexNumber: Int?          // Track number
-    let ParentIndexNumber: Int?    // Disc number
+    let IndexNumber: Int?          // Track number / episode number
+    let ParentIndexNumber: Int?    // Disc number / season number
     let ProductionYear: Int?
     let Genres: [String]?
     let RunTimeTicks: Int64?
@@ -167,18 +254,25 @@ struct JellyfinItemDTO: Decodable {
     let Container: String?
     let Path: String?
     let ImageTags: [String: String]?
-    let ChildCount: Int?           // Album count for artists, song count for albums
+    let BackdropImageTags: [String]?
+    let ChildCount: Int?           // Album count for artists, song count for albums, season/episode count
     let SongCount: Int?
     let DateCreated: String?
-    let CollectionType: String?    // "music" for music libraries
+    let CollectionType: String?    // "music", "movies", "tvshows"
     let MediaSources: [MediaSourceDTO]?
     let UserData: UserDataDTO?
+    let Overview: String?          // Description/summary for movies/episodes
+    let OfficialRating: String?    // Content rating e.g. "PG-13"
+    let SeriesId: String?          // Parent series for episodes/seasons
+    let SeriesName: String?        // Parent series name
+    let SeasonId: String?          // Parent season for episodes
+    let SeasonName: String?        // Parent season name
     
     enum CodingKeys: String, CodingKey {
         case Id, Name, AlbumArtist, AlbumArtists, Album, AlbumId, Artists, ArtistItems
         case IndexNumber, ParentIndexNumber, ProductionYear, Genres, RunTimeTicks, Size
-        case Container, Path, ImageTags, ChildCount, SongCount, DateCreated, CollectionType
-        case MediaSources, UserData
+        case Container, Path, ImageTags, BackdropImageTags, ChildCount, SongCount, DateCreated, CollectionType
+        case MediaSources, UserData, Overview, OfficialRating, SeriesId, SeriesName, SeasonId, SeasonName
         case ItemType = "Type"
     }
     
@@ -285,6 +379,80 @@ struct JellyfinItemDTO: Decodable {
         JellyfinMusicLibrary(
             id: Id,
             name: Name
+        )
+    }
+    
+    func toMovie() -> JellyfinMovie {
+        let durationSeconds: Int?
+        if let ticks = RunTimeTicks {
+            durationSeconds = Int(ticks / 10_000_000)
+        } else {
+            durationSeconds = nil
+        }
+        
+        return JellyfinMovie(
+            id: Id,
+            title: Name,
+            year: ProductionYear,
+            overview: Overview,
+            duration: durationSeconds,
+            contentRating: OfficialRating,
+            imageTag: ImageTags?["Primary"],
+            backdropTag: BackdropImageTags?.first,
+            isFavorite: UserData?.IsFavorite ?? false,
+            playCount: UserData?.PlayCount,
+            container: Container ?? MediaSources?.first?.Container
+        )
+    }
+    
+    func toShow() -> JellyfinShow {
+        JellyfinShow(
+            id: Id,
+            title: Name,
+            year: ProductionYear,
+            overview: Overview,
+            imageTag: ImageTags?["Primary"],
+            backdropTag: BackdropImageTags?.first,
+            childCount: ChildCount ?? 0,
+            isFavorite: UserData?.IsFavorite ?? false
+        )
+    }
+    
+    func toSeason() -> JellyfinSeason {
+        JellyfinSeason(
+            id: Id,
+            title: Name,
+            index: IndexNumber,
+            seriesId: SeriesId ?? "",
+            seriesName: SeriesName,
+            imageTag: ImageTags?["Primary"],
+            childCount: ChildCount ?? 0
+        )
+    }
+    
+    func toEpisode() -> JellyfinEpisode {
+        let durationSeconds: Int?
+        if let ticks = RunTimeTicks {
+            durationSeconds = Int(ticks / 10_000_000)
+        } else {
+            durationSeconds = nil
+        }
+        
+        return JellyfinEpisode(
+            id: Id,
+            title: Name,
+            index: IndexNumber,
+            parentIndex: ParentIndexNumber,
+            seriesId: SeriesId ?? "",
+            seriesName: SeriesName,
+            seasonId: SeasonId,
+            seasonName: SeasonName,
+            overview: Overview,
+            duration: durationSeconds,
+            imageTag: ImageTags?["Primary"],
+            isFavorite: UserData?.IsFavorite ?? false,
+            playCount: UserData?.PlayCount,
+            container: Container ?? MediaSources?.first?.Container
         )
     }
 }

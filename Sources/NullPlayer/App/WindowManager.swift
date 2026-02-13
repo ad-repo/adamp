@@ -668,6 +668,26 @@ class WindowManager {
         applyAlwaysOnTopToWindow(videoPlayerWindowController?.window)
     }
     
+    /// Play a Jellyfin movie in the video player
+    func playJellyfinMovie(_ movie: JellyfinMovie) {
+        if videoPlayerWindowController == nil {
+            videoPlayerWindowController = VideoPlayerWindowController()
+        }
+        videoPlayerWindowController?.volume = audioEngine.volume
+        videoPlayerWindowController?.play(jellyfinMovie: movie)
+        applyAlwaysOnTopToWindow(videoPlayerWindowController?.window)
+    }
+    
+    /// Play a Jellyfin episode in the video player
+    func playJellyfinEpisode(_ episode: JellyfinEpisode) {
+        if videoPlayerWindowController == nil {
+            videoPlayerWindowController = VideoPlayerWindowController()
+        }
+        videoPlayerWindowController?.volume = audioEngine.volume
+        videoPlayerWindowController?.play(jellyfinEpisode: episode)
+        applyAlwaysOnTopToWindow(videoPlayerWindowController?.window)
+    }
+    
     /// Play a video Track from the playlist
     /// Called by AudioEngine when it encounters a video track
     func playVideoTrack(_ track: Track) {
@@ -687,9 +707,11 @@ class WindowManager {
         
         videoPlayerWindowController?.volume = audioEngine.volume
         
-        // Use Plex-aware playback if track has a plexRatingKey (for scrobbling/progress)
+        // Use server-aware playback for scrobbling/progress
         if track.plexRatingKey != nil {
             videoPlayerWindowController?.play(plexTrack: track)
+        } else if track.jellyfinId != nil {
+            videoPlayerWindowController?.play(jellyfinTrack: track)
         } else {
             videoPlayerWindowController?.play(url: track.url, title: track.displayTitle)
         }

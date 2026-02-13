@@ -32,11 +32,23 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     /// Current local video URL (for non-Plex video casting)
     private var currentLocalURL: URL?
     
+    /// Current Jellyfin movie (if playing Jellyfin content)
+    private var currentJellyfinMovie: JellyfinMovie?
+    
+    /// Current Jellyfin episode (if playing Jellyfin content)
+    private var currentJellyfinEpisode: JellyfinEpisode?
+    
     /// Public access to current Plex movie metadata (for About Playing)
     var plexMovie: PlexMovie? { currentPlexMovie }
     
     /// Public access to current Plex episode metadata (for About Playing)
     var plexEpisode: PlexEpisode? { currentPlexEpisode }
+    
+    /// Public access to current Jellyfin movie metadata
+    var jellyfinMovie: JellyfinMovie? { currentJellyfinMovie }
+    
+    /// Public access to current Jellyfin episode metadata
+    var jellyfinEpisode: JellyfinEpisode? { currentJellyfinEpisode }
     
     /// Public access to current local video URL (for About Playing)
     var localVideoURL: URL? { currentLocalURL }
@@ -256,30 +268,44 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             self?.updatePlayingState(playing)
         }
         
-        // Track pause/resume for Plex reporting
+        // Track pause/resume for Plex/Jellyfin reporting
         videoPlayerView.onPlaybackPaused = { [weak self] position in
-            guard let self = self, self.isPlexContent else { return }
-            PlexVideoPlaybackReporter.shared.videoDidPause(at: position)
+            guard let self = self else { return }
+            if self.isPlexContent {
+                PlexVideoPlaybackReporter.shared.videoDidPause(at: position)
+            } else if self.isJellyfinContent {
+                JellyfinVideoPlaybackReporter.shared.videoDidPause(at: position)
+            }
         }
         
         videoPlayerView.onPlaybackResumed = { [weak self] position in
-            guard let self = self, self.isPlexContent else { return }
-            PlexVideoPlaybackReporter.shared.videoDidResume(at: position)
+            guard let self = self else { return }
+            if self.isPlexContent {
+                PlexVideoPlaybackReporter.shared.videoDidResume(at: position)
+            } else if self.isJellyfinContent {
+                JellyfinVideoPlaybackReporter.shared.videoDidResume(at: position)
+            }
         }
         
-        // Track position updates for Plex reporting
+        // Track position updates for Plex/Jellyfin reporting
         videoPlayerView.onPositionUpdate = { [weak self] position in
-            guard let self = self, self.isPlexContent else { return }
-            PlexVideoPlaybackReporter.shared.updatePosition(position)
+            guard let self = self else { return }
+            if self.isPlexContent {
+                PlexVideoPlaybackReporter.shared.updatePosition(position)
+            } else if self.isJellyfinContent {
+                JellyfinVideoPlaybackReporter.shared.updatePosition(position)
+            }
         }
         
-        // Track playback completion for Plex scrobbling and playlist advancement
+        // Track playback completion for Plex/Jellyfin scrobbling and playlist advancement
         videoPlayerView.onPlaybackFinished = { [weak self] position in
             guard let self = self else { return }
             
             // Report to Plex if playing Plex content
             if self.isPlexContent {
                 PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: true)
+            } else if self.isJellyfinContent {
+                JellyfinVideoPlaybackReporter.shared.videoDidStop(at: position, finished: true)
             }
             
             // Advance playlist if this video was from the playlist
@@ -325,6 +351,11 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     /// Whether current content is from Plex
     private var isPlexContent: Bool {
         currentPlexMovie != nil || currentPlexEpisode != nil || currentPlexRatingKey != nil
+    }
+    
+    /// Whether current content is from Jellyfin
+    private var isJellyfinContent: Bool {
+        currentJellyfinMovie != nil || currentJellyfinEpisode != nil
     }
     
     private func setupKeyboardMonitor() {
@@ -402,16 +433,21 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         // Reset any lingering cast state from previous video
         resetCastState()
         
-        // Report stop to Plex if currently playing Plex content (before clearing state)
+        // Report stop to Plex/Jellyfin if currently playing server content (before clearing state)
         if isPlexContent {
             let position = videoPlayerView.currentPlaybackTime
             PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        } else if isJellyfinContent {
+            let position = videoPlayerView.currentPlaybackTime
+            JellyfinVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
         }
         
-        // Clear any Plex content (this is a non-Plex video)
+        // Clear any server content (this is a local video)
         currentPlexMovie = nil
         currentPlexEpisode = nil
         currentPlexRatingKey = nil
+        currentJellyfinMovie = nil
+        currentJellyfinEpisode = nil
         
         // Store local URL for casting
         currentLocalURL = url.isFileURL ? url : nil
@@ -561,6 +597,135 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         videoPlayerView.setPlexStreams(allStreams)
     }
     
+    /// Play a Jellyfin movie
+    func play(jellyfinMovie movie: JellyfinMovie) {
+        // Reset any lingering cast state from previous video
+        resetCastState()
+        
+        // Report stop to previous content if needed
+        if isPlexContent {
+            let position = videoPlayerView.currentPlaybackTime
+            PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        } else if isJellyfinContent {
+            let position = videoPlayerView.currentPlaybackTime
+            JellyfinVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        }
+        
+        guard let url = JellyfinManager.shared.videoStreamURL(for: movie) else {
+            NSLog("Failed to get stream URL for Jellyfin movie: %@", movie.title)
+            return
+        }
+        
+        NSLog("Playing Jellyfin movie: %@ with URL: %@", movie.title, url.absoluteString)
+        
+        // Store Jellyfin content for reporting
+        currentJellyfinMovie = movie
+        currentJellyfinEpisode = nil
+        currentPlexMovie = nil
+        currentPlexEpisode = nil
+        currentPlexRatingKey = nil
+        currentLocalURL = nil
+        
+        currentTitle = movie.title
+        window?.title = movie.title
+        videoPlayerView.play(url: url, title: movie.title, isPlexURL: false, plexHeaders: nil)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        isPlaying = true
+        WindowManager.shared.videoPlaybackDidStart()
+        
+        // Start Jellyfin playback reporting
+        JellyfinVideoPlaybackReporter.shared.movieDidStart(movie)
+    }
+    
+    /// Play a Jellyfin episode
+    func play(jellyfinEpisode episode: JellyfinEpisode) {
+        // Reset any lingering cast state from previous video
+        resetCastState()
+        
+        // Report stop to previous content if needed
+        if isPlexContent {
+            let position = videoPlayerView.currentPlaybackTime
+            PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        } else if isJellyfinContent {
+            let position = videoPlayerView.currentPlaybackTime
+            JellyfinVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        }
+        
+        guard let url = JellyfinManager.shared.videoStreamURL(for: episode) else {
+            NSLog("Failed to get stream URL for Jellyfin episode: %@", episode.title)
+            return
+        }
+        
+        let title: String
+        if let showName = episode.seriesName {
+            title = "\(showName) - \(episode.episodeIdentifier) - \(episode.title)"
+        } else {
+            title = episode.title
+        }
+        NSLog("Playing Jellyfin episode: %@ with URL: %@", title, url.absoluteString)
+        
+        // Store Jellyfin content for reporting
+        currentJellyfinMovie = nil
+        currentJellyfinEpisode = episode
+        currentPlexMovie = nil
+        currentPlexEpisode = nil
+        currentPlexRatingKey = nil
+        currentLocalURL = nil
+        
+        currentTitle = title
+        window?.title = title
+        videoPlayerView.play(url: url, title: title, isPlexURL: false, plexHeaders: nil)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        isPlaying = true
+        WindowManager.shared.videoPlaybackDidStart()
+        
+        // Start Jellyfin playback reporting
+        JellyfinVideoPlaybackReporter.shared.episodeDidStart(episode)
+    }
+    
+    /// Play a Jellyfin video track from the playlist
+    func play(jellyfinTrack track: Track) {
+        guard let jellyfinId = track.jellyfinId else {
+            play(url: track.url, title: track.displayTitle)
+            return
+        }
+        
+        // Reset any lingering cast state from previous video
+        resetCastState()
+        
+        // Report stop to previous content if needed
+        if isPlexContent {
+            let position = videoPlayerView.currentPlaybackTime
+            PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        } else if isJellyfinContent {
+            let position = videoPlayerView.currentPlaybackTime
+            JellyfinVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        }
+        
+        // Clear other content state
+        currentPlexMovie = nil
+        currentPlexEpisode = nil
+        currentPlexRatingKey = nil
+        currentJellyfinMovie = nil
+        currentJellyfinEpisode = nil
+        currentLocalURL = nil
+        
+        // Check if this is being played from the playlist
+        isFromPlaylist = onVideoFinishedForPlaylist != nil
+        
+        currentTitle = track.displayTitle
+        window?.title = track.displayTitle
+        videoPlayerView.play(url: track.url, title: track.displayTitle, isPlexURL: false, plexHeaders: nil)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        isPlaying = true
+        WindowManager.shared.videoPlaybackDidStart()
+        
+        NSLog("VideoPlayerWindowController: Playing Jellyfin track from playlist: %@ (id: %@)", track.displayTitle, jellyfinId)
+    }
+    
     /// Stop playback
     func stop() {
         guard !isClosing else { return }
@@ -590,10 +755,13 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             castDuration = 0
         }
         
-        // Report stop to Plex if playing Plex content
+        // Report stop to Plex/Jellyfin if playing server content
         if isPlexContent {
             let position = wasCasting ? castPosition : videoPlayerView.currentPlaybackTime
             PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+        } else if isJellyfinContent {
+            let position = wasCasting ? castPosition : videoPlayerView.currentPlaybackTime
+            JellyfinVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
         }
         
         videoPlayerView.stop()
@@ -602,6 +770,8 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         currentPlexMovie = nil
         currentPlexEpisode = nil
         currentPlexRatingKey = nil
+        currentJellyfinMovie = nil
+        currentJellyfinEpisode = nil
         WindowManager.shared.videoPlaybackDidStop()
         close()
     }
@@ -834,6 +1004,10 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
                     try await CastManager.shared.castPlexMovie(movie, to: device, startPosition: currentPosition)
                 } else if let episode = currentPlexEpisode {
                     try await CastManager.shared.castPlexEpisode(episode, to: device, startPosition: currentPosition)
+                } else if let movie = currentJellyfinMovie {
+                    try await CastManager.shared.castJellyfinMovie(movie, to: device, startPosition: currentPosition)
+                } else if let episode = currentJellyfinEpisode {
+                    try await CastManager.shared.castJellyfinEpisode(episode, to: device, startPosition: currentPosition)
                 } else if let url = currentURL {
                     // Local video file
                     try await CastManager.shared.castLocalVideo(url, title: currentTitle ?? "Video", to: device, startPosition: currentPosition)
@@ -945,10 +1119,13 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
                 castDuration = 0
             }
             
-            // Report stop to Plex if playing Plex content
+            // Report stop to Plex/Jellyfin if playing server content
             if isPlexContent {
                 let position = videoPlayerView.currentPlaybackTime
                 PlexVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
+            } else if isJellyfinContent {
+                let position = videoPlayerView.currentPlaybackTime
+                JellyfinVideoPlaybackReporter.shared.videoDidStop(at: position, finished: false)
             }
             
             videoPlayerView.stop()
@@ -957,6 +1134,8 @@ class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             currentPlexMovie = nil
             currentPlexEpisode = nil
             currentPlexRatingKey = nil
+            currentJellyfinMovie = nil
+            currentJellyfinEpisode = nil
             WindowManager.shared.videoPlaybackDidStop()
         }
         removeKeyboardMonitor()
