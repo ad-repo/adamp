@@ -184,7 +184,7 @@ Sources/NullPlayer/
 ## Gotchas
 
 - **Modern skin system is completely independent**: Files in `ModernSkin/`, `Windows/ModernMainWindow/`, `Windows/ModernSpectrum/`, `Windows/ModernPlaylist/`, `Windows/ModernEQ/`, `Windows/ModernProjectM/`, and `Windows/ModernLibraryBrowser/` must NEVER import or reference anything from `Skin/` or `Windows/MainWindow/`. The coupling points are only: `AppDelegate` (mode selection), `WindowManager` (via `MainWindowProviding`, `SpectrumWindowProviding`, `PlaylistWindowProviding`, `EQWindowProviding`, `ProjectMWindowProviding`, and `LibraryBrowserWindowProviding` protocols), and shared infrastructure (`AudioEngine`, `Track`, `PlaybackState`)
-- **UI mode switching requires restart**: The `modernUIEnabled` UserDefaults preference selects which `MainWindowProviding` implementation `WindowManager` creates. Changing it at runtime shows a "restart required" alert
+- **UI mode switching requires restart**: The `modernUIEnabled` UserDefaults preference selects which `MainWindowProviding` implementation `WindowManager` creates. Changing it at runtime shows a "Restart / Cancel" confirmation dialog — choosing Restart relaunches the app automatically, choosing Cancel reverts the preference
 - **Mode-specific features must be guarded at all layers**: When a feature only applies to one UI mode (modern or classic), enforce it in three places:
   1. **Menu/UI**: Wrap the menu item or button in an `if wm.isModernUIEnabled` check so it's not shown in the wrong mode
   2. **Property getter or setter**: Make the property return the safe default (e.g. `false`) when the wrong mode is active, OR reset to the safe default in `didSet` — this prevents stale UserDefaults or programmatic access from leaking behavior across modes

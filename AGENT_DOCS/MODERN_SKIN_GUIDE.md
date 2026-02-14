@@ -505,7 +505,7 @@ Place skin folders or `.nps` files at:
 
 Right-click the player → **Modern UI** → **Select Skin** → choose from the list.
 
-Skin changes take effect immediately (no restart needed for skin change -- only for switching between Classic/Modern mode).
+Skin changes take effect immediately. Switching between Classic and Modern mode requires a restart -- NullPlayer will prompt you to restart automatically when you switch modes.
 
 ## Double Size (2x) Mode
 

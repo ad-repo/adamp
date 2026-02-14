@@ -1043,6 +1043,10 @@ Shows detailed metadata for the currently playing track or video. This option is
 - Get More Skins...
 - Lock Browser/ProjectM to Default
 - Available skins list (from Skins directory)
+- Classic Skins (submenu of available .wsz skins)
+- Modern UI (submenu with Select Skin and modern skin list)
+
+Selecting a skin from the other UI mode (e.g., choosing a classic skin while in modern mode) will prompt you to restart NullPlayer to switch modes. You can confirm to restart immediately or cancel to stay in the current mode.
 
 ### Visualizations
 - Preset count info

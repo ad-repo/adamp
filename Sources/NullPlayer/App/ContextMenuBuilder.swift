@@ -1998,7 +1998,11 @@ class MenuActions: NSObject {
         if wm.isModernUIEnabled {
             // Switch to classic mode with default skin on next launch
             wm.isModernUIEnabled = false
-            showRestartAlert()
+            if !showRestartAlert() {
+                // User cancelled — revert
+                wm.isModernUIEnabled = true
+                UserDefaults.standard.removeObject(forKey: "lastClassicSkinPath")
+            }
         } else {
             // Already in classic mode - load bundled default skin now
             wm.loadBundledDefaultSkin()
@@ -2029,12 +2033,21 @@ class MenuActions: NSObject {
         let wm = WindowManager.shared
         
         // Persist the last used classic skin path
+        let previousSkinPath = UserDefaults.standard.string(forKey: "lastClassicSkinPath")
         UserDefaults.standard.set(url.path, forKey: "lastClassicSkinPath")
         
         if wm.isModernUIEnabled {
             // Switch to classic mode and load this skin on next launch
             wm.isModernUIEnabled = false
-            showRestartAlert()
+            if !showRestartAlert() {
+                // User cancelled — revert
+                wm.isModernUIEnabled = true
+                if let previousSkinPath = previousSkinPath {
+                    UserDefaults.standard.set(previousSkinPath, forKey: "lastClassicSkinPath")
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "lastClassicSkinPath")
+                }
+            }
         } else {
             // Already in classic mode — load the skin immediately
             wm.loadSkin(from: url)
@@ -2048,12 +2061,21 @@ class MenuActions: NSObject {
         
         // Persist the selected modern skin name (ModernSkinEngine does this too, but
         // we need it set before restart when switching from classic mode)
+        let previousSkinName = UserDefaults.standard.string(forKey: "modernSkinName")
         UserDefaults.standard.set(name, forKey: "modernSkinName")
         
         if !wm.isModernUIEnabled {
             // Switch to modern mode — skin will load on next launch
             wm.isModernUIEnabled = true
-            showRestartAlert()
+            if !showRestartAlert() {
+                // User cancelled — revert
+                wm.isModernUIEnabled = false
+                if let previousSkinName = previousSkinName {
+                    UserDefaults.standard.set(previousSkinName, forKey: "modernSkinName")
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "modernSkinName")
+                }
+            }
         } else {
             // Already in modern mode — load the skin immediately
             ModernSkinEngine.shared.loadSkin(named: name)
@@ -2068,21 +2090,51 @@ class MenuActions: NSObject {
     
     @objc func setClassicMode() {
         WindowManager.shared.isModernUIEnabled = false
-        showRestartAlert()
+        if !showRestartAlert() {
+            // User cancelled — revert
+            WindowManager.shared.isModernUIEnabled = true
+        }
     }
     
     @objc func setModernMode() {
         WindowManager.shared.isModernUIEnabled = true
-        showRestartAlert()
+        if !showRestartAlert() {
+            // User cancelled — revert
+            WindowManager.shared.isModernUIEnabled = false
+        }
     }
     
-    private func showRestartAlert() {
+    /// Shows a restart confirmation alert. Returns `true` if the user confirmed and the app is restarting.
+    @discardableResult
+    private func showRestartAlert() -> Bool {
         let alert = NSAlert()
         alert.messageText = "Restart Required"
-        alert.informativeText = "The UI mode change will take effect after restarting NullPlayer."
+        alert.informativeText = "NullPlayer needs to restart to apply the UI mode change. Restart now?"
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        alert.addButton(withTitle: "Restart")
+        alert.addButton(withTitle: "Cancel")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            // User confirmed — relaunch the app
+            relaunchApp()
+            return true
+        }
+        return false
+    }
+    
+    /// Relaunch the application by opening a new instance and terminating the current one.
+    private func relaunchApp() {
+        guard let bundleURL = Bundle.main.bundleURL as URL? else { return }
+        
+        // Use a small delay so the current process can begin terminating
+        // before the new instance tries to launch
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.5; open \"\(bundleURL.path)\""]
+        try? task.run()
+        
+        NSApp.terminate(nil)
     }
     
     // MARK: - Options

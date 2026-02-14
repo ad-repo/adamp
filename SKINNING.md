@@ -535,7 +535,7 @@ Place your skin folder in:
 
 Then right-click the player and select your skin from **Modern UI > Select Skin**.
 
-Skin changes take effect immediately -- no restart needed.
+Skin changes take effect immediately -- no restart needed. However, if you're switching from Classic Mode to Modern Mode (or vice versa), NullPlayer will prompt you to restart.
 
 ### Packaging for Distribution
 
