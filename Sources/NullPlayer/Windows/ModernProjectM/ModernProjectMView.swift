@@ -216,17 +216,8 @@ class ModernProjectMView: NSView {
             let titleBarRect = NSRect(x: 0, y: baseHeight - 14, width: baseWidth, height: 14)
             let closeBtnRect = NSRect(x: baseWidth - 14, y: baseHeight - 12, width: 10, height: 10)
             
-            // Draw title bar image if skin provides one
-            let titleBarId = "projectm_titlebar"
-            if let img = renderer.skin.image(for: titleBarId) {
-                let scaledTitleRect = renderer.scaledRect(titleBarRect)
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-                img.draw(in: scaledTitleRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-                NSGraphicsContext.restoreGraphicsState()
-            }
-            // Draw title text and separator
-            renderer.drawTitleBar(in: titleBarRect, title: "projectM", context: context)
+            // Draw title bar with projectm prefix (handles per-window titlebar image + title text)
+            renderer.drawTitleBar(in: titleBarRect, title: "projectM", prefix: "projectm_", context: context)
             
             // Draw close button
             let closeState = (pressedButton == "projectm_btn_close") ? "pressed" : "normal"

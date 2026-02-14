@@ -261,7 +261,7 @@ class ModernPlaylistView: NSView {
         
         // Draw title bar (unless hidden)
         if !WindowManager.shared.hideTitleBars {
-            renderer.drawTitleBar(in: titleBarBaseRect, title: "NULLPLAYER PLAYLIST", context: context)
+            renderer.drawTitleBar(in: titleBarBaseRect, title: "NULLPLAYER PLAYLIST", prefix: "playlist_", context: context)
             
             // Draw close button
             let closeState = (pressedButton == "playlist_btn_close") ? "pressed" : "normal"

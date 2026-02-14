@@ -556,17 +556,12 @@ class ModernLibraryBrowserView: NSView {
             renderer.drawWindowBackground(in: bounds, context: context)
             renderer.drawWindowBorder(in: bounds, context: context)
             
-            // Draw title text centered
-            let font = skin.primaryFont?.withSize(10) ?? NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
-            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: skin.textColor]
-            let title = "NULLPLAYER LIBRARY"
-            let titleSize = title.size(withAttributes: attrs)
-            let titleOrigin = NSPoint(x: bounds.midX - titleSize.width / 2,
-                                       y: bounds.midY - titleSize.height / 2)
-            title.draw(at: titleOrigin, withAttributes: attrs)
+            // Draw title text centered (using renderer for image text support)
+            let shadeScale = ModernSkinElements.scaleFactor
+            let titleRect = NSRect(x: 0, y: 0, width: bounds.width / shadeScale, height: bounds.height / shadeScale)
+            renderer.drawTitleBar(in: titleRect, title: "NULLPLAYER LIBRARY", prefix: "library_", context: context)
             
             // Draw close and shade buttons (base space for renderer scaling)
-            let shadeScale = ModernSkinElements.scaleFactor
             let shadeBaseW = bounds.width / shadeScale
             let shadeBaseH = bounds.height / shadeScale
             let closeBtnRect = NSRect(x: shadeBaseW - 14, y: (shadeBaseH - 10) / 2, width: 10, height: 10)
@@ -592,7 +587,7 @@ class ModernLibraryBrowserView: NSView {
         if !WindowManager.shared.hideTitleBars {
             // Title bar at TOP in base space
             let titleBarRect = NSRect(x: 0, y: baseHeight - 14, width: baseWidth, height: 14)
-            renderer.drawTitleBar(in: titleBarRect, title: "NULLPLAYER LIBRARY", context: context)
+            renderer.drawTitleBar(in: titleBarRect, title: "NULLPLAYER LIBRARY", prefix: "library_", context: context)
             
             // Close and shade buttons in title bar (base space)
             let closeBtnRect = NSRect(x: baseWidth - 14, y: baseHeight - 12, width: 10, height: 10)

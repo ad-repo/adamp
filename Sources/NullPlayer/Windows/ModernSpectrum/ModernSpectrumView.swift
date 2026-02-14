@@ -151,17 +151,8 @@ class ModernSpectrumView: NSView {
         
         // Draw title bar (unless hidden)
         if !WindowManager.shared.hideTitleBars {
-            // Use spectrum-specific title bar element if skin provides it
-            let titleBarId = "spectrum_titlebar"
-            if let img = renderer.skin.image(for: titleBarId) {
-                let scaledTitleRect = renderer.scaledRect(ModernSkinElements.spectrumTitleBar.defaultRect)
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-                img.draw(in: scaledTitleRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-                NSGraphicsContext.restoreGraphicsState()
-            }
-            // Draw title text and separator using the standard title bar renderer
-            renderer.drawTitleBar(in: ModernSkinElements.spectrumTitleBar.defaultRect, title: "NULLPLAYER ANALYZER", context: context)
+            // Draw title bar with spectrum prefix (handles per-window titlebar image + title text)
+            renderer.drawTitleBar(in: ModernSkinElements.spectrumTitleBar.defaultRect, title: "NULLPLAYER ANALYZER", prefix: "spectrum_", context: context)
             
             // Draw close button
             let closeState = (pressedButton == "spectrum_btn_close") ? "pressed" : "normal"

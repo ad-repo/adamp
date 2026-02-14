@@ -92,6 +92,16 @@ MySkin/
         "scrollSpeed": 30,
         "scrollGap": 50
     },
+    "titleText": {
+        "mode": "image",
+        "charSpacing": 1,
+        "charHeight": 10,
+        "alignment": "center",
+        "tintColor": "#d4cfc0",
+        "padLeft": 0,
+        "padRight": 0,
+        "verticalOffset": 0
+    },
     "elements": {
         "btn_play": {
             "color": "#00ff00",
@@ -297,6 +307,165 @@ The bundled default skin ("NeonWave") is fully programmatic -- it contains zero 
 **Palette**: `#00ffcc` (cyan primary), `#ff00aa` (magenta accent), `#080810` (background)
 
 **Spectrum colors**: Auto-derived gradient from `palette.accent` (bottom, magenta) to `palette.primary` (top, cyan) via `ModernSkin.spectrumColors()`. These colors are applied to the Metal-based `SpectrumAnalyzerView`.
+
+## Title Text System (Developer Reference)
+
+The title text system supports three rendering tiers with automatic fallback. It allows skin authors to replace the system font title bar text with custom pixel-art character sprites or pre-rendered title images.
+
+### `TitleTextConfig` Schema
+
+Defined in `ModernSkinConfig.swift`. All fields are optional; omitting the entire `titleText` section defaults to font-based rendering.
+
+```swift
+struct TitleTextConfig: Codable {
+    let mode: TitleTextMode?            // "image" | "font" (default "font")
+    let charSpacing: CGFloat?           // Extra spacing between glyphs in base coords (default 1)
+    let charHeight: CGFloat?            // Glyph render height in base coords (default 10)
+    let alignment: TitleTextAlignment?  // "left" | "center" | "right" (default "center")
+    let tintColor: String?              // Hex color to tint grayscale sprites (nil = draw as-is)
+    let padLeft: CGFloat?               // Left padding in base coords (default 0)
+    let padRight: CGFloat?              // Right padding in base coords (default 0)
+    let verticalOffset: CGFloat?        // Vertical nudge in base coords (default 0, positive = up)
+}
+```
+
+| Field | JSON Key | Type | Default | Notes |
+|-------|----------|------|---------|-------|
+| mode | `"mode"` | `"image"` or `"font"` | `"font"` | Must be `"image"` to enable sprite/image rendering |
+| charSpacing | `"charSpacing"` | CGFloat | 1 | Extra pixels between glyphs. Negative tightens kerning |
+| charHeight | `"charHeight"` | CGFloat | 10 | Height in base coords (title bar is 14 units). 10-11 fills well |
+| alignment | `"alignment"` | `"left"` / `"center"` / `"right"` | `"center"` | Horizontal alignment within title bar after padding |
+| tintColor | `"tintColor"` | Hex string | nil | Colorizes grayscale/white sprites. Overridden per-window via elements |
+| padLeft | `"padLeft"` | CGFloat | 0 | Left inset from title bar edge |
+| padRight | `"padRight"` | CGFloat | 0 | Right inset from title bar edge |
+| verticalOffset | `"verticalOffset"` | CGFloat | 0 | Positive moves text up. For fine alignment with custom title bar images |
+
+### Three-Tier Fallback in `drawTitleBar`
+
+The `drawTitleBar(in:title:prefix:context:)` method in `ModernSkinRenderer.swift` implements the full rendering pipeline:
+
+```
+drawTitleBar(in:title:prefix:context:)
+  │
+  ├─ 1. Titlebar background image:
+  │      {prefix}titlebar image → titlebar image → transparent (no fill)
+  │
+  ├─ 2. Separator line at bottom of title bar (with optional glow)
+  │
+  ├─ 3. Title text (if titleText.mode == .image):
+  │    ├─ Tier 1: Full pre-rendered title image
+  │    │    Look up: {prefix}titlebar_text → titlebar_text
+  │    │    If found: center in title bar, apply tint, draw with pixel art interpolation, RETURN
+  │    │
+  │    ├─ Tier 2: Character sprite compositing
+  │    │    Check: skin.hasTitleCharSprites (any title_upper_/title_lower_/title_char_ images?)
+  │    │    For each character in title string:
+  │    │      - Try skin.titleCharImage(for: char) → returns sprite or nil
+  │    │      - If sprite found: measure width from aspect ratio, apply tint
+  │    │      - If sprite missing: use system font for just that character (mixed mode)
+  │    │    Layout glyphs with charSpacing, alignment, padding, verticalOffset
+  │    │    Draw with drawPixelArtImage() (nearest-neighbor, no smoothing)
+  │    │    If at least 1 sprite was found: RETURN
+  │    │
+  │    └─ Tier 3: System font fallback (NSAttributedString + NSFont)
+  │
+  └─ 4. Title text (if titleText.mode == .font or nil):
+       Skip directly to system font rendering
+```
+
+### Per-Window Prefixes
+
+Each window passes its prefix to `drawTitleBar` for per-window image resolution. The prefix is used for both titlebar background images and title text images.
+
+| Window | View File | Prefix | Title String |
+|--------|-----------|--------|-------------|
+| Main | `ModernMainWindowView.swift` | `""` (default) | `"NULLPLAYER"` |
+| Playlist | `ModernPlaylistView.swift` | `"playlist_"` | `"NULLPLAYER PLAYLIST"` |
+| EQ | `ModernEQView.swift` | `"eq_"` | `"NULLPLAYER EQUALIZER"` |
+| Spectrum | `ModernSpectrumView.swift` | `"spectrum_"` | `"NULLPLAYER ANALYZER"` |
+| ProjectM | `ModernProjectMView.swift` | `"projectm_"` | `"projectM"` |
+| Library | `ModernLibraryBrowserView.swift` | `"library_"` | `"NULLPLAYER LIBRARY"` |
+
+**Consolidation note**: Before this change, `ModernSpectrumView` and `ModernProjectMView` manually drew their per-window titlebar background image before calling `drawTitleBar`. This is now handled inside `drawTitleBar` via the prefix parameter. The manual image draws were removed.
+
+**Shade mode**: `ModernMainWindowView` and `ModernLibraryBrowserView` previously drew shade-mode title text directly with `NSAttributedString`, bypassing the renderer. These now call `renderer.drawTitleBar()` so image-based title text works in shade mode too.
+
+### Character-to-Image-Key Mapping (Filesystem-Safe)
+
+Defined in `ModernSkin.titleCharImageKey(for:)`. Uses `title_upper_`/`title_lower_` prefixes for letters to avoid case collisions on macOS's case-insensitive APFS filesystem.
+
+| Character | Image Key | Filename Example |
+|-----------|-----------|-----------------|
+| `A`-`Z` | `title_upper_A` ... `title_upper_Z` | `title_upper_N.png` |
+| `a`-`z` | `title_lower_a` ... `title_lower_z` | `title_lower_n.png` |
+| `0`-`9` | `title_char_0` ... `title_char_9` | `title_char_5.png` |
+| Space | `title_char_space` | `title_char_space.png` |
+| `-` | `title_char_dash` | `title_char_dash.png` |
+| `.` | `title_char_dot` | `title_char_dot.png` |
+| `_` | `title_char_underscore` | `title_char_underscore.png` |
+| `:` | `title_char_colon` | `title_char_colon.png` |
+| `(` / `)` | `title_char_lparen` / `title_char_rparen` | |
+| `[` / `]` | `title_char_lbracket` / `title_char_rbracket` | |
+| `&` | `title_char_amp` | |
+| `'` | `title_char_apos` | |
+| `+` | `title_char_plus` | |
+| `#` | `title_char_hash` | |
+| `/` | `title_char_slash` | |
+
+**Why not `title_char_A` / `title_char_a`?** On macOS APFS (default case-insensitive), `title_char_N.png` and `title_char_n.png` collide -- the filesystem treats them as the same file. The second write overwrites the first, causing half the uppercase letters to go missing. The `title_upper_`/`title_lower_` prefixes solve this.
+
+**Lowercase fallback chain**: `titleCharImage(for: 'p')` tries `title_lower_p` first, then falls back to `title_upper_P`. Skin authors can ship just uppercase sprites.
+
+### Tint Color Resolution
+
+Implemented in `ModernSkinRenderer.resolveTitleTintColor(prefix:)`. Priority chain:
+
+1. Per-window element config: `elements["{prefix}titlebar_text"]["color"]`
+2. Shared element config: `elements["titlebar_text"]["color"]` (if prefix is non-empty)
+3. Global titleText config: `titleText.tintColor`
+4. No tinting (sprites drawn as-is)
+
+Tinted images are cached in `ModernSkin.tintedImageCache` by `"{imageKey}_{colorHex}"`. Cache is automatically invalidated when a new `ModernSkin` instance is created (on skin change). The tinting uses `NSImage.lockFocus()` + `sourceAtop` compositing.
+
+### Pixel Art Rendering
+
+Character sprites and time digit images are drawn with `drawPixelArtImage()` which sets `NSGraphicsContext.current?.imageInterpolation = .none` (nearest-neighbor). This keeps pixel art crisp when scaled up from small source images (e.g. 7x11 pixels) to display size.
+
+The standard `drawImage()` uses default (bilinear) interpolation and is used for non-pixel-art elements.
+
+### Variable-Width Glyph Layout
+
+Each character sprite's actual pixel width is measured at render time:
+```swift
+let aspect = image.size.width / max(image.size.height, 1)
+let glyphWidth = charHeight * aspect
+```
+
+This means proportional fonts work naturally. Total string width = sum of individual glyph widths + `(count - 1) * charSpacing * scaleFactor`.
+
+### Mixed Mode (Per-Character Fallback)
+
+If `mode == .image` and a specific character has no sprite, only that character falls back to the system font. The rest of the string still uses sprites. The `drawTitleTextFromSprites` method returns `false` (triggering full font fallback) only if zero sprites were found for the entire string.
+
+### Key Source Files
+
+| File | Role |
+|------|------|
+| `ModernSkinConfig.swift` | `TitleTextConfig` struct with all config fields and enums |
+| `ModernSkin.swift` | `titleCharImage(for:)` character-to-image lookup with lowercase fallback, `tintedImage()` with caching, `hasTitleCharSprites` quick check, `titleCharImageKey(for:)` filesystem-safe key mapping |
+| `ModernSkinRenderer.swift` | `drawTitleBar(in:title:prefix:context:)` three-tier pipeline, `drawTitleTextFromSprites()` variable-width compositor, `drawPixelArtImage()` nearest-neighbor rendering, `resolveTitleTintColor()` tint chain |
+| `ModernSkinLoader.swift` | No changes to image loading -- existing `loadImages()` picks up all sprite filenames automatically |
+
+### Reference Skin
+
+The bundled **Stereo Gear** skin (`Resources/Skins/StereoGear/`) is the reference implementation for image-based title text. It includes:
+
+- **Bold 7x11 pixel character sprites** (`title_upper_*.png`) with 2px-thick strokes in cream (#d4cfc0)
+- **Amber 13x20 7-segment time digits** (`time_digit_*.png`)
+- **Beveled 28x24 transport buttons** with normal and pressed states
+- **6x6 silver seek/volume thumbs**
+
+Assets are generated by `scripts/generate_stereo_skin.swift` using `NSBitmapImageRep` -- a standalone Swift script that can be run with `swift scripts/generate_stereo_skin.swift`. It serves as a template for generating skin assets programmatically.
 
 ## Image Naming Convention
 

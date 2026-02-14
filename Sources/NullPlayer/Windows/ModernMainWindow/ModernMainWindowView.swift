@@ -315,15 +315,9 @@ class ModernMainWindowView: NSView {
         // Layout: [unshade btn] [title text / marquee] [close btn]
         let baseH: CGFloat = 18  // base height of shade window
         
-        // Title text "NULLPLAYER" on left
-        let titleFont = renderer.skin.titleBarFont()
-        let titleAttrs: [NSAttributedString.Key: Any] = [
-            .font: titleFont,
-            .foregroundColor: renderer.skin.textColor
-        ]
-        let titleStr = NSAttributedString(string: "NULLPLAYER", attributes: titleAttrs)
-        let titleSize = titleStr.size()
-        titleStr.draw(at: NSPoint(x: 4 * scale, y: (bounds.height - titleSize.height) / 2))
+        // Title text "NULLPLAYER" on left (using renderer for image text support)
+        let titleRect = NSRect(x: 4, y: 0, width: 70, height: baseH)
+        renderer.drawTitleBar(in: titleRect, title: "NULLPLAYER", context: context)
         
         // Scrolling track name in the middle
         // (marquee layer handles this, it's positioned by setupMarquee)

@@ -276,6 +276,7 @@ class ModernSkinLoader {
             glow: GlowConfig(enabled: true, radius: 6, intensity: 0.7, threshold: 0.5, color: nil, elementBlur: nil),
             window: WindowConfig(borderWidth: 1.5, borderColor: "#00ffcc", cornerRadius: 0, scale: nil),
             marquee: nil,
+            titleText: nil,
             elements: nil,
             animations: nil
         )
