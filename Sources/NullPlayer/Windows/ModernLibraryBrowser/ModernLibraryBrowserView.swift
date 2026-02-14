@@ -361,6 +361,9 @@ class ModernLibraryBrowserView: NSView {
         return CIContext(options: [.useSoftwareRenderer: false])
     }()
     
+    /// Which edges are adjacent to another docked window (for seamless border rendering)
+    private var adjacentEdges: AdjacentEdges = []
+    
     // Button/drag state
     private var pressedButton: LibraryBrowserButtonType?
     private var activeTagsPanel: TagsPanel?
@@ -484,6 +487,8 @@ class ModernLibraryBrowserView: NSView {
                                                name: ModernSkinEngine.skinDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
                                                name: .doubleSizeDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowLayoutDidChange),
+                                               name: .windowLayoutDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(plexStateDidChange),
                                                name: PlexManager.accountDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(plexStateDidChange),
@@ -558,7 +563,7 @@ class ModernLibraryBrowserView: NSView {
         if isShadeMode {
             // Draw shade mode
             renderer.drawWindowBackground(in: bounds, context: context)
-            renderer.drawWindowBorder(in: bounds, context: context)
+            renderer.drawWindowBorder(in: bounds, context: context, adjacentEdges: adjacentEdges)
             
             // Draw title text centered (using renderer for image text support)
             let shadeScale = ModernSkinElements.scaleFactor
@@ -579,7 +584,7 @@ class ModernLibraryBrowserView: NSView {
         
         // Normal mode - bottom-left origin (no coordinate flipping)
         renderer.drawWindowBackground(in: bounds, context: context)
-        renderer.drawWindowBorder(in: bounds, context: context)
+        renderer.drawWindowBorder(in: bounds, context: context, adjacentEdges: adjacentEdges)
         
         // Title bar, close, shade buttons use base (unscaled) coordinates
         // because the renderer's scaledRect() multiplies by scaleFactor
@@ -3891,6 +3896,15 @@ class ModernLibraryBrowserView: NSView {
     
     @objc private func doubleSizeChanged() {
         modernSkinDidChange()
+    }
+    
+    @objc private func windowLayoutDidChange() {
+        guard let window = window else { return }
+        let newEdges = WindowManager.shared.computeAdjacentEdges(for: window)
+        if newEdges != adjacentEdges {
+            adjacentEdges = newEdges
+            needsDisplay = true
+        }
     }
     
     func skinDidChange() { modernSkinDidChange() }

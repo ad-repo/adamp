@@ -5,6 +5,7 @@ import AppKit
 extension Notification.Name {
     static let timeDisplayModeDidChange = Notification.Name("timeDisplayModeDidChange")
     static let doubleSizeDidChange = Notification.Name("doubleSizeDidChange")
+    static let windowLayoutDidChange = Notification.Name("windowLayoutDidChange")
 }
 
 // MARK: - Time Display Mode
@@ -355,6 +356,7 @@ class WindowManager {
         playlistWindowController?.window?.makeKeyAndOrderFront(nil)
         applyAlwaysOnTopToWindow(playlistWindowController?.window)
         notifyMainWindowVisibilityChanged()
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
 
     var isPlaylistVisible: Bool {
@@ -368,6 +370,7 @@ class WindowManager {
             showPlaylist()
         }
         notifyMainWindowVisibilityChanged()
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     func showEqualizer(at restoredFrame: NSRect? = nil) {
@@ -394,6 +397,7 @@ class WindowManager {
         equalizerWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(equalizerWindowController?.window)
         notifyMainWindowVisibilityChanged()
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
 
     var isEqualizerVisible: Bool {
@@ -407,6 +411,7 @@ class WindowManager {
             showEqualizer()
         }
         notifyMainWindowVisibilityChanged()
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     /// Position a sub-window (EQ, Playlist, or Spectrum) in the vertical stack.
@@ -462,6 +467,7 @@ class WindowManager {
         isSnappingWindow = true
         window.setFrame(newFrame, display: true)
         isSnappingWindow = false
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     /// Show local media library (redirects to unified browser in local mode)
@@ -534,6 +540,7 @@ class WindowManager {
                 }
             }
         }
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     var isPlexBrowserVisible: Bool {
@@ -567,6 +574,7 @@ class WindowManager {
         } else {
             showPlexBrowser()
         }
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     /// Show the Plex account linking sheet
@@ -1049,6 +1057,7 @@ class WindowManager {
                 }
             }
         }
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     var isProjectMVisible: Bool {
@@ -1078,6 +1087,7 @@ class WindowManager {
         } else {
             showProjectM()
         }
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     // MARK: - Spectrum Analyzer Window
@@ -1106,6 +1116,7 @@ class WindowManager {
         spectrumWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(spectrumWindowController?.window)
         notifyMainWindowVisibilityChanged()
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     var isSpectrumVisible: Bool {
@@ -1126,6 +1137,7 @@ class WindowManager {
             showSpectrum()
         }
         notifyMainWindowVisibilityChanged()
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     // MARK: - Debug Window
@@ -1643,6 +1655,7 @@ class WindowManager {
         if let videoWindow = videoPlayerWindowController?.window, videoWindow.isVisible {
             videoWindow.center()
         }
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     // MARK: - Window Snapping & Docking
@@ -1677,6 +1690,7 @@ class WindowManager {
         draggingWindow = nil
         dockedWindowsToMove.removeAll()
         dockedWindowOffsets.removeAll()
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
     }
     
     /// Safely apply snapped position to a window without triggering feedback loop
@@ -1735,6 +1749,8 @@ class WindowManager {
             }
             isMovingDockedWindows = false
         }
+        
+        NotificationCenter.default.post(name: .windowLayoutDidChange, object: nil)
         
         return snappedOrigin
     }
@@ -2063,6 +2079,31 @@ class WindowManager {
         let touchingVertically = verticallyAligned && (vGap1 <= dockThreshold || vGap2 <= dockThreshold)
         
         return touchingHorizontally || touchingVertically
+    }
+    
+    /// Compute which edges of a window are adjacent to another visible managed window.
+    /// Used by modern skin views to suppress borders on shared docked edges.
+    func computeAdjacentEdges(for window: NSWindow) -> AdjacentEdges {
+        guard isModernUIEnabled else { return [] }
+        var edges: AdjacentEdges = []
+        let frame = window.frame
+        for other in allWindows() where other !== window {
+            let of = other.frame
+            // Check horizontal overlap (for vertical adjacency: top/bottom)
+            let hOverlap = frame.minX < of.maxX && frame.maxX > of.minX
+            // Check vertical overlap (for horizontal adjacency: left/right)
+            let vOverlap = frame.minY < of.maxY && frame.maxY > of.minY
+            if hOverlap {
+                // macOS Y: maxY is top, minY is bottom
+                if abs(frame.maxY - of.minY) <= dockThreshold { edges.insert(.top) }
+                if abs(frame.minY - of.maxY) <= dockThreshold { edges.insert(.bottom) }
+            }
+            if vOverlap {
+                if abs(frame.maxX - of.minX) <= dockThreshold { edges.insert(.right) }
+                if abs(frame.minX - of.maxX) <= dockThreshold { edges.insert(.left) }
+            }
+        }
+        return edges
     }
     
     /// Get all managed windows

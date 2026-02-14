@@ -86,7 +86,8 @@ MySkin/
         "borderWidth": 1,
         "borderColor": "#00ffcc",
         "cornerRadius": 8,
-        "scale": 1.25
+        "scale": 1.25,
+        "seamlessDocking": 1.0
     },
     "marquee": {
         "scrollSpeed": 30,
@@ -297,6 +298,28 @@ The modern skin system renders multiple windows:
 - **Library Browser Window** -- multi-source browser (Local/Plex/Subsonic/Radio) with hierarchy, columns, artwork, visualizer
 
 All windows share the same `window_background`, `window_border`, palette colors, glow, grid, and font settings from the active skin. To customize individual windows differently, prefix element IDs with the window name (e.g., `spectrum_titlebar` vs `titlebar`).
+
+### Seamless Docked Borders
+
+When windows are snapped/docked together, the shared edges normally show a double-thick border (each window's border drawn side by side). The `seamlessDocking` property in the `window` config controls how aggressively these shared-edge borders are suppressed:
+
+| Value | Effect |
+|-------|--------|
+| `0.0` (default) | Full double borders -- current traditional behavior |
+| `0.5` | Shared-edge borders faded to 50% -- subtle seam still visible |
+| `0.8` | Mostly hidden -- faint hint of separation |
+| `1.0` | Fully hidden -- docked windows appear as one seamless unit |
+
+```json
+"window": {
+    "borderWidth": 1.5,
+    "seamlessDocking": 1.0
+}
+```
+
+The feature detects adjacent windows automatically using the existing docking threshold (20px). When a value less than 1.0 is used, the border on shared edges is faded by overdrawing with the background color at the configured alpha. At 1.0, shared edges are clipped entirely before drawing, which also cleanly removes glow effects on those edges.
+
+**Bundled skin values**: NeonWave uses `1.0` (fully seamless -- suits the glow/neon aesthetic), StereoGear uses `0.8` (subtle seam -- suits the lo-fi receiver aesthetic).
 
 ## NeonWave Default Skin
 
@@ -639,7 +662,7 @@ The simplest skin is just a `skin.json` with palette colors:
     "fonts": { "primaryName": "DepartureMono-Regular", "fallbackName": "Menlo" },
     "background": { "grid": { "color": "#332200", "spacing": 15, "angle": 80, "opacity": 0.1, "perspective": false } },
     "glow": { "enabled": true, "radius": 6, "intensity": 0.5, "threshold": 0.6 },
-    "window": { "borderWidth": 1, "cornerRadius": 6 }
+    "window": { "borderWidth": 1, "cornerRadius": 6, "seamlessDocking": 1.0 }
 }
 ```
 

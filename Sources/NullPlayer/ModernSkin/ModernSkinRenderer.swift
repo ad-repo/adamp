@@ -1,5 +1,15 @@
 import AppKit
 
+/// Edges of a window that are adjacent (docked) to another window.
+/// Used by `drawWindowBorder` to suppress borders on shared edges.
+struct AdjacentEdges: OptionSet {
+    let rawValue: Int
+    static let top    = AdjacentEdges(rawValue: 1 << 0)
+    static let bottom = AdjacentEdges(rawValue: 1 << 1)
+    static let left   = AdjacentEdges(rawValue: 1 << 2)
+    static let right  = AdjacentEdges(rawValue: 1 << 3)
+}
+
 /// Renders modern skin elements using images or programmatic fallback.
 /// For each element, rendering priority is: skin image > programmatic fallback using palette colors.
 ///
@@ -55,13 +65,26 @@ class ModernSkinRenderer {
         }
     }
     
-    /// Draw the window border with optional glow
-    func drawWindowBorder(in bounds: NSRect, context: CGContext) {
+    /// Draw the window border with optional glow.
+    /// When `adjacentEdges` is non-empty and `seamlessDocking` > 0 in the skin config,
+    /// borders on those edges are faded or fully hidden to make docked windows look seamless.
+    func drawWindowBorder(in bounds: NSRect, context: CGContext, adjacentEdges: AdjacentEdges = []) {
         let borderWidth = skin.config.window.borderWidth ?? 1.0
         let cornerRadius = skin.config.window.cornerRadius ?? 0
         let borderColor = skin.borderColor
+        let seamless = min(1.0, max(0.0, skin.config.window.seamlessDocking ?? 0))
         
         context.saveGState()
+        
+        // For full seamless (1.0), clip away adjacent edges entirely before drawing
+        if seamless >= 1.0 && !adjacentEdges.isEmpty {
+            var clipRect = bounds
+            if adjacentEdges.contains(.top)    { clipRect.size.height -= borderWidth }
+            if adjacentEdges.contains(.bottom) { clipRect.origin.y += borderWidth; clipRect.size.height -= borderWidth }
+            if adjacentEdges.contains(.left)   { clipRect.origin.x += borderWidth; clipRect.size.width -= borderWidth }
+            if adjacentEdges.contains(.right)  { clipRect.size.width -= borderWidth }
+            context.clip(to: clipRect)
+        }
         
         let borderRect = bounds.insetBy(dx: borderWidth / 2, dy: borderWidth / 2)
         let path = CGPath(roundedRect: borderRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
@@ -85,6 +108,28 @@ class ModernSkinRenderer {
         context.strokePath()
         
         context.restoreGState()
+        
+        // For partial seamless (0 < value < 1), overdraw adjacent edges
+        // with background color at seamlessDocking alpha to progressively fade them
+        if seamless > 0 && seamless < 1.0 && !adjacentEdges.isEmpty {
+            let bgColor = skin.backgroundColor
+            context.saveGState()
+            context.setFillColor(bgColor.withAlphaComponent(seamless).cgColor)
+            let bw = borderWidth
+            if adjacentEdges.contains(.top) {
+                context.fill(CGRect(x: bounds.minX, y: bounds.maxY - bw, width: bounds.width, height: bw))
+            }
+            if adjacentEdges.contains(.bottom) {
+                context.fill(CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bw))
+            }
+            if adjacentEdges.contains(.left) {
+                context.fill(CGRect(x: bounds.minX, y: bounds.minY, width: bw, height: bounds.height))
+            }
+            if adjacentEdges.contains(.right) {
+                context.fill(CGRect(x: bounds.maxX - bw, y: bounds.minY, width: bw, height: bounds.height))
+            }
+            context.restoreGState()
+        }
     }
     
     /// Draw the title bar with per-window prefix support and three-tier text fallback.

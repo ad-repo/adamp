@@ -77,6 +77,9 @@ class ModernMainWindowView: NSView {
     /// Tracking area for cursor updates
     private var mainTrackingArea: NSTrackingArea?
     
+    /// Which edges are adjacent to another docked window (for seamless border rendering)
+    private var adjacentEdges: AdjacentEdges = []
+    
     // MARK: - Initialization
     
     override init(frame frameRect: NSRect) {
@@ -117,6 +120,10 @@ class ModernMainWindowView: NSView {
         // Observe BPM detection updates
         NotificationCenter.default.addObserver(self, selector: #selector(bpmDidUpdate(_:)),
                                                 name: .bpmUpdated, object: nil)
+        
+        // Observe window layout changes for seamless docked borders
+        NotificationCenter.default.addObserver(self, selector: #selector(windowLayoutDidChange),
+                                                name: .windowLayoutDidChange, object: nil)
         
         // Set accessibility
         setAccessibilityIdentifier("ModernMainWindowView")
@@ -240,7 +247,7 @@ class ModernMainWindowView: NSView {
         context.saveGState()
         context.clip(to: dirtyRect)
         renderer.drawWindowBackground(in: windowBounds, context: context)
-        renderer.drawWindowBorder(in: windowBounds, context: context)
+        renderer.drawWindowBorder(in: windowBounds, context: context, adjacentEdges: adjacentEdges)
         context.restoreGState()
         
         // 2. Title bar (unless hidden) -- only if dirty rect overlaps
@@ -308,7 +315,7 @@ class ModernMainWindowView: NSView {
     private func drawShadeMode(in bounds: NSRect, context: CGContext) {
         // Background
         renderer.drawWindowBackground(in: bounds, context: context)
-        renderer.drawWindowBorder(in: bounds, context: context)
+        renderer.drawWindowBorder(in: bounds, context: context, adjacentEdges: adjacentEdges)
         
         // In shade mode, draw a compact horizontal layout in the available space
         // The window is 18 base units tall (22.5px scaled)
@@ -710,6 +717,15 @@ class ModernMainWindowView: NSView {
         // Only invalidate the info panel area where BPM is displayed
         let infoRect = scaledRect(ModernSkinElements.marqueeBackground.defaultRect)
         setNeedsDisplay(infoRect)
+    }
+    
+    @objc private func windowLayoutDidChange() {
+        guard let window = window else { return }
+        let newEdges = WindowManager.shared.computeAdjacentEdges(for: window)
+        if newEdges != adjacentEdges {
+            adjacentEdges = newEdges
+            needsDisplay = true
+        }
     }
     
     
