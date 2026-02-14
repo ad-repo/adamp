@@ -200,6 +200,16 @@ class CastManager {
     
     // MARK: - Initialization
     
+    /// Timer for polling Sonos playback state during active casting
+    private var sonosPollingTimer: Timer?
+    
+    /// Timer for periodic Sonos group topology refresh during casting
+    private var topologyRefreshTimer: Timer?
+    
+    /// Consecutive fire-and-forget command failures (for error surfacing)
+    private var consecutiveFireAndForgetFailures = 0
+    private let maxConsecutiveFailures = 3
+    
     private init() {
         // Start discovery automatically
         startDiscovery()
@@ -216,11 +226,28 @@ class CastManager {
             name: ChromecastManager.mediaStatusDidUpdateNotification,
             object: nil
         )
+        
+        // Subscribe to sleep/wake notifications (Fix 8)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWillSleep),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleDidWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
     }
     
     deinit {
         discoveryRefreshTimer?.invalidate()
+        sonosPollingTimer?.invalidate()
+        topologyRefreshTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
     
     // MARK: - Chromecast Status Updates
@@ -464,6 +491,12 @@ class CastManager {
                     // Sonos/DLNA don't provide status updates - start timer immediately
                     WindowManager.shared.audioEngine.startCastPlayback(from: trackingPosition)
                 }
+                
+                // For Sonos, start status polling and topology refresh (Fix 1 & 9)
+                if device.type == .sonos {
+                    self.startSonosPolling()
+                    self.startTopologyRefresh()
+                }
             }
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
@@ -568,9 +601,11 @@ class CastManager {
             }
         }
         
-        // Use audio/flac for Subsonic/Jellyfin proxy since that's what the servers typically serve
-        // For other sources, use audio/mpeg as a safe default
-        let contentType = (needsSubsonicProxy || needsJellyfinProxy) ? "audio/flac" : "audio/mpeg"
+        // Detect content type from track URL extension (Fix 2)
+        let contentType = Self.detectAudioContentType(for: track.url)
+        
+        // For radio streams cast to Sonos, use x-rincon-mp3radio:// scheme (Fix 10)
+        let finalCastURL = sonosRadioURL(for: castURL, device: device)
         
         let metadata = CastMetadata(
             title: track.title,
@@ -581,9 +616,9 @@ class CastManager {
             contentType: contentType
         )
         
-        NSLog("CastManager: castTrack URL: %@", castURL.absoluteString)
+        NSLog("CastManager: castTrack URL: %@", finalCastURL.absoluteString)
         
-        try await cast(to: device, url: castURL, metadata: metadata, startPosition: startPosition)
+        try await cast(to: device, url: finalCastURL, metadata: metadata, startPosition: startPosition)
     }
     
     /// Cast a new track to the already connected device (for next/previous)
@@ -715,8 +750,11 @@ class CastManager {
             }
         }
         
-        // Use audio/flac for Subsonic/Jellyfin proxy since that's what the servers typically serve
-        let contentType = (needsSubsonicProxy || needsJellyfinProxy) ? "audio/flac" : "audio/mpeg"
+        // Detect content type from track URL extension (Fix 2)
+        let contentType = Self.detectAudioContentType(for: track.url)
+        
+        // For radio streams cast to Sonos, use x-rincon-mp3radio:// scheme (Fix 10)
+        let finalCastURL = sonosRadioURL(for: castURL, device: session.device)
         
         let metadata = CastMetadata(
             title: track.title,
@@ -734,10 +772,10 @@ class CastManager {
         do {
             switch session.device.type {
             case .chromecast:
-                try await chromecastManager.cast(url: castURL, metadata: metadata)
+                try await chromecastManager.cast(url: finalCastURL, metadata: metadata)
                 
             case .sonos, .dlnaTV:
-                try await upnpManager.cast(url: castURL, metadata: metadata)
+                try await upnpManager.cast(url: finalCastURL, metadata: metadata)
             }
         } catch {
             NSLog("CastManager: castNewTrack '%@' failed: %@", track.title, error.localizedDescription)
@@ -1044,6 +1082,11 @@ class CastManager {
     func stopCasting() async {
         NSLog("CastManager: Stopping casting")
         
+        // Stop Sonos polling and topology refresh
+        stopSonosPolling()
+        stopTopologyRefresh()
+        consecutiveFireAndForgetFailures = 0
+        
         if chromecastManager.activeSession != nil {
             chromecastManager.stop()
             chromecastManager.disconnect()
@@ -1090,6 +1133,11 @@ class CastManager {
     /// This avoids deadlock when called from applicationWillTerminate on the main thread
     func stopCastingSync() {
         NSLog("CastManager: Stopping casting (sync for termination)")
+        
+        // Stop Sonos polling and topology refresh
+        stopSonosPolling()
+        stopTopologyRefresh()
+        consecutiveFireAndForgetFailures = 0
         
         // Stop Chromecast - these are synchronous
         if chromecastManager.activeSession != nil {
@@ -1255,6 +1303,156 @@ class CastManager {
         } else {
             throw CastError.sessionNotActive
         }
+    }
+    
+    // MARK: - Sonos Playback State Polling (Fix 1)
+    
+    /// Start polling Sonos for playback state and position
+    private func startSonosPolling() {
+        stopSonosPolling()
+        DispatchQueue.main.async {
+            self.sonosPollingTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+                self?.pollSonosState()
+            }
+            RunLoop.main.add(self.sonosPollingTimer!, forMode: .common)
+        }
+    }
+    
+    /// Stop Sonos playback state polling
+    private func stopSonosPolling() {
+        sonosPollingTimer?.invalidate()
+        sonosPollingTimer = nil
+    }
+    
+    /// Poll Sonos transport state and sync position with AudioEngine
+    private func pollSonosState() {
+        Task {
+            guard let result = await upnpManager.pollSonosPlaybackState() else { return }
+            
+            await MainActor.run {
+                let engine = WindowManager.shared.audioEngine
+                guard engine.isCastingActive else { return }
+                
+                switch result.state {
+                case "PLAYING":
+                    // Sync position with actual Sonos position to prevent drift
+                    engine.updateCastPosition(
+                        currentTime: result.position,
+                        isPlaying: true,
+                        isBuffering: false
+                    )
+                case "PAUSED_PLAYBACK":
+                    if engine.state == .playing {
+                        engine.pauseCastPlayback()
+                        NSLog("CastManager: Sonos reported PAUSED (external pause detected)")
+                    }
+                case "STOPPED", "NO_MEDIA_PRESENT":
+                    NSLog("CastManager: Sonos reported %@ - playback ended externally", result.state)
+                    // Don't auto-disconnect, just update state so UI reflects reality
+                    engine.pauseCastPlayback()
+                    NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
+                case "TRANSITIONING":
+                    // Sonos is loading/buffering - don't change state, just wait
+                    break
+                default:
+                    NSLog("CastManager: Unknown Sonos state: %@", result.state)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Mac Sleep/Wake Handling (Fix 8)
+    
+    @objc private func handleWillSleep() {
+        NSLog("CastManager: Mac going to sleep, casting will be interrupted")
+        // Nothing to do proactively -- Sonos will stop on its own when it can't reach the server
+    }
+    
+    @objc private func handleDidWake() {
+        NSLog("CastManager: Mac woke up, checking cast state")
+        guard isCasting else { return }
+        
+        Task {
+            // Wait a moment for network to reconnect
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            
+            // Check if LocalMediaServer IP changed
+            if let oldIP = LocalMediaServer.shared.localIPAddress,
+               let newIP = LocalMediaServer.shared.refreshIPAddress(),
+               oldIP != newIP {
+                NSLog("CastManager: IP changed after wake (%@ -> %@)", oldIP, newIP)
+            }
+            
+            // Poll Sonos to see if it's still playing
+            if let result = await upnpManager.pollSonosPlaybackState() {
+                NSLog("CastManager: Post-wake Sonos state: %@, position: %.1f", result.state, result.position)
+                if result.state == "STOPPED" || result.state == "NO_MEDIA_PRESENT" {
+                    NSLog("CastManager: Sonos stopped during sleep")
+                    await MainActor.run {
+                        WindowManager.shared.audioEngine.pauseCastPlayback()
+                        NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Sonos Group Topology Refresh (Fix 9)
+    
+    /// Start periodic group topology refresh during Sonos casting
+    private func startTopologyRefresh() {
+        stopTopologyRefresh()
+        DispatchQueue.main.async {
+            self.topologyRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+                Task {
+                    await self?.refreshSonosGroups()
+                }
+            }
+        }
+    }
+    
+    /// Stop periodic group topology refresh
+    private func stopTopologyRefresh() {
+        topologyRefreshTimer?.invalidate()
+        topologyRefreshTimer = nil
+    }
+    
+    // MARK: - Content Type Detection (Fix 2)
+    
+    /// Detect audio content type from URL extension
+    static func detectAudioContentType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "mp3":                   return "audio/mpeg"
+        case "flac":                  return "audio/flac"
+        case "m4a", "aac":            return "audio/mp4"
+        case "wav":                   return "audio/wav"
+        case "aiff", "aif":          return "audio/aiff"
+        case "ogg":                   return "audio/ogg"
+        case "opus":                  return "audio/opus"
+        case "wma":                   return "audio/x-ms-wma"
+        case "alac":                  return "audio/mp4"
+        default:                      return "audio/mpeg"  // Safe default
+        }
+    }
+    
+    // MARK: - Sonos Radio URI (Fix 10)
+    
+    /// Convert HTTP radio stream URL to Sonos x-rincon-mp3radio:// scheme for better buffering
+    private func sonosRadioURL(for url: URL, device: CastDevice) -> URL {
+        // Only for Sonos devices, only for http:// streams, only for radio
+        guard device.type == .sonos,
+              url.scheme == "http" || url.scheme == "https",
+              RadioManager.shared.isActive else {
+            return url
+        }
+        // Replace http:// with x-rincon-mp3radio://
+        var urlString = url.absoluteString
+        if urlString.hasPrefix("http://") {
+            urlString = "x-rincon-mp3radio://" + urlString.dropFirst(7)
+        } else if urlString.hasPrefix("https://") {
+            urlString = "x-rincon-mp3radio://" + urlString.dropFirst(8)
+        }
+        return URL(string: urlString) ?? url
     }
     
     // MARK: - Error Handling

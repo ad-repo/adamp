@@ -137,7 +137,7 @@ Sources/NullPlayer/
 | Subsonic | `Subsonic/SubsonicManager.swift`, `Subsonic/SubsonicServerClient.swift`, `Subsonic/SubsonicModels.swift` |
 | Jellyfin | `Jellyfin/JellyfinManager.swift`, `Jellyfin/JellyfinServerClient.swift`, `Jellyfin/JellyfinModels.swift`, `Jellyfin/JellyfinPlaybackReporter.swift` |
 | Radio | `Radio/RadioManager.swift`, `Data/Models/RadioStation.swift`, `Windows/Radio/AddRadioStationSheet.swift` |
-| Casting | `Casting/CastManager.swift`, `Casting/CastProtocol.swift`, `Casting/ChromecastManager.swift`, `Casting/UPnPManager.swift`, `Casting/LocalMediaServer.swift` |
+| Casting | `Casting/CastManager.swift`, `Casting/CastProtocol.swift`, `Casting/ChromecastManager.swift`, `Casting/UPnPManager.swift`, `Casting/LocalMediaServer.swift`, `Casting/CastDevice.swift` |
 | App | `App/WindowManager.swift`, `App/ContextMenuBuilder.swift`, `App/MainWindowProviding.swift`, `App/SpectrumWindowProviding.swift`, `App/PlaylistWindowProviding.swift`, `App/EQWindowProviding.swift`, `App/ProjectMWindowProviding.swift`, `App/LibraryBrowserWindowProviding.swift` |
 
 ## Common Tasks
@@ -274,6 +274,13 @@ Sources/NullPlayer/
   // CORRECT - use <= with threshold-1 instead of <:
   let url = "...&ratingCount<=999&..."  // equivalent to <1000
   ```
+- **Sonos playback polling**: CastManager polls Sonos every 5s via `GetTransportInfo` + `GetPositionInfo` to detect external pause/stop and sync position. This is different from Chromecast which uses its own 1s status polling. The polling timer starts in `startSonosPolling()` and stops in `stopSonosPolling()` / `stopCasting()`.
+- **Sonos Content-Type matching**: The content type in `CastMetadata` (used in DIDL-Lite `protocolInfo`) MUST match the actual file format. Use `CastManager.detectAudioContentType(for:)` to derive from URL extension. Never hardcode `"audio/mpeg"` or `"audio/flac"` -- Sonos may reject mismatched content.
+- **Sonos HEAD requests**: LocalMediaServer must handle HEAD requests (not just GET). Sonos sends HEAD before GET to check Content-Length. Missing HEAD handler causes 404 which can prevent playback.
+- **Sonos Content-Length for MP3/OGG**: Sonos closes the connection if `Content-Length` header is missing for MP3 and OGG. Chunked transfer encoding only works for WAV/FLAC. The stream proxy must buffer the full response for MP3/OGG to provide Content-Length.
+- **Sonos radio URI scheme**: For MP3 internet radio streams cast to Sonos, use `x-rincon-mp3radio://` instead of `http://`. This uses Sonos's internal radio buffering which is more resilient. Only applies to MP3 radio, not AAC/OGG.
+- **Sonos UPnP Error 701**: "Transition Not Available" - the most common Sonos SOAP error. Returned as HTTP 500 with `<errorCode>701</errorCode>` in body. Don't blindly retry -- poll `getTransportState()` until transport is ready (STOPPED/PLAYING/PAUSED_PLAYBACK), then retry.
+- **Sonos Connection Security (firmware 85.0+)**: Users can disable UPnP or enable Authentication in Sonos app settings. Both break SOAP control. On 401/403, show a specific error message about Connection Security settings.
 
 ## Testing
 

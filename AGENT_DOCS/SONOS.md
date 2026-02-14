@@ -39,6 +39,19 @@ If UPnP is disabled:
 - mDNS discovery may still work but SOAP control won't
 - The macOS/Windows Sonos app also won't work
 
+### Connection Security (Firmware 85.0+, July 2025)
+
+Sonos firmware 85.0-66270 added optional security settings:
+
+| Setting | Default | Effect if Changed |
+|---------|---------|-------------------|
+| Authentication | OFF | Blocks SOAP commands from NullPlayer |
+| UPnP | ON | Disables ALL local SOAP control |
+| Guest Access | ON | Prevents same-network playback control |
+
+NullPlayer detects 401/403 SOAP errors and shows a specific message directing users to:
+Sonos app → Settings → Account → Privacy & Security → Connection Security
+
 ## Architecture
 
 ### Zone vs Group vs Room
@@ -274,6 +287,8 @@ Key actions:
 - `Pause` - Pause playback
 - `Stop` - Stop playback
 - `Seek` - Seek to position (REL_TIME format: HH:MM:SS)
+- `GetTransportInfo` - Get transport state (PLAYING, STOPPED, PAUSED_PLAYBACK, etc.)
+- `GetPositionInfo` - Get current position and track duration
 
 ### Fire-and-Forget Commands
 
@@ -296,6 +311,12 @@ For Sonos audio casting, playback control commands use a **fire-and-forget** pat
 - Errors are logged but don't block the user
 - TV/DLNA casting still uses blocking behavior (needed for video sync)
 
+**Error detection:**
+- Consecutive failures are tracked (threshold: 3)
+- After 3 failures, a user-facing error notification is posted
+- Counter resets on any successful command
+- This detects when the Sonos speaker becomes unreachable
+
 This differs from track changes (`SetAVTransportURI` + `Play`) which use the generation counter pattern to handle rapid clicking - see the loading overlay in `MainWindowView`.
 
 ### Volume Control
@@ -304,6 +325,52 @@ Via RenderingControl service:
 - `SetVolume` - Set volume (0-100)
 - `GetVolume` - Get current volume
 - `SetMute` / `GetMute` - Mute control
+
+### Playback State Monitoring
+
+NullPlayer polls Sonos every 5 seconds during casting using two SOAP actions:
+
+- `GetTransportInfo` - Returns transport state: PLAYING, PAUSED_PLAYBACK, STOPPED, TRANSITIONING, NO_MEDIA_PRESENT
+- `GetPositionInfo` - Returns RelTime (current position) and TrackDuration
+
+**Why polling instead of UPnP events:**
+- Polling is simpler (no callback server, no subscription management)
+- 5-second interval is sufficient for detecting disconnections
+- UPnP event subscriptions require a local HTTP server, subscription renewal (at 85% of timeout per SoCo), and LastChange XML parsing
+
+**What polling detects:**
+- Sonos stopped externally (user paused via Sonos app, speaker went to sleep)
+- Track position drift (syncs local timer with actual Sonos position)
+- Device unreachable (SOAP timeout indicates speaker offline)
+
+**Polling lifecycle:**
+- Started when Sonos casting begins (in CastManager)
+- Stopped when casting ends (stopCasting)
+- Also runs a post-wake check after Mac sleep
+
+### Resilience and Recovery
+
+**Network change detection:**
+- LocalMediaServer monitors network changes via NWPathMonitor
+- IP address refreshed automatically when Wi-Fi changes
+- New file registrations use the updated IP
+
+**Mac sleep/wake handling:**
+- CastManager observes NSWorkspace.willSleepNotification and didWakeNotification
+- On wake: waits 2s for network, polls Sonos state, updates UI if playback stopped
+
+**Server health checks:**
+- LocalMediaServer pings itself every 30 seconds
+- Auto-restarts if the ping fails
+
+**Fire-and-forget error detection:**
+- Tracks consecutive failures for pause/resume/seek commands
+- Posts CastManager.errorNotification after 3 consecutive failures
+- Counter resets on any successful command
+
+**Group topology refresh:**
+- During Sonos casting, group topology is refreshed every 60 seconds
+- Detects external group changes made via the Sonos app
 
 ---
 
@@ -326,6 +393,7 @@ Local files are supported via an embedded HTTP server (LocalMediaServer):
 - **Port**: Files are served on port 8765
 - **Seeking**: Supports HTTP Range requests for seeking
 - **Network binding**: Server binds to local network interface (en0/en1), not localhost
+- **HEAD requests**: Server handles HEAD requests (Sonos may send HEAD before GET to check Content-Length)
 
 **Supported content:**
 - ✅ Plex streaming (with token in URL)
@@ -374,6 +442,22 @@ NullPlayer sends artwork URLs to Sonos via DIDL-Lite metadata so album art appea
 - For local files, verify artwork is embedded (check in Finder "Get Info" or a tag editor)
 - Check Console.app for "LocalMediaServer: Registered artwork" log messages
 
+### Sonos Protocol Quirks
+
+**Content-Type matching:** The content type in DIDL-Lite `protocolInfo` must match the actual HTTP Content-Type header. NullPlayer detects format from file extension via `CastManager.detectAudioContentType(for:)`.
+
+**Content-Length for MP3/OGG:** Sonos closes the connection if Content-Length is missing for MP3 and OGG streams. Chunked transfer encoding only works for WAV/FLAC.
+
+**HEAD requests:** Sonos may send HTTP HEAD before GET to check file size. LocalMediaServer handles both methods.
+
+**Radio streams:** MP3 radio streams use `x-rincon-mp3radio://` URI scheme for better Sonos buffering behavior.
+
+**Error 701:** "Transition Not Available" - the most common Sonos error. Occurs when the speaker is busy (e.g., processing a group change). NullPlayer waits for transport ready state before retrying.
+
+**Redirect limitation:** Sonos does not follow HTTP 30x redirects with relative URLs - only absolute URLs work.
+
+**Supported formats:** MP3 (320kbps), AAC/HE-AAC (320kbps), FLAC (24-bit, 48kHz), ALAC (24-bit), WAV/AIFF (16-bit), OGG Vorbis (320kbps). Opus has known UPnP issues despite being listed.
+
 ---
 
 ## Troubleshooting
@@ -415,6 +499,24 @@ If local files fail to cast:
 3. Verify Sonos speakers are on the same network as your Mac
 4. Check Console.app for "LocalMediaServer" log messages
 
+### Casting Stops Unexpectedly
+1. Check if Sonos speaker went to sleep (idle timeout)
+2. Check if someone paused via the Sonos app (NullPlayer now detects this)
+3. Check if Mac went to sleep (NullPlayer recovers on wake)
+4. Check Console.app for "Sonos reported STOPPED" or "consecutive command failures"
+
+### Authentication Errors (401/403)
+If you see "Sonos rejected the command":
+1. Open Sonos app → Settings → Account → Privacy & Security → Connection Security
+2. Ensure **UPnP** is **ON**
+3. Ensure **Authentication** is **OFF**
+4. These settings were added in Sonos firmware 85.0 (July 2025)
+
+### Content Plays Wrong or Stops Mid-Track
+1. Check Console.app for DIDL-Lite content type vs actual Content-Type header
+2. Sonos requires matching content types between DIDL metadata and HTTP response
+3. NullPlayer auto-detects format from file extension
+
 ---
 
 ## Network Requirements
@@ -438,10 +540,10 @@ SSDP requires multicast to work. Some routers/switches block this:
 
 | File | Purpose |
 |------|---------|
-| `CastManager.swift` | Central casting coordinator, `selectedSonosRooms` state |
-| `UPnPManager.swift` | SSDP/mDNS discovery, SOAP control, group topology |
+| `CastManager.swift` | Central casting coordinator, `selectedSonosRooms` state, Sonos polling timer, sleep/wake handling |
+| `UPnPManager.swift` | SSDP/mDNS discovery, SOAP control, group topology, `pollSonosPlaybackState()` |
 | `ContextMenuBuilder.swift` | Menu UI, `SonosRoomCheckboxView`, casting actions |
-| `LocalMediaServer.swift` | Embedded HTTP server for local file casting |
+| `LocalMediaServer.swift` | Embedded HTTP server for local file casting, HEAD handlers, health checks, network monitoring |
 
 ---
 

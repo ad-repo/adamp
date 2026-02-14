@@ -1,6 +1,7 @@
 import Foundation
 import FlyingFox
 import FlyingSocks
+import Network
 
 /// Embedded HTTP server for serving local audio files to cast devices.
 ///
@@ -41,6 +42,12 @@ class LocalMediaServer {
     }
     
     private let queue = DispatchQueue(label: "com.nullplayer.localmediaserver", attributes: .concurrent)
+    
+    /// Network path monitor for detecting IP changes (Fix 4)
+    private var networkMonitor: NWPathMonitor?
+    
+    /// Health check timer (Fix 5)
+    private var healthCheckTimer: Timer?
     
     // MARK: - Initialization
     
@@ -83,6 +90,21 @@ class LocalMediaServer {
             return await self.handleStreamRequest(request)
         }
         
+        // Add HEAD route handlers - Sonos may send HEAD to check Content-Length before streaming (Fix 3)
+        await server.appendRoute("HEAD /media/*") { [weak self] request in
+            guard let self = self else {
+                return HTTPResponse(statusCode: .internalServerError)
+            }
+            return await self.handleMediaHeadRequest(request)
+        }
+        
+        await server.appendRoute("HEAD /stream/*") { [weak self] request in
+            guard let self = self else {
+                return HTTPResponse(statusCode: .internalServerError)
+            }
+            return await self.handleStreamHeadRequest(request)
+        }
+        
         // Start server in background task
         serverTask = Task {
             do {
@@ -98,6 +120,10 @@ class LocalMediaServer {
         
         isRunning = true
         NSLog("LocalMediaServer: Started successfully on http://%@:%d", ip, port)
+        
+        // Start network monitoring (Fix 4) and health checks (Fix 5)
+        startNetworkMonitoring()
+        startHealthCheck()
     }
     
     /// Stop the HTTP server
@@ -108,6 +134,14 @@ class LocalMediaServer {
         serverTask = nil
         server = nil
         isRunning = false
+        
+        // Stop network monitoring (Fix 4)
+        networkMonitor?.cancel()
+        networkMonitor = nil
+        
+        // Stop health check timer (Fix 5)
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = nil
         
         queue.async(flags: .barrier) { [weak self] in
             self?.registeredFiles.removeAll()
@@ -253,6 +287,143 @@ class LocalMediaServer {
                 NSLog("LocalMediaServer: Unregistered stream '%@'", url.host ?? "unknown")
             }
         }
+    }
+    
+    // MARK: - Network and Health
+    
+    /// Refresh the cached IP address and return the new one (Fix 8 support)
+    @discardableResult
+    func refreshIPAddress() -> String? {
+        let newIP = discoverLocalIPAddress()
+        if let newIP = newIP, newIP != _localIPAddress {
+            NSLog("LocalMediaServer: IP address changed from %@ to %@", _localIPAddress ?? "nil", newIP)
+            _localIPAddress = newIP
+        }
+        return newIP
+    }
+    
+    /// Start monitoring network changes (Fix 4)
+    private func startNetworkMonitoring() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self = self, self.isRunning else { return }
+            
+            if let newIP = self.discoverLocalIPAddress(), newIP != self._localIPAddress {
+                NSLog("LocalMediaServer: Network changed - IP changed from %@ to %@",
+                      self._localIPAddress ?? "nil", newIP)
+                self._localIPAddress = newIP
+                // Note: The server is bound to 0.0.0.0 so it still works,
+                // but registered URLs with the old IP are now invalid.
+                // New registrations will use the new IP.
+            }
+            
+            if path.status == .unsatisfied {
+                NSLog("LocalMediaServer: Network lost - cast may fail")
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.nullplayer.networkmonitor"))
+        networkMonitor = monitor
+    }
+    
+    /// Start periodic health check (Fix 5)
+    private func startHealthCheck() {
+        DispatchQueue.main.async {
+            self.healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+                self?.checkServerHealth()
+            }
+        }
+    }
+    
+    /// Check if the server is still responding
+    private func checkServerHealth() {
+        guard isRunning, let ip = _localIPAddress else { return }
+        
+        // Health check URL will 404 (no route) but we're checking the server responds at all
+        let url = URL(string: "http://\(ip):\(port)/media/healthcheck")!
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+            if let error = error {
+                NSLog("LocalMediaServer: Health check failed: %@", error.localizedDescription)
+                self?.attemptRestart()
+            }
+            // Any HTTP response (even 404) means the server is alive
+        }.resume()
+    }
+    
+    /// Attempt to restart the server after health check failure
+    private func attemptRestart() {
+        NSLog("LocalMediaServer: Attempting restart...")
+        stop()
+        Task {
+            try? await start()
+        }
+    }
+    
+    // MARK: - HEAD Request Handlers (Fix 3)
+    
+    /// Handle HEAD requests for media files (return headers only, no body)
+    private func handleMediaHeadRequest(_ request: HTTPRequest) async -> HTTPResponse {
+        let path = request.path
+        guard path.hasPrefix("/media/") else {
+            return HTTPResponse(statusCode: .notFound)
+        }
+        
+        let filename = String(path.dropFirst(7))
+        let token = filename.components(separatedBy: ".").first ?? filename
+        
+        var fileURL: URL?
+        queue.sync { fileURL = registeredFiles[token] }
+        
+        guard let url = fileURL else {
+            return HTTPResponse(statusCode: .notFound)
+        }
+        
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let fileSize = attrs[.size] as? Int64 else {
+            return HTTPResponse(statusCode: .internalServerError)
+        }
+        
+        let ct = self.contentType(for: url)
+        NSLog("LocalMediaServer: HEAD /media/ - %@ (%lld bytes)", url.lastPathComponent, fileSize)
+        return HTTPResponse(
+            statusCode: .ok,
+            headers: [
+                HTTPHeader("Content-Type"): ct,
+                HTTPHeader("Content-Length"): String(fileSize),
+                HTTPHeader("Accept-Ranges"): "bytes"
+            ],
+            body: Data()  // Empty body for HEAD
+        )
+    }
+    
+    /// Handle HEAD requests for proxied streams (return headers only)
+    private func handleStreamHeadRequest(_ request: HTTPRequest) async -> HTTPResponse {
+        let path = request.path
+        guard path.hasPrefix("/stream/") else {
+            return HTTPResponse(statusCode: .notFound)
+        }
+        
+        let filename = String(path.dropFirst(8))
+        let token = filename.components(separatedBy: ".").first ?? filename
+        
+        var streamURL: URL?
+        queue.sync { streamURL = registeredStreams[token] }
+        
+        guard streamURL != nil else {
+            return HTTPResponse(statusCode: .notFound)
+        }
+        
+        NSLog("LocalMediaServer: HEAD /stream/ - token %@", token)
+        return HTTPResponse(
+            statusCode: .ok,
+            headers: [
+                HTTPHeader("Content-Type"): "audio/mpeg",
+                HTTPHeader("Accept-Ranges"): "bytes"
+            ],
+            body: Data()
+        )
     }
     
     // MARK: - Private Methods
