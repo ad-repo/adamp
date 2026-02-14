@@ -2520,9 +2520,16 @@ class MenuActions: NSObject {
     }
     
     @objc func showJellyfinInBrowser() {
+        // Show the library browser with Jellyfin source selected
         guard let serverId = JellyfinManager.shared.currentServer?.id else { return }
+        
         WindowManager.shared.showPlexBrowser()
-        NotificationCenter.default.post(name: NSNotification.Name("SetBrowserSource"), object: nil, userInfo: ["source": "jellyfin", "serverId": serverId])
+        
+        // Set the browser source to Jellyfin
+        NotificationCenter.default.post(
+            name: NSNotification.Name("SetBrowserSource"),
+            object: BrowserSource.jellyfin(serverId: serverId)
+        )
     }
     
     @objc func selectJellyfinVideoLibrary(_ sender: NSMenuItem) {

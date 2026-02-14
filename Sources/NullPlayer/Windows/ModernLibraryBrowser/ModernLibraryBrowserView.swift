@@ -501,6 +501,10 @@ class ModernLibraryBrowserView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(trackDidChange),
                                                name: .audioTrackDidChange, object: nil)
         
+        // External source selection (e.g. Subsonic/Jellyfin menu > Show in Library Browser)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSetBrowserSource(_:)),
+                                               name: NSNotification.Name("SetBrowserSource"), object: nil)
+        
         // Window visibility notifications
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidMiniaturize),
                                                name: NSWindow.didMiniaturizeNotification, object: nil)
@@ -3958,6 +3962,18 @@ class ModernLibraryBrowserView: NSView {
         }
         let track = notification.userInfo?["track"] as? Track
         loadArtwork(for: track)
+    }
+    
+    @objc private func handleSetBrowserSource(_ notification: Notification) {
+        // Map from classic BrowserSource (posted by ContextMenuBuilder) to ModernBrowserSource
+        guard let source = notification.object as? BrowserSource else { return }
+        switch source {
+        case .local: currentSource = .local
+        case .plex(let serverId): currentSource = .plex(serverId: serverId)
+        case .subsonic(let serverId): currentSource = .subsonic(serverId: serverId)
+        case .jellyfin(let serverId): currentSource = .jellyfin(serverId: serverId)
+        case .radio: currentSource = .radio
+        }
     }
     
     @objc private func windowDidMiniaturize(_ notification: Notification) {

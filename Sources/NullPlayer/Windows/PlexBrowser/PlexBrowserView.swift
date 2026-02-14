@@ -953,6 +953,14 @@ class PlexBrowserView: NSView {
             object: nil
         )
         
+        // Observe external source selection (e.g. Subsonic/Jellyfin menu > Show in Library Browser)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSetBrowserSource(_:)),
+            name: NSNotification.Name("SetBrowserSource"),
+            object: nil
+        )
+        
         // Register for drag and drop (local files)
         registerForDraggedTypes([.fileURL])
         
@@ -4980,6 +4988,17 @@ class PlexBrowserView: NSView {
         
         let track = notification.userInfo?["track"] as? Track
         loadArtwork(for: track)
+    }
+    
+    @objc private func handleSetBrowserSource(_ notification: Notification) {
+        guard let source = notification.object as? BrowserSource else { return }
+        switch source {
+        case .local: currentSource = .local
+        case .plex(let serverId): currentSource = .plex(serverId: serverId)
+        case .subsonic(let serverId): currentSource = .subsonic(serverId: serverId)
+        case .jellyfin(let serverId): currentSource = .jellyfin(serverId: serverId)
+        case .radio: currentSource = .radio
+        }
     }
     
     /// Load artwork for a track (Plex or local)

@@ -411,15 +411,16 @@ class LocalMediaServer {
         var streamURL: URL?
         queue.sync { streamURL = registeredStreams[token] }
         
-        guard streamURL != nil else {
+        guard let url = streamURL else {
             return HTTPResponse(statusCode: .notFound)
         }
         
-        NSLog("LocalMediaServer: HEAD /stream/ - token %@", token)
+        let contentType = CastManager.detectAudioContentType(for: url)
+        NSLog("LocalMediaServer: HEAD /stream/ - token %@, contentType=%@", token, contentType)
         return HTTPResponse(
             statusCode: .ok,
             headers: [
-                HTTPHeader("Content-Type"): "audio/mpeg",
+                HTTPHeader("Content-Type"): contentType,
                 HTTPHeader("Accept-Ranges"): "bytes"
             ],
             body: Data()
