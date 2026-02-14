@@ -19,6 +19,40 @@ class JellyfinServerClient {
     /// Number of retry attempts for failed requests
     private let maxRetries = 3
     
+    /// File extensions that are not video — used as a safety net to filter out
+    /// image files, metadata files, and subtitle files that Jellyfin may return
+    private static let nonVideoExtensions: Set<String> = [
+        "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "ico", "svg",
+        "nfo", "srt", "sub", "ssa", "ass", "vtt", "txt", "xml", "json", "log",
+        "lrc", "idx", "sup"
+    ]
+    
+    /// Check if a Jellyfin item is actual video content (not an image, subtitle, firmware, or metadata file)
+    private static func isVideoItem(_ item: JellyfinItemDTO) -> Bool {
+        // Items with no container likely aren't real video (e.g. firmware .bin files)
+        // Jellyfin sets Container for any file it can identify as media
+        guard let container = item.Container, !container.isEmpty else {
+            return false
+        }
+        
+        // Container can be a comma-separated list (e.g. "mov,mp4,m4a,3gp,3g2,mj2")
+        // Check if any part is a non-video extension
+        let containerParts = container.lowercased().split(separator: ",").map { String($0) }
+        if containerParts.allSatisfy({ nonVideoExtensions.contains($0) }) {
+            return false
+        }
+        
+        // Check file path extension for known non-video types
+        if let path = item.Path {
+            let ext = (path as NSString).pathExtension.lowercased()
+            if !ext.isEmpty && nonVideoExtensions.contains(ext) {
+                return false
+            }
+        }
+        
+        return true
+    }
+    
     // MARK: - Initialization
     
     init?(server: JellyfinServer, accessToken: String) {
@@ -282,10 +316,11 @@ class JellyfinServerClient {
             let params = [
                 URLQueryItem(name: "parentId", value: libraryId),
                 URLQueryItem(name: "IncludeItemTypes", value: "Movie"),
+                URLQueryItem(name: "MediaTypes", value: "Video"),
                 URLQueryItem(name: "Recursive", value: "true"),
                 URLQueryItem(name: "SortBy", value: "SortName"),
                 URLQueryItem(name: "SortOrder", value: "Ascending"),
-                URLQueryItem(name: "Fields", value: "Overview,MediaSources"),
+                URLQueryItem(name: "Fields", value: "Overview,MediaSources,Path"),
                 URLQueryItem(name: "Limit", value: String(pageSize)),
                 URLQueryItem(name: "StartIndex", value: String(offset))
             ]
@@ -295,10 +330,12 @@ class JellyfinServerClient {
             }
             
             let response: JellyfinQueryResult = try await performRequest(request)
-            let movies = response.Items.map { $0.toMovie() }
+            let movies = response.Items
+                .filter { Self.isVideoItem($0) }
+                .map { $0.toMovie() }
             allMovies.append(contentsOf: movies)
             
-            if movies.count < pageSize {
+            if response.Items.count < pageSize {
                 break
             }
             offset += pageSize
@@ -373,6 +410,7 @@ class JellyfinServerClient {
         let params = [
             URLQueryItem(name: "userId", value: server.userId),
             URLQueryItem(name: "seasonId", value: seasonId),
+            URLQueryItem(name: "MediaTypes", value: "Video"),
             URLQueryItem(name: "Fields", value: "Overview,MediaSources")
         ]
         

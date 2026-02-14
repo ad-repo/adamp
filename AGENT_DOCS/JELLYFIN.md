@@ -60,14 +60,16 @@ All requests include header: `Authorization: MediaBrowser Client="NullPlayer", D
 - **Video libraries**: `GET /Users/{userId}/Views`
   - Filter `Items` where `CollectionType == "movies"` or `"tvshows"`
 
-- **Movies**: `GET /Users/{userId}/Items?parentId={libId}&IncludeItemTypes=Movie&Recursive=true&SortBy=SortName&SortOrder=Ascending&Fields=Overview,MediaSources`
+- **Movies**: `GET /Users/{userId}/Items?parentId={libId}&IncludeItemTypes=Movie&MediaTypes=Video&Recursive=true&SortBy=SortName&SortOrder=Ascending&Fields=Overview,MediaSources`
   - Paginated with `Limit` and `StartIndex`
+  - `MediaTypes=Video` excludes non-video files (images, NFO, subtitles) that Jellyfin may return
+  - Client-side filtering also excludes items with non-video container formats as a safety net
 
 - **Series (TV shows)**: `GET /Users/{userId}/Items?parentId={libId}&IncludeItemTypes=Series&Recursive=true&SortBy=SortName&SortOrder=Ascending&Fields=Overview`
 
 - **Seasons**: `GET /Shows/{seriesId}/Seasons?userId={userId}`
 
-- **Episodes**: `GET /Shows/{seriesId}/Episodes?userId={userId}&seasonId={seasonId}&Fields=Overview,MediaSources`
+- **Episodes**: `GET /Shows/{seriesId}/Episodes?userId={userId}&seasonId={seasonId}&MediaTypes=Video&Fields=Overview,MediaSources`
 
 ### Streaming
 
