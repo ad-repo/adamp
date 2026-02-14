@@ -1,7 +1,39 @@
 import AppKit
 
-/// Manages saving and restoring the complete application state
-/// When "Remember State" is enabled, saves app state on quit and restores on launch
+/// Manages saving and restoring the complete application state.
+/// When "Remember State On Quit" is enabled (context menu toggle), saves app state
+/// on quit and restores on launch.
+///
+/// ## Saved State (AppState struct, v2)
+/// - **Window visibility**: playlist, EQ, browser, ProjectM, spectrum
+/// - **Window frames**: main, playlist, EQ, browser, ProjectM, spectrum; ProjectM fullscreen
+/// - **Audio**: volume, balance, shuffle, repeat, gapless, normalization
+/// - **Sweet Fades**: enabled, duration
+/// - **EQ**: enabled, auto, preamp, 10 bands
+/// - **Playlist**: all tracks (local, Plex, Subsonic, Jellyfin, radio) with metadata
+/// - **Playback position**: current track index, position in seconds
+/// - **UI**: timeDisplayMode, isAlwaysOnTop, double size mode (modern UI)
+/// - **Skin**: classic custom skin path, modern skin name
+/// - **ProjectM**: preset index, fullscreen state
+/// - **Audio output**: selected device UID
+/// - **Browser**: browse mode (artists/albums/tracks/etc.)
+/// - **UI mode**: which mode (modern/classic) the state was saved in
+///
+/// ## Restoration Flow
+/// 1. `restoreSettingsState()` - called early in launch (skin, volume, EQ, windows, v2 fields)
+/// 2. `restorePlaylistState()` - called after app is ready (tracks, current position)
+///
+/// Streaming tracks (Plex/Subsonic/Jellyfin) are initially loaded as placeholders with
+/// saved metadata (title/artist/album/duration), then replaced asynchronously when the
+/// real tracks are fetched from their servers.
+///
+/// When the UI mode changes between save and restore (e.g. modern -> classic), window
+/// frames are NOT restored (they have incompatible sizes). Audio, playlist, and non-frame
+/// settings are still restored normally.
+///
+/// ## Independent UserDefaults (persist regardless of Remember State)
+/// Visualization modes, browser columns, radio stations, hide title bars, server credentials,
+/// and other preferences are saved to UserDefaults on every change and are NOT part of AppState.
 class AppStateManager {
     
     // MARK: - Singleton
@@ -33,6 +65,10 @@ class AppStateManager {
         // For Jellyfin tracks
         var jellyfinId: String?
         var jellyfinServerId: String?
+        
+        // For radio tracks (internet radio streams)
+        var radioURL: String?
+        var radioStationName: String?
         
         // Display metadata (shown while loading streaming tracks)
         var title: String
@@ -77,8 +113,20 @@ class AppStateManager {
                     album: track.album,
                     duration: track.duration
                 )
+            } else if !track.url.isFileURL {
+                // Non-file URL without streaming service IDs = radio/internet stream
+                // Match against known radio stations for station name
+                let stationName = RadioManager.shared.stations.first(where: { $0.url == track.url })?.name
+                return SavedTrack(
+                    radioURL: track.url.absoluteString,
+                    radioStationName: stationName ?? track.title,
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album,
+                    duration: track.duration
+                )
             } else {
-                // Unknown streaming source - save as local URL fallback
+                // Unknown source - save as local URL fallback
                 return SavedTrack(
                     localURL: track.url.absoluteString,
                     title: track.title,
@@ -100,6 +148,9 @@ class AppStateManager {
         
         /// Whether this is a Jellyfin track
         var isJellyfin: Bool { jellyfinId != nil }
+        
+        /// Whether this is a radio/internet stream track
+        var isRadio: Bool { radioURL != nil }
     }
     
     /// Complete application state that can be saved/restored
@@ -156,8 +207,25 @@ class AppStateManager {
         // ProjectM preset
         var projectMPresetIndex: Int?
         
+        // -- v2 fields (added for comprehensive state restoration) --
+        
+        // Double size mode (modern UI only)
+        var isDoubleSize: Bool = false
+        
+        // Modern skin name
+        var modernSkinName: String?
+        
+        // Audio output device
+        var selectedOutputDeviceUID: String?
+        
+        // Library browser state
+        var browserBrowseMode: Int?  // Raw value of PlexBrowseMode / ModernBrowseMode
+        
+        // UI mode the state was saved in (used to skip frame restoration on mode mismatch)
+        var savedInModernMode: Bool = false
+        
         // Version for future compatibility
-        var stateVersion: Int = 1
+        var stateVersion: Int = 2
         
         // MARK: - Custom Decoding for Backward Compatibility
         
@@ -171,6 +239,9 @@ class AppStateManager {
             case timeDisplayMode, isAlwaysOnTop
             case customSkinPath
             case projectMPresetIndex
+            // v2 fields
+            case isDoubleSize, modernSkinName, selectedOutputDeviceUID
+            case browserBrowseMode, savedInModernMode
             case stateVersion
         }
         
@@ -238,6 +309,13 @@ class AppStateManager {
             // ProjectM preset - nil for backward compatibility with older saved states
             projectMPresetIndex = try container.decodeIfPresent(Int.self, forKey: .projectMPresetIndex)
             
+            // v2 fields - all use decodeIfPresent for backward compatibility
+            isDoubleSize = try container.decodeIfPresent(Bool.self, forKey: .isDoubleSize) ?? false
+            modernSkinName = try container.decodeIfPresent(String.self, forKey: .modernSkinName)
+            selectedOutputDeviceUID = try container.decodeIfPresent(String.self, forKey: .selectedOutputDeviceUID)
+            browserBrowseMode = try container.decodeIfPresent(Int.self, forKey: .browserBrowseMode)
+            savedInModernMode = try container.decodeIfPresent(Bool.self, forKey: .savedInModernMode) ?? false
+            
             // Version
             stateVersion = try container.decodeIfPresent(Int.self, forKey: .stateVersion) ?? 1
         }
@@ -276,7 +354,12 @@ class AppStateManager {
             isAlwaysOnTop: Bool,
             customSkinPath: String? = nil,
             projectMPresetIndex: Int? = nil,
-            stateVersion: Int = 1
+            isDoubleSize: Bool = false,
+            modernSkinName: String? = nil,
+            selectedOutputDeviceUID: String? = nil,
+            browserBrowseMode: Int? = nil,
+            savedInModernMode: Bool = false,
+            stateVersion: Int = 2
         ) {
             self.isPlaylistVisible = isPlaylistVisible
             self.isEqualizerVisible = isEqualizerVisible
@@ -311,6 +394,11 @@ class AppStateManager {
             self.isAlwaysOnTop = isAlwaysOnTop
             self.customSkinPath = customSkinPath
             self.projectMPresetIndex = projectMPresetIndex
+            self.isDoubleSize = isDoubleSize
+            self.modernSkinName = modernSkinName
+            self.selectedOutputDeviceUID = selectedOutputDeviceUID
+            self.browserBrowseMode = browserBrowseMode
+            self.savedInModernMode = savedInModernMode
             self.stateVersion = stateVersion
         }
     }
@@ -348,6 +436,12 @@ class AppStateManager {
         
         let wm = WindowManager.shared
         let engine = wm.audioEngine
+        
+        // Capture browser browse mode from the active browser window (if visible)
+        var browserBrowseMode: Int? = nil
+        if wm.isPlexBrowserVisible {
+            browserBrowseMode = wm.plexBrowserBrowseMode
+        }
         
         // Capture window visibility
         let state = AppState(
@@ -402,7 +496,14 @@ class AppStateManager {
             customSkinPath: getCustomSkinPath(),
             
             // ProjectM preset
-            projectMPresetIndex: wm.visualizationPresetIndex
+            projectMPresetIndex: wm.visualizationPresetIndex,
+            
+            // v2 fields
+            isDoubleSize: wm.isDoubleSize,
+            modernSkinName: UserDefaults.standard.string(forKey: "modernSkinName"),
+            selectedOutputDeviceUID: UserDefaults.standard.string(forKey: "selectedOutputDeviceUID"),
+            browserBrowseMode: browserBrowseMode,
+            savedInModernMode: wm.isModernUIEnabled
         )
         
         // Encode and save
@@ -410,8 +511,8 @@ class AppStateManager {
             let encoder = JSONEncoder()
             let data = try encoder.encode(state)
             UserDefaults.standard.set(data, forKey: Keys.savedAppState)
-            NSLog("AppStateManager: Saved state - playlist: %d tracks, position: %.1fs, volume: %.2f, alwaysOnTop: %d",
-                  state.playlistTracks.count, state.playbackPosition, state.volume, state.isAlwaysOnTop ? 1 : 0)
+            NSLog("AppStateManager: Saved state - playlist: %d tracks, trackIndex: %d, position: %.1fs, volume: %.2f, doubleSize: %d",
+                  state.playlistTracks.count, state.currentTrackIndex, state.playbackPosition, state.volume, state.isDoubleSize ? 1 : 0)
         } catch {
             NSLog("AppStateManager: Failed to save state: %@", error.localizedDescription)
         }
@@ -531,18 +632,45 @@ class AppStateManager {
             }
         }
         
-        // Restore window frames
-        restoreWindowFrames(state)
+        // Restore modern skin name (if saved and modern UI is active)
+        if wm.isModernUIEnabled, let modernSkin = state.modernSkinName {
+            UserDefaults.standard.set(modernSkin, forKey: "modernSkinName")
+            // ModernSkinEngine.loadPreferredSkin() is called in AppDelegate before state restore,
+            // but we set the UserDefaults value here so subsequent launches use it
+        }
+        
+        // Restore audio output device
+        if let deviceUID = state.selectedOutputDeviceUID {
+            UserDefaults.standard.set(deviceUID, forKey: "selectedOutputDeviceUID")
+        }
+        
+        // Check if the saved state's UI mode matches the current mode.
+        // If mismatched (e.g. saved in modern, now running classic), skip window frame
+        // restoration since the windows have different sizes and constraints.
+        let modeMatches = state.savedInModernMode == wm.isModernUIEnabled
+        if !modeMatches {
+            NSLog("AppStateManager: UI mode changed (saved=%@, current=%@) - skipping window frame restoration",
+                  state.savedInModernMode ? "modern" : "classic",
+                  wm.isModernUIEnabled ? "modern" : "classic")
+        }
+        
+        // Restore window frames (only if mode matches)
+        if modeMatches {
+            restoreWindowFrames(state)
+        }
         
         // Restore window visibility (after a short delay to ensure proper positioning)
         // Parse frames before the closure to avoid capturing state
-        let playlistFrame = state.playlistWindowFrame.flatMap { NSRectFromString($0) }
-        let equalizerFrame = state.equalizerWindowFrame.flatMap { NSRectFromString($0) }
-        let browserFrame = state.plexBrowserWindowFrame.flatMap { NSRectFromString($0) }
-        let projectMFrame = state.projectMWindowFrame.flatMap { NSRectFromString($0) }
-        let spectrumFrame = state.spectrumWindowFrame.flatMap { NSRectFromString($0) }
+        // Only pass saved frames if the UI mode matches; otherwise use nil (default positions)
+        let playlistFrame = modeMatches ? state.playlistWindowFrame.flatMap({ NSRectFromString($0) }) : nil
+        let equalizerFrame = modeMatches ? state.equalizerWindowFrame.flatMap({ NSRectFromString($0) }) : nil
+        let browserFrame = modeMatches ? state.plexBrowserWindowFrame.flatMap({ NSRectFromString($0) }) : nil
+        let projectMFrame = modeMatches ? state.projectMWindowFrame.flatMap({ NSRectFromString($0) }) : nil
+        let spectrumFrame = modeMatches ? state.spectrumWindowFrame.flatMap({ NSRectFromString($0) }) : nil
         let projectMPresetIndex = state.projectMPresetIndex
         let projectMFullscreen = state.isProjectMFullscreen
+        let savedBrowseMode = state.browserBrowseMode
+        let savedDoubleSize = state.isDoubleSize
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if state.isEqualizerVisible {
@@ -556,6 +684,14 @@ class AppStateManager {
             }
             if state.isPlexBrowserVisible {
                 wm.showPlexBrowser(at: browserFrame)
+                
+                // Restore browse mode after the browser window is shown and view is ready
+                if let browseMode = savedBrowseMode {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        wm.plexBrowserBrowseMode = browseMode
+                        NSLog("AppStateManager: Restored browser browse mode: %d", browseMode)
+                    }
+                }
             }
             if state.isProjectMVisible {
                 wm.showProjectM(at: projectMFrame)
@@ -574,13 +710,23 @@ class AppStateManager {
                     }
                 }
             }
+            
+            // Restore double size mode (modern UI only) after windows are positioned
+            if savedDoubleSize && wm.isModernUIEnabled {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    wm.isDoubleSize = true
+                    NSLog("AppStateManager: Restored double size mode")
+                }
+            }
         }
         
-        NSLog("AppStateManager: Settings state restored (eqAutoEnabled: %d)", state.eqAutoEnabled ? 1 : 0)
+        NSLog("AppStateManager: Settings state restored (eqAutoEnabled: %d, doubleSize: %d)", state.eqAutoEnabled ? 1 : 0, state.isDoubleSize ? 1 : 0)
     }
     
-    /// Apply playlist state only
-    /// Populates the playlist but does NOT load or play any track
+    /// Apply playlist state: populates the playlist preserving original order,
+    /// selects the current track, and seeks to saved position.
+    /// Streaming tracks start as placeholders (with saved metadata for display)
+    /// and are replaced with real tracks as async fetches complete.
     private func applyPlaylistState(_ state: AppState) {
         let wm = WindowManager.shared
         let engine = wm.audioEngine
@@ -590,51 +736,125 @@ class AppStateManager {
             return
         }
         
-        NSLog("AppStateManager: Restoring playlist state - %d tracks", state.playlistTracks.count)
+        NSLog("AppStateManager: Restoring playlist state - %d tracks, trackIndex: %d, position: %.1fs",
+              state.playlistTracks.count, state.currentTrackIndex, state.playbackPosition)
         
-        // Separate local and streaming tracks
-        var localTracks: [Track] = []
-        var plexTracksToFetch: [(SavedTrack, Int)] = []  // (savedTrack, originalIndex)
-        var subsonicTracksToFetch: [(SavedTrack, Int)] = []
-        var jellyfinTracksToFetch: [(SavedTrack, Int)] = []
+        // Build the complete track list in original order.
+        // Local and radio tracks are fully resolved immediately.
+        // Streaming tracks (Plex/Subsonic/Jellyfin) get placeholder Track objects
+        // with saved metadata, which are replaced when async fetches complete.
+        var allTracks: [Track] = []
+        var plexIndicesToFetch: [(SavedTrack, Int)] = []
+        var subsonicIndicesToFetch: [(SavedTrack, Int)] = []
+        var jellyfinIndicesToFetch: [(SavedTrack, Int)] = []
+        var skippedIndices: Set<Int> = []
         
         for (index, savedTrack) in state.playlistTracks.enumerated() {
-            if let urlString = savedTrack.localURL,
-               let url = URL(string: urlString),
-               FileManager.default.fileExists(atPath: url.path) {
-                localTracks.append(Track(url: url))
+            if savedTrack.isRadio, let urlString = savedTrack.radioURL, let url = URL(string: urlString) {
+                // Radio track - create from saved URL and metadata
+                let track = Track(
+                    url: url,
+                    title: savedTrack.radioStationName ?? savedTrack.title,
+                    artist: savedTrack.artist,
+                    album: savedTrack.album,
+                    duration: savedTrack.duration
+                )
+                allTracks.append(track)
+            } else if let urlString = savedTrack.localURL, let url = URL(string: urlString) {
+                // Local file - verify it still exists
+                if FileManager.default.fileExists(atPath: url.path) {
+                    allTracks.append(Track(url: url))
+                } else {
+                    // File no longer exists - add a placeholder that will display but won't play
+                    NSLog("AppStateManager: Local file missing, skipping: %@", savedTrack.title)
+                    skippedIndices.insert(index)
+                    continue
+                }
             } else if savedTrack.isPlex {
-                plexTracksToFetch.append((savedTrack, index))
+                // Plex track - create placeholder with saved metadata
+                // Use about:blank as placeholder URL; will be replaced by async fetch
+                let placeholder = Track(
+                    url: URL(string: "about:blank")!,
+                    title: savedTrack.title,
+                    artist: savedTrack.artist,
+                    album: savedTrack.album,
+                    duration: savedTrack.duration
+                )
+                plexIndicesToFetch.append((savedTrack, allTracks.count))
+                allTracks.append(placeholder)
             } else if savedTrack.isSubsonic {
-                subsonicTracksToFetch.append((savedTrack, index))
+                let placeholder = Track(
+                    url: URL(string: "about:blank")!,
+                    title: savedTrack.title,
+                    artist: savedTrack.artist,
+                    album: savedTrack.album,
+                    duration: savedTrack.duration
+                )
+                subsonicIndicesToFetch.append((savedTrack, allTracks.count))
+                allTracks.append(placeholder)
             } else if savedTrack.isJellyfin {
-                jellyfinTracksToFetch.append((savedTrack, index))
+                let placeholder = Track(
+                    url: URL(string: "about:blank")!,
+                    title: savedTrack.title,
+                    artist: savedTrack.artist,
+                    album: savedTrack.album,
+                    duration: savedTrack.duration
+                )
+                jellyfinIndicesToFetch.append((savedTrack, allTracks.count))
+                allTracks.append(placeholder)
+            } else {
+                // Unknown type - skip
+                skippedIndices.insert(index)
             }
         }
         
-        // Load local tracks immediately
-        if !localTracks.isEmpty {
-            engine.setPlaylistFiles(localTracks.map { $0.url })
-            NSLog("AppStateManager: Restored %d local tracks immediately", localTracks.count)
+        // Set the full playlist at once, preserving original order
+        engine.setPlaylistTracks(allTracks)
+        NSLog("AppStateManager: Set playlist with %d tracks (%d skipped)", allTracks.count, skippedIndices.count)
+        
+        // Adjust current track index to account for any skipped tracks
+        var adjustedIndex = state.currentTrackIndex
+        if !skippedIndices.isEmpty {
+            // Count how many tracks before the saved index were skipped
+            let skippedBefore = skippedIndices.filter { $0 < state.currentTrackIndex }.count
+            adjustedIndex -= skippedBefore
         }
         
-        // Fetch streaming tracks asynchronously
-        let hasStreamingTracks = !plexTracksToFetch.isEmpty || !subsonicTracksToFetch.isEmpty || !jellyfinTracksToFetch.isEmpty
+        // Select the current track (load it without playing)
+        if adjustedIndex >= 0 && adjustedIndex < allTracks.count {
+            // Use playTrack to load the track, then immediately pause
+            engine.playTrack(at: adjustedIndex)
+            engine.pause()
+            
+            // Seek to saved position after a brief delay to let the track load
+            let savedPosition = state.playbackPosition
+            if savedPosition > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    engine.seek(to: savedPosition)
+                    NSLog("AppStateManager: Seeked to saved position: %.1fs", savedPosition)
+                }
+            }
+            NSLog("AppStateManager: Selected track at index %d", adjustedIndex)
+        }
+        
+        // Fetch streaming tracks asynchronously and replace placeholders
+        let hasStreamingTracks = !plexIndicesToFetch.isEmpty || !subsonicIndicesToFetch.isEmpty || !jellyfinIndicesToFetch.isEmpty
         if hasStreamingTracks {
+            let savedCurrentIndex = adjustedIndex
             Task {
-                var restoredTracks: [(Track, Int)] = []  // (track, originalIndex)
+                var replacements: [(Track, Int)] = []  // (realTrack, playlistIndex)
                 
                 // Fetch Plex tracks
-                if !plexTracksToFetch.isEmpty, let client = PlexManager.shared.serverClient {
-                    for (savedTrack, index) in plexTracksToFetch {
+                if !plexIndicesToFetch.isEmpty, let client = PlexManager.shared.serverClient {
+                    for (savedTrack, playlistIndex) in plexIndicesToFetch {
                         if let ratingKey = savedTrack.plexRatingKey {
                             do {
                                 if let plexTrack = try await client.fetchTrackDetails(trackID: ratingKey),
                                    let track = PlexManager.shared.convertToTrack(plexTrack) {
-                                    restoredTracks.append((track, index))
+                                    replacements.append((track, playlistIndex))
                                 }
                             } catch {
-                                NSLog("AppStateManager: Failed to restore Plex track %@: %@", 
+                                NSLog("AppStateManager: Failed to fetch Plex track %@: %@",
                                       savedTrack.title, error.localizedDescription)
                             }
                         }
@@ -642,7 +862,7 @@ class AppStateManager {
                 }
                 
                 // Fetch Subsonic tracks
-                for (savedTrack, index) in subsonicTracksToFetch {
+                for (savedTrack, playlistIndex) in subsonicIndicesToFetch {
                     if let songId = savedTrack.subsonicId,
                        let serverId = savedTrack.subsonicServerId,
                        SubsonicManager.shared.servers.contains(where: { $0.id == serverId }),
@@ -651,17 +871,17 @@ class AppStateManager {
                         do {
                             if let song = try await client.fetchSong(id: songId),
                                let track = SubsonicManager.shared.convertToTrack(song) {
-                                restoredTracks.append((track, index))
+                                replacements.append((track, playlistIndex))
                             }
                         } catch {
-                            NSLog("AppStateManager: Failed to restore Subsonic track %@: %@",
+                            NSLog("AppStateManager: Failed to fetch Subsonic track %@: %@",
                                   savedTrack.title, error.localizedDescription)
                         }
                     }
                 }
                 
                 // Fetch Jellyfin tracks
-                for (savedTrack, index) in jellyfinTracksToFetch {
+                for (savedTrack, playlistIndex) in jellyfinIndicesToFetch {
                     if let jellyfinId = savedTrack.jellyfinId,
                        let serverId = savedTrack.jellyfinServerId,
                        JellyfinManager.shared.servers.contains(where: { $0.id == serverId }),
@@ -670,21 +890,38 @@ class AppStateManager {
                         do {
                             if let song = try await client.fetchSong(id: jellyfinId),
                                let track = JellyfinManager.shared.convertToTrack(song) {
-                                restoredTracks.append((track, index))
+                                replacements.append((track, playlistIndex))
                             }
                         } catch {
-                            NSLog("AppStateManager: Failed to restore Jellyfin track %@: %@",
+                            NSLog("AppStateManager: Failed to fetch Jellyfin track %@: %@",
                                   savedTrack.title, error.localizedDescription)
                         }
                     }
                 }
                 
-                // Add restored streaming tracks to playlist on main thread
+                // Replace placeholder tracks with real ones on the main thread
                 await MainActor.run {
-                    for (track, _) in restoredTracks.sorted(by: { $0.1 < $1.1 }) {
-                        engine.appendTracks([track])
+                    var replacedCurrentTrack = false
+                    for (realTrack, playlistIndex) in replacements {
+                        engine.replaceTrack(at: playlistIndex, with: realTrack)
+                        if playlistIndex == savedCurrentIndex {
+                            replacedCurrentTrack = true
+                        }
                     }
-                    NSLog("AppStateManager: Restored %d streaming tracks", restoredTracks.count)
+                    NSLog("AppStateManager: Replaced %d streaming track placeholders", replacements.count)
+                    
+                    // If the current track was a streaming placeholder, reload it
+                    // now that we have the real URL
+                    if replacedCurrentTrack && savedCurrentIndex >= 0 {
+                        let savedPosition = state.playbackPosition
+                        engine.playTrack(at: savedCurrentIndex)
+                        engine.pause()
+                        if savedPosition > 0 {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                engine.seek(to: savedPosition)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -694,96 +931,12 @@ class AppStateManager {
     
     /// Apply the restored state to the app (full restore - used by restoreState())
     private func applyState(_ state: AppState) {
-        let wm = WindowManager.shared
-        let engine = wm.audioEngine
+        // Apply settings first (skin, volume, EQ, windows, v2 fields)
+        applySettingsState(state)
         
-        NSLog("AppStateManager: Restoring state - playlist: %d tracks, volume: %.2f",
-              state.playlistTracks.count, state.volume)
-        
-        // Restore audio settings first (before loading playlist)
-        engine.volume = state.volume
-        engine.balance = state.balance
-        engine.shuffleEnabled = state.shuffleEnabled
-        engine.repeatEnabled = state.repeatEnabled
-        engine.gaplessPlaybackEnabled = state.gaplessPlaybackEnabled
-        engine.volumeNormalizationEnabled = state.volumeNormalizationEnabled
-        
-        // Restore Sweet Fades settings
-        engine.sweetFadeEnabled = state.sweetFadeEnabled
-        engine.sweetFadeDuration = state.sweetFadeDuration
-        
-        // Restore EQ settings
-        engine.setEQEnabled(state.eqEnabled)
-        UserDefaults.standard.set(state.eqAutoEnabled, forKey: "EQAutoEnabled")
-        engine.setPreamp(state.eqPreamp)
-        for (index, gain) in state.eqBands.enumerated() {
-            engine.setEQBand(index, gain: gain)
-        }
-        
-        // Restore UI preferences
-        if let mode = TimeDisplayMode(rawValue: state.timeDisplayMode) {
-            wm.timeDisplayMode = mode
-        }
-        NSLog("AppStateManager: Restoring isAlwaysOnTop = %d", state.isAlwaysOnTop ? 1 : 0)
-        wm.isAlwaysOnTop = state.isAlwaysOnTop
-        
-        // Restore skin (custom skin path only; base skins no longer bundled)
-        if let skinPath = state.customSkinPath {
-            let skinURL = URL(fileURLWithPath: skinPath)
-            if FileManager.default.fileExists(atPath: skinPath) {
-                wm.loadSkin(from: skinURL)
-            }
-        }
-        
-        // Restore window frames
-        restoreWindowFrames(state)
-        
-        // Restore playlist (only populate, don't select or play any track)
+        // Then apply playlist state (tracks, position, current track)
         if !state.playlistTracks.isEmpty {
-            // Use applyPlaylistState which handles both local and streaming tracks
             applyPlaylistState(state)
-        }
-        
-        // Restore window visibility (after a short delay to ensure proper positioning)
-        // Parse frames before the closure to avoid capturing state
-        let playlistFrame = state.playlistWindowFrame.flatMap { NSRectFromString($0) }
-        let equalizerFrame = state.equalizerWindowFrame.flatMap { NSRectFromString($0) }
-        let browserFrame = state.plexBrowserWindowFrame.flatMap { NSRectFromString($0) }
-        let projectMFrame = state.projectMWindowFrame.flatMap { NSRectFromString($0) }
-        let spectrumFrame = state.spectrumWindowFrame.flatMap { NSRectFromString($0) }
-        let projectMPresetIndex = state.projectMPresetIndex
-        let projectMFullscreen = state.isProjectMFullscreen
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            if state.isEqualizerVisible {
-                wm.showEqualizer(at: equalizerFrame)
-            }
-            if state.isPlaylistVisible {
-                wm.showPlaylist(at: playlistFrame)
-            }
-            if state.isSpectrumVisible {
-                wm.showSpectrum(at: spectrumFrame)
-            }
-            if state.isPlexBrowserVisible {
-                wm.showPlexBrowser(at: browserFrame)
-            }
-            if state.isProjectMVisible {
-                wm.showProjectM(at: projectMFrame)
-                
-                // Restore fullscreen state BEFORE preset
-                if projectMFullscreen {
-                    wm.toggleProjectMFullscreen()
-                }
-                
-                // Restore ProjectM preset after engine is initialized on render thread
-                // The engine setup is deferred and takes ~200ms to complete
-                if let presetIndex = projectMPresetIndex {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        wm.selectVisualizationPreset(at: presetIndex)
-                        NSLog("AppStateManager: Restored ProjectM preset index: %d", presetIndex)
-                    }
-                }
-            }
         }
         
         NSLog("AppStateManager: State restored successfully")

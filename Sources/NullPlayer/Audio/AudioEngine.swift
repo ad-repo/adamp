@@ -2116,6 +2116,27 @@ class AudioEngine {
         delegate?.audioEngineDidChangePlaylist()
     }
     
+    /// Set the playlist from pre-built Track objects without starting playback.
+    /// Unlike setPlaylistFiles (which takes URLs), this accepts Track objects directly,
+    /// preserving metadata and streaming IDs. Used by state restoration to maintain
+    /// playlist ordering when mixing local and streaming tracks.
+    func setPlaylistTracks(_ tracks: [Track]) {
+        NSLog("setPlaylistTracks: %d tracks", tracks.count)
+        playlist.removeAll()
+        playlist.append(contentsOf: tracks)
+        currentIndex = -1  // No track selected
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
+    /// Replace a track at a specific index without affecting playback.
+    /// Used to swap placeholder tracks with fully-resolved streaming tracks
+    /// during state restoration.
+    func replaceTrack(at index: Int, with track: Track) {
+        guard index >= 0 && index < playlist.count else { return }
+        playlist[index] = track
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
     /// Insert tracks immediately after the current position.
     /// If nothing is playing (currentIndex == -1), inserts at index 0.
     /// Starts playback if playlist was empty and startPlaybackIfEmpty is true.

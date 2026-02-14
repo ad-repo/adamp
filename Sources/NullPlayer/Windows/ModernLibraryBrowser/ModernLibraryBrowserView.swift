@@ -168,6 +168,21 @@ class ModernLibraryBrowserView: NSView {
     }
     private var pendingSourceRestore: ModernBrowserSource?
     private var browseMode: ModernBrowseMode = .artists
+    
+    /// Expose browse mode for state save/restore
+    var browseModeRawValue: Int {
+        get { browseMode.rawValue }
+        set {
+            if let mode = ModernBrowseMode(rawValue: newValue) {
+                browseMode = mode
+                selectedIndices.removeAll()
+                scrollOffset = 0
+                loadDataForCurrentMode()
+                needsDisplay = true
+            }
+        }
+    }
+    
     private var currentSort: ModernBrowserSortOption = .nameAsc {
         didSet { currentSort.save(); rebuildCurrentModeItems(); needsDisplay = true }
     }

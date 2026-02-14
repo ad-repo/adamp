@@ -546,6 +546,16 @@ class WindowManager {
         return window.frame
     }
     
+    /// Get/set the library browser browse mode raw value (for state save/restore)
+    var plexBrowserBrowseMode: Int? {
+        get { plexBrowserWindowController?.browseModeRawValue }
+        set {
+            if let value = newValue {
+                plexBrowserWindowController?.browseModeRawValue = value
+            }
+        }
+    }
+    
     /// Get the ProjectM window frame (for state saving)
     var projectMWindowFrame: NSRect? {
         return projectMWindowController?.window?.frame

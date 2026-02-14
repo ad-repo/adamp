@@ -216,6 +216,19 @@ class PlexBrowserView: NSView {
     /// Current browse mode
     private var browseMode: PlexBrowseMode = .artists
     
+    /// Expose browse mode for state save/restore
+    var browseModeRawValue: Int {
+        get { browseMode.rawValue }
+        set {
+            if let mode = PlexBrowseMode(rawValue: newValue) {
+                browseMode = mode
+                selectedIndices.removeAll()
+                scrollOffset = 0
+                reloadData()
+            }
+        }
+    }
+    
     /// Current sort option
     private var currentSort: BrowserSortOption = .nameAsc {
         didSet {

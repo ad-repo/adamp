@@ -28,4 +28,8 @@ protocol LibraryBrowserWindowProviding: AnyObject {
     
     /// Show the Plex account linking sheet
     func showLinkSheet()
+    
+    /// Current browse mode raw value (0=artists, 1=albums, 2=tracks, etc.)
+    /// Used by AppStateManager to save/restore the active tab
+    var browseModeRawValue: Int { get set }
 }

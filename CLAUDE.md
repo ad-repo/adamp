@@ -138,7 +138,7 @@ Sources/NullPlayer/
 | Jellyfin | `Jellyfin/JellyfinManager.swift`, `Jellyfin/JellyfinServerClient.swift`, `Jellyfin/JellyfinModels.swift`, `Jellyfin/JellyfinPlaybackReporter.swift` |
 | Radio | `Radio/RadioManager.swift`, `Data/Models/RadioStation.swift`, `Windows/Radio/AddRadioStationSheet.swift` |
 | Casting | `Casting/CastManager.swift`, `Casting/CastProtocol.swift`, `Casting/ChromecastManager.swift`, `Casting/UPnPManager.swift`, `Casting/LocalMediaServer.swift`, `Casting/CastDevice.swift` |
-| App | `App/WindowManager.swift`, `App/ContextMenuBuilder.swift`, `App/MainWindowProviding.swift`, `App/SpectrumWindowProviding.swift`, `App/PlaylistWindowProviding.swift`, `App/EQWindowProviding.swift`, `App/ProjectMWindowProviding.swift`, `App/LibraryBrowserWindowProviding.swift` |
+| App | `App/WindowManager.swift`, `App/AppStateManager.swift`, `App/ContextMenuBuilder.swift`, `App/MainWindowProviding.swift`, `App/SpectrumWindowProviding.swift`, `App/PlaylistWindowProviding.swift`, `App/EQWindowProviding.swift`, `App/ProjectMWindowProviding.swift`, `App/LibraryBrowserWindowProviding.swift` |
 
 ## Common Tasks
 
@@ -183,6 +183,7 @@ Sources/NullPlayer/
 
 ## Gotchas
 
+- **Remember State On Quit**: `AppStateManager` saves/restores complete session state (v2). Two-phase restoration: settings first (`restoreSettingsState` — skin, volume, EQ, windows, double size), then playlist (`restorePlaylistState` — tracks with ordering preserved, current track index, seek position). Streaming tracks (Plex/Subsonic/Jellyfin) are loaded as placeholder `Track` objects with saved metadata, then replaced asynchronously via `engine.replaceTrack(at:with:)`. Radio tracks are saved via `SavedTrack.radioURL`. Many other settings (visualization modes, browser columns, radio stations, hide title bars) persist independently via UserDefaults and are NOT part of `AppState`. When adding new state: if it's a preference that should always persist, use UserDefaults directly; if it's session state that should only persist when "Remember State" is enabled, add it to the `AppState` struct with `decodeIfPresent` defaults
 - **Modern skin system is completely independent**: Files in `ModernSkin/`, `Windows/ModernMainWindow/`, `Windows/ModernSpectrum/`, `Windows/ModernPlaylist/`, `Windows/ModernEQ/`, `Windows/ModernProjectM/`, and `Windows/ModernLibraryBrowser/` must NEVER import or reference anything from `Skin/` or `Windows/MainWindow/`. The coupling points are only: `AppDelegate` (mode selection), `WindowManager` (via `MainWindowProviding`, `SpectrumWindowProviding`, `PlaylistWindowProviding`, `EQWindowProviding`, `ProjectMWindowProviding`, and `LibraryBrowserWindowProviding` protocols), and shared infrastructure (`AudioEngine`, `Track`, `PlaybackState`)
 - **UI mode switching requires restart**: The `modernUIEnabled` UserDefaults preference selects which `MainWindowProviding` implementation `WindowManager` creates. Changing it at runtime shows a "Restart / Cancel" confirmation dialog — choosing Restart relaunches the app automatically, choosing Cancel reverts the preference
 - **Mode-specific features must be guarded at all layers**: When a feature only applies to one UI mode (modern or classic), enforce it in three places:
