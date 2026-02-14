@@ -5,6 +5,13 @@
         "version": "1.0",
         "description": "Default neon cyberpunk skin with Tron-style grid, cyan/magenta palette, and bloom glow effects"
     },
+    "titleText": {
+        "mode": "image",
+        "charSpacing": 2,
+        "charHeight": 10,
+        "alignment": "center",
+        "tintColor": "#00ffcc"
+    },
     "palette": {
         "primary": "#00ffcc",
         "secondary": "#00ccff",
