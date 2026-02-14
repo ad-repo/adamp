@@ -151,14 +151,16 @@ The app will:
 While casting is active:
 - **Check a room** → Room joins the cast group and starts playing
 - **Uncheck a non-coordinator room** → Room leaves the group and stops playing
-- **Uncheck the coordinator room** → Casting stops entirely (user must restart with a different room selected)
+- **Uncheck the coordinator room (with other rooms still checked)** → Playback transfers to the next remaining room, which becomes the new coordinator. Other grouped rooms rejoin the new coordinator. There is a brief (~1-2 second) playback interruption during the transfer. The menu closes to refresh state.
+- **Uncheck the coordinator room (only room in group)** → Casting stops entirely
 
-**Note:** The coordinator is the first room you started casting to. Other rooms join its group. If you want to switch to a different primary room, stop casting and restart with the new room selected.
+**Note:** The coordinator is the first room you started casting to. Other rooms join its group. When you uncheck the coordinator, the app automatically promotes another room rather than stopping everything.
 
 ### Stopping a Cast
 
 Click **🔴 Stop Casting** to:
-- Stop playback on all Sonos rooms
+- Ungroup all member rooms (each becomes standalone)
+- Stop playback on the coordinator
 - Clear all room selections
 - Return to local playback (if audio was playing)
 

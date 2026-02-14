@@ -1402,10 +1402,30 @@ class SonosRoomCheckboxView: NSView {
                         let isCoordinator = info.roomUDN == castManager.activeSession?.device.id
                         
                         if isCoordinator {
-                            // Unchecking the coordinator - must stop casting
-                            // User can restart casting with a different room selected
-                            NSLog("SonosRoomCheckboxView: Unchecking coordinator '%@' - stopping cast", info.roomName)
-                            await castManager.stopCasting()
+                            // Unchecking the coordinator - check if other rooms remain
+                            let groupRooms = castManager.getRoomsInActiveCastGroup()
+                            let otherRooms = groupRooms.filter { $0 != info.roomUDN }
+                            
+                            if otherRooms.isEmpty {
+                                // Only room in group - just stop casting
+                                NSLog("SonosRoomCheckboxView: Unchecking sole coordinator '%@' - stopping cast", info.roomName)
+                                await castManager.stopCasting()
+                            } else {
+                                // Transfer playback to next remaining room
+                                let newCoordinator = otherRooms[0]
+                                let remainingOthers = Array(otherRooms.dropFirst())
+                                NSLog("SonosRoomCheckboxView: Transferring cast from '%@' to room %@ (+%d others)",
+                                      info.roomName, newCoordinator, remainingOthers.count)
+                                try await castManager.transferSonosCast(
+                                    fromCoordinator: info.roomUDN,
+                                    toRoom: newCoordinator,
+                                    otherRooms: remainingOthers
+                                )
+                            }
+                            // Close menu after coordinator change to force UI refresh on next open
+                            await MainActor.run {
+                                self.parentMenu?.cancelTracking()
+                            }
                             return
                         }
                         

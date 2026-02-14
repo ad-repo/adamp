@@ -91,6 +91,109 @@ class CastManager {
         await upnpManager.refreshSonosGroupTopology()
     }
     
+    /// Get UDNs of all rooms currently in the active Sonos cast group.
+    /// Returns empty array if not casting to Sonos.
+    func getRoomsInActiveCastGroup() -> [String] {
+        guard let targetUDN = activeSession?.device.id,
+              activeSession?.device.type == .sonos else { return [] }
+        let rooms = sonosRooms
+        return rooms.filter { room in
+            // Direct match: this room is the cast target (coordinator)
+            room.id == targetUDN ||
+            // This room's coordinator is the cast target
+            room.groupCoordinatorUDN == targetUDN ||
+            // This room IS a coordinator and the cast target is in its group
+            (room.isGroupCoordinator && rooms.first(where: { $0.id == targetUDN })?.groupCoordinatorUDN == room.id)
+        }.map { $0.id }
+    }
+    
+    /// Transfer an active Sonos cast from the current coordinator to a different room.
+    /// Called when the user unchecks the coordinator while other rooms remain in the group.
+    /// There will be a brief (~1-2s) playback interruption during the transfer.
+    ///
+    /// - Parameters:
+    ///   - oldCoordinatorUDN: UDN of the current coordinator being removed
+    ///   - newCoordinatorUDN: UDN of the room to become the new coordinator
+    ///   - otherRoomUDNs: UDNs of additional rooms to join to the new coordinator (may be empty)
+    func transferSonosCast(fromCoordinator oldCoordinatorUDN: String, toRoom newCoordinatorUDN: String, otherRooms otherRoomUDNs: [String]) async throws {
+        NSLog("CastManager: Transferring cast from %@ to %@ (other rooms: %@)",
+              oldCoordinatorUDN, newCoordinatorUDN, otherRoomUDNs.joined(separator: ", "))
+        
+        // 1. Save session state before tearing anything down
+        guard let session = upnpManager.activeSession,
+              let savedURL = session.currentURL,
+              let savedMetadata = session.metadata else {
+            NSLog("CastManager: Transfer failed - no active session or missing URL/metadata")
+            await stopCasting()
+            throw CastError.sessionNotActive
+        }
+        
+        // Get accurate position by polling Sonos directly (more reliable than local timer)
+        var savedPosition: TimeInterval = 0
+        if let pollResult = await upnpManager.pollSonosPlaybackState() {
+            savedPosition = pollResult.position
+        }
+        NSLog("CastManager: Saved state - URL: %@, position: %.1f", savedURL.absoluteString, savedPosition)
+        
+        // 2. Stop polling and topology refresh to prevent interference during swap
+        stopSonosPolling()
+        stopTopologyRefresh()
+        consecutiveFireAndForgetFailures = 0
+        
+        // 3. Make old coordinator standalone (leaves group, stops its playback)
+        // This also stops playback on all grouped members since they were following the coordinator
+        do {
+            try await unjoinSonos(zoneUDN: oldCoordinatorUDN)
+            NSLog("CastManager: Old coordinator %@ is now standalone", oldCoordinatorUDN)
+        } catch {
+            NSLog("CastManager: Failed to make old coordinator standalone: %@", error.localizedDescription)
+            // Continue anyway - the cast to new coordinator may still work
+        }
+        
+        // 4. Clear old session without sending Stop (old coordinator is already standalone)
+        upnpManager.disconnectSession()
+        
+        // 5. Create CastDevice for new coordinator from zone info
+        guard let newDevice = upnpManager.sonosCastDevice(forZoneUDN: newCoordinatorUDN) else {
+            NSLog("CastManager: Transfer failed - could not find device for zone %@", newCoordinatorUDN)
+            // Fall back to full stop - old coordinator already standalone, just clean up
+            await stopCasting()
+            throw CastError.playbackFailed("Could not find Sonos device for room")
+        }
+        NSLog("CastManager: New coordinator device: %@ (%@:%d)", newDevice.name, newDevice.address, newDevice.port)
+        
+        // 6. Cast to new coordinator
+        // Since we cleared activeSession in step 4, cast(to:) won't call stopCasting()
+        do {
+            try await cast(to: newDevice, url: savedURL, metadata: savedMetadata, startPosition: savedPosition)
+            NSLog("CastManager: Transfer successful - now casting to %@", newDevice.name)
+        } catch {
+            NSLog("CastManager: Transfer cast failed: %@", error.localizedDescription)
+            // Clean up whatever partial state exists
+            await stopCasting()
+            throw error
+        }
+        
+        // 7. Join other remaining rooms to the new coordinator
+        if !otherRoomUDNs.isEmpty {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s for cast to establish
+            for udn in otherRoomUDNs {
+                do {
+                    NSLog("CastManager: Joining room %@ to new coordinator %@", udn, newDevice.id)
+                    try await joinSonosToGroup(zoneUDN: udn, coordinatorUDN: newDevice.id)
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s between joins
+                } catch {
+                    NSLog("CastManager: Failed to join room %@ to new group: %@", udn, error.localizedDescription)
+                    // Non-fatal: continue with other rooms
+                }
+            }
+        }
+        
+        // 8. Refresh topology to update group state
+        await refreshSonosGroups()
+        NSLog("CastManager: Transfer complete")
+    }
+    
     /// Current active cast session (if any)
     var activeSession: CastSession? {
         if let session = chromecastManager.activeSession, session.state != .idle {
@@ -1086,6 +1189,21 @@ class CastManager {
         stopSonosPolling()
         stopTopologyRefresh()
         consecutiveFireAndForgetFailures = 0
+        
+        // Ungroup all Sonos member rooms before stopping the coordinator.
+        // This prevents stale group topology that causes SOAP errors on subsequent casts.
+        if upnpManager.activeSession?.device.type == .sonos {
+            let groupRoomUDNs = getRoomsInActiveCastGroup()
+            let coordinatorUDN = upnpManager.activeSession?.device.id
+            for udn in groupRoomUDNs where udn != coordinatorUDN {
+                NSLog("CastManager: Ungrouping room %@ before stop", udn)
+                try? await unjoinSonos(zoneUDN: udn)
+            }
+            if groupRoomUDNs.count > 1 {
+                // Brief delay for Sonos to process ungrouping
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+        }
         
         if chromecastManager.activeSession != nil {
             chromecastManager.stop()

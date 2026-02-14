@@ -156,6 +156,25 @@ class UPnPManager {
         }
     }
     
+    /// Create a CastDevice from internal zone info.
+    /// Used during coordinator transfer when the target room may not yet be in sonosDevices
+    /// (which only contains group coordinators from the last topology fetch).
+    func sonosCastDevice(forZoneUDN udn: String) -> CastDevice? {
+        stateQueue.sync {
+            guard let zone = sonosZones[udn], zone.avTransportURL != nil else { return nil }
+            return CastDevice(
+                id: zone.udn,
+                name: zone.roomName,
+                type: .sonos,
+                address: zone.address,
+                port: zone.port,
+                manufacturer: "Sonos",
+                avTransportControlURL: zone.avTransportURL,
+                descriptionURL: zone.descriptionURL
+            )
+        }
+    }
+    
     /// Summary of a room for the simplified grouping UI
     struct SonosRoomSummary: Identifiable {
         let id: String              // Representative zone UDN (coordinator of this room's speakers)
@@ -1255,6 +1274,15 @@ class UPnPManager {
     func disconnectSync() {
         guard activeSession != nil else { return }
         NSLog("UPnPManager: Disconnecting (sync for termination)")
+        activeSession = nil
+        NotificationCenter.default.post(name: CastManager.sessionDidChangeNotification, object: nil)
+    }
+    
+    /// Clear the active session without sending transport commands.
+    /// Used during coordinator transfer where the old device is already standalone.
+    func disconnectSession() {
+        guard activeSession != nil else { return }
+        NSLog("UPnPManager: Clearing session (no stop command)")
         activeSession = nil
         NotificationCenter.default.post(name: CastManager.sessionDidChangeNotification, object: nil)
     }
