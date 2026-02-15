@@ -1020,10 +1020,10 @@ class WindowManager {
         projectMWindowController?.showWindow(nil)
         applyAlwaysOnTopToWindow(projectMWindowController?.window)
         
-        // Position newly created windows
-        if isNewWindow, let window = projectMWindowController?.window {
-            if let frame = restoredFrame, frame != .zero {
-                // Use restored frame from state restoration
+        // Position window to match the vertical stack
+        if let window = projectMWindowController?.window {
+            if isNewWindow, let frame = restoredFrame, frame != .zero {
+                // Use restored frame from state restoration (first creation only)
                 window.setFrame(frame, display: true)
             } else {
                 // Position to the left of the vertical stack
@@ -1548,7 +1548,7 @@ class WindowManager {
             bottomY = min(bottomY, spectrumWindow.frame.minY)
         }
         
-        return NSRect(x: x, y: bottomY, width: width, height: topY - bottomY)
+        return NSRect(x: x, y: round(bottomY), width: width, height: round(topY) - round(bottomY))
     }
     
     /// Reset all windows to their default positions
