@@ -590,6 +590,12 @@ class EQView: NSView {
             return
         }
         
+        // Double-click slider area -> reset to flat
+        if event.clickCount == 2, hitTestSlider(at: skinPoint) != nil {
+            applyPreset(.flat)
+            return
+        }
+        
         // Check sliders - if we hit a slider, start dragging slider
         if let sliderIndex = hitTestSlider(at: skinPoint) {
             draggingSlider = sliderIndex

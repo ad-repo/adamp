@@ -1102,6 +1102,10 @@ class AudioEngine {
             streamingPlayer?.stop()
         } else {
             playerNode.stop()
+            // Also stop crossfade player and reset to playerNode as primary
+            crossfadePlayerNode.stop()
+            crossfadePlayerNode.volume = 0
+            crossfadePlayerIsActive = false
         }
         
         playbackStartDate = nil
@@ -1442,6 +1446,14 @@ class AudioEngine {
             guard let file = audioFile else { return }
             
             let wasPlaying = state == .playing
+            
+            // Ensure crossfade player is stopped and reset to playerNode as primary
+            // (after a completed crossfade, crossfadePlayerNode may be the active player)
+            if crossfadePlayerIsActive {
+                crossfadePlayerNode.stop()
+                crossfadePlayerNode.volume = 0
+                crossfadePlayerIsActive = false
+            }
             
             _currentTime = seekTime
             lastReportedTime = seekTime  // Keep in sync
@@ -2379,6 +2391,12 @@ class AudioEngine {
         stopStreamingPlayer()
         isStreamingPlayback = false
         
+        // Ensure crossfade player is stopped and reset to playerNode as primary
+        // (after a completed crossfade, crossfadePlayerNode may still be playing)
+        crossfadePlayerNode.stop()
+        crossfadePlayerNode.volume = 0
+        crossfadePlayerIsActive = false
+        
         // Reset AudioEngine's adaptive normalization peaks for clean start
         // When streaming was active, AudioEngine just forwarded StreamingAudioPlayer's
         // pre-normalized data without updating its own peaks. These stale peaks
@@ -2604,6 +2622,13 @@ class AudioEngine {
     }
     
     private func trackDidFinish() {
+        // Safety guard: if a crossfade is in progress, ignore stray completion callbacks
+        // (the crossfade handles the transition via completeCrossfade/completeStreamingCrossfade)
+        guard !isCrossfading else {
+            NSLog("trackDidFinish: Ignoring during crossfade")
+            return
+        }
+        
         // Report track finished to Plex (natural end)
         let finishPosition = duration
         PlexPlaybackReporter.shared.trackDidStop(at: finishPosition, finished: true)
@@ -2868,16 +2893,23 @@ class AudioEngine {
         do {
             let nextFile = try AVAudioFile(forReading: nextTrack.url)
             
+            // Invalidate the outgoing player's completion handler from loadLocalTrack()
+            // so it doesn't call trackDidFinish() when the outgoing track's audio finishes
+            playbackGeneration += 1
+            let currentGeneration = playbackGeneration
+            
             // Determine which player is currently active and which will be the crossfade target
             let outgoingPlayer = crossfadePlayerIsActive ? crossfadePlayerNode : playerNode
             let incomingPlayer = crossfadePlayerIsActive ? playerNode : crossfadePlayerNode
             
-            // Schedule on incoming player
+            // Schedule on incoming player with proper completion handler
+            // Uses .dataPlayedBack so trackDidFinish fires when this track ends after crossfade
             incomingPlayer.stop()
             incomingPlayer.volume = 0
-            incomingPlayer.scheduleFile(nextFile, at: nil) {
-                // This fires when the incoming track finishes
-                // We handle track completion in completeCrossfade
+            incomingPlayer.scheduleFile(nextFile, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.handlePlaybackComplete(generation: currentGeneration)
+                }
             }
             
             // Start the incoming player
@@ -2911,6 +2943,9 @@ class AudioEngine {
     
     /// Start crossfade for streaming playback
     private func startStreamingCrossfade(to nextTrack: Track, nextIndex: Int) {
+        // Invalidate any stale completion handlers (defense-in-depth for streaming path)
+        playbackGeneration += 1
+        
         // Create secondary streaming player if needed
         if crossfadeStreamingPlayer == nil {
             crossfadeStreamingPlayer = StreamingAudioPlayer()
@@ -3051,7 +3086,9 @@ class AudioEngine {
     
     /// Complete streaming crossfade
     private func completeStreamingCrossfade(nextIndex: Int) {
-        // Stop outgoing player
+        // Nil delegate BEFORE stopping to prevent stale synchronous callbacks
+        // (stop can trigger .stopped state change on the delegate)
+        streamingPlayer?.delegate = nil
         streamingPlayer?.stop()
         
         // Swap players - crossfade player becomes primary
@@ -3061,7 +3098,7 @@ class AudioEngine {
         
         // Set delegate on new primary player
         streamingPlayer?.delegate = self
-        crossfadeStreamingPlayer?.delegate = nil
+        // crossfadeStreamingPlayer (old primary) already has nil delegate from above
         
         // Restore primary player to master volume (crossfade ended at masterVolume * 1.0)
         streamingPlayer?.volume = volume
@@ -3108,6 +3145,10 @@ class AudioEngine {
         crossfadeTimer?.invalidate()
         crossfadeTimer = nil
         
+        // Invalidate any completion handlers from the crossfade immediately
+        // (defense-in-depth: callers also increment generation, but this closes any gap)
+        playbackGeneration += 1
+        
         // Stop incoming track/player
         if isStreamingPlayback {
             crossfadeStreamingPlayer?.stop()
@@ -3127,6 +3168,8 @@ class AudioEngine {
         
         isCrossfading = false
         crossfadeTargetIndex = -1
+        // Reset to playerNode as primary (crossfade was incomplete, outgoing player continues)
+        crossfadePlayerIsActive = false
         NSLog("Sweet Fades: Crossfade cancelled")
     }
     
@@ -3562,6 +3605,18 @@ class AudioEngine {
 
 extension AudioEngine: StreamingAudioPlayerDelegate {
     func streamingPlayerDidChangeState(_ state: AudioPlayerState) {
+        // During crossfade, ignore stopped/error from the outgoing player
+        // to prevent corrupting playback state mid-crossfade
+        if isCrossfading {
+            switch state {
+            case .stopped, .error:
+                NSLog("AudioEngine: Ignoring streaming state %@ during crossfade", String(describing: state))
+                return
+            default:
+                break
+            }
+        }
+        
         // Map AudioStreaming state to our PlaybackState
         switch state {
         case .playing:
@@ -3607,6 +3662,13 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
         // is set before stopping and cleared after the new track starts.
         guard !isLoadingNewStreamingTrack else {
             NSLog("AudioEngine: Ignoring EOF during track switch")
+            return
+        }
+        
+        // During crossfade, the outgoing streaming player fires EOF - ignore it
+        // (the crossfade handles the transition via completeStreamingCrossfade)
+        guard !isCrossfading else {
+            NSLog("AudioEngine: Ignoring streaming EOF during crossfade")
             return
         }
         

@@ -656,9 +656,9 @@ class CastManager {
                     }
                 }
                 
-                // Rewrite localhost first, then register for proxy
+                // Rewrite localhost first, then register for proxy (pass content type for HEAD responses)
                 let rewrittenURL = rewriteLocalhostForCasting(track.url)
-                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL) else {
+                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL, contentType: track.contentType) else {
                     throw CastError.localServerError("Could not register stream with local media server")
                 }
                 castURL = proxyURL
@@ -704,8 +704,9 @@ class CastManager {
             }
         }
         
-        // Detect content type from track URL extension (Fix 2)
-        let contentType = Self.detectAudioContentType(for: track.url)
+        // Use track's content type if available (Subsonic/Jellyfin set this from server metadata),
+        // otherwise fall back to URL extension detection (works for Plex and local files)
+        let contentType = track.contentType ?? Self.detectAudioContentType(for: track.url)
         
         // For radio streams cast to Sonos, use x-rincon-mp3radio:// scheme (Fix 10)
         let finalCastURL = sonosRadioURL(for: castURL, device: device)
@@ -719,7 +720,7 @@ class CastManager {
             contentType: contentType
         )
         
-        NSLog("CastManager: castTrack URL: %@", finalCastURL.absoluteString)
+        NSLog("CastManager: castTrack URL: %@, contentType: %@", finalCastURL.absoluteString, contentType)
         
         try await cast(to: device, url: finalCastURL, metadata: metadata, startPosition: startPosition)
     }
@@ -791,7 +792,7 @@ class CastManager {
                 }
                 
                 let rewrittenURL = rewriteLocalhostForCasting(track.url)
-                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL) else {
+                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL, contentType: track.contentType) else {
                     await clearLoadingState()
                     throw CastError.localServerError("Could not register stream with local media server")
                 }
@@ -853,8 +854,9 @@ class CastManager {
             }
         }
         
-        // Detect content type from track URL extension (Fix 2)
-        let contentType = Self.detectAudioContentType(for: track.url)
+        // Use track's content type if available (Subsonic/Jellyfin set this from server metadata),
+        // otherwise fall back to URL extension detection (works for Plex and local files)
+        let contentType = track.contentType ?? Self.detectAudioContentType(for: track.url)
         
         // For radio streams cast to Sonos, use x-rincon-mp3radio:// scheme (Fix 10)
         let finalCastURL = sonosRadioURL(for: castURL, device: session.device)
@@ -868,7 +870,7 @@ class CastManager {
             contentType: contentType
         )
         
-        NSLog("CastManager: Casting new track '%@' to %@", track.title, session.device.name)
+        NSLog("CastManager: Casting new track '%@' to %@, contentType: %@", track.title, session.device.name, contentType)
         
         // Cast to the existing connected device
         // Wrap in do/catch to ensure loading state is cleared on failure
@@ -1537,9 +1539,9 @@ class CastManager {
     
     // MARK: - Content Type Detection (Fix 2)
     
-    /// Detect audio content type from URL extension
-    static func detectAudioContentType(for url: URL) -> String {
-        switch url.pathExtension.lowercased() {
+    /// Detect audio content type from a file extension string (e.g. "flac" -> "audio/flac")
+    static func detectAudioContentType(forExtension ext: String) -> String {
+        switch ext.lowercased() {
         case "mp3":                   return "audio/mpeg"
         case "flac":                  return "audio/flac"
         case "m4a", "aac":            return "audio/mp4"
@@ -1551,6 +1553,11 @@ class CastManager {
         case "alac":                  return "audio/mp4"
         default:                      return "audio/mpeg"  // Safe default
         }
+    }
+    
+    /// Detect audio content type from URL path extension
+    static func detectAudioContentType(for url: URL) -> String {
+        detectAudioContentType(forExtension: url.pathExtension)
     }
     
     // MARK: - Sonos Radio URI (Fix 10)

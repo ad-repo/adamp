@@ -1002,6 +1002,12 @@ class ModernEQView: NSView {
             return
         }
         
+        // Double-click slider area -> reset to flat
+        if event.clickCount == 2, hitTestSlider(at: point) != nil {
+            applyPreset(.flat)
+            return
+        }
+        
         // Sliders
         if let sliderIndex = hitTestSlider(at: point) {
             draggingSlider = sliderIndex

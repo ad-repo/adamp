@@ -279,6 +279,16 @@ crossfadePlayerNode ────────┘
 **Streaming:**
 Two independent `StreamingAudioPlayer` instances with their volumes controlled independently.
 
+### Completion Handler Lifecycle
+
+The crossfade must carefully manage `playbackGeneration` and delegate callbacks to prevent the outgoing track's completion from interfering:
+
+- **Local files:** `startLocalCrossfade()` increments `playbackGeneration` to invalidate the outgoing `playerNode`'s `.dataPlayedBack` handler (registered in `loadLocalTrack`). The incoming player's `scheduleFile` uses `.dataPlayedBack` with the new generation, so track-end detection works correctly after crossfade completes.
+- **Streaming:** `streamingPlayerDidFinishPlaying()` and `streamingPlayerDidChangeState()` check `isCrossfading` to ignore stale callbacks from the outgoing player. `completeStreamingCrossfade()` nils the outgoing player's delegate before stopping it to prevent synchronous callbacks.
+- **Safety net:** `trackDidFinish()` has a `guard !isCrossfading` at the top to catch any stray completion callbacks.
+- **Player state:** `crossfadePlayerIsActive` tracks which `AVAudioPlayerNode` is primary. It is toggled in `completeCrossfade()` and reset to `false` in `loadLocalTrack()`, `seek()`, `stopLocalOnly()`, and `cancelCrossfade()` to prevent desync with functions that always operate on `playerNode`.
+- **Cancel:** `cancelCrossfade()` increments `playbackGeneration` to immediately invalidate both outgoing and incoming completion handlers.
+
 ### Fade Duration
 
 Configurable via **Playback Options → Fade Duration** when Sweet Fades is enabled:
@@ -303,7 +313,7 @@ The crossfade is cancelled if the user:
 - Selects a different track
 - Stops playback
 
-When cancelled, the outgoing track's volume is restored and the incoming track is stopped.
+When cancelled, the outgoing track's volume is restored, the incoming track is stopped, `crossfadePlayerIsActive` is reset to `false`, and `playbackGeneration` is incremented.
 
 ### Interaction with Gapless Playback
 

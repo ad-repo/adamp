@@ -685,6 +685,9 @@ class JellyfinManager {
     func convertToTrack(_ song: JellyfinSong) -> Track? {
         guard let streamURL = streamURL(for: song) else { return nil }
         
+        // Derive MIME type from Jellyfin container name (e.g. "flac" -> "audio/flac")
+        let mimeType = song.contentType.map { CastManager.detectAudioContentType(forExtension: $0) }
+        
         return Track(
             url: streamURL,
             title: song.title,
@@ -700,7 +703,8 @@ class JellyfinManager {
             jellyfinId: song.id,
             jellyfinServerId: currentServer?.id,
             artworkThumb: song.imageTag,
-            genre: song.genre
+            genre: song.genre,
+            contentType: mimeType
         )
     }
     

@@ -497,6 +497,9 @@ class SubsonicManager {
     func convertToTrack(_ song: SubsonicSong) -> Track? {
         guard let streamURL = streamURL(for: song) else { return nil }
         
+        // Derive content type from Subsonic metadata (URL has no extension for streaming endpoints)
+        let mimeType = song.contentType ?? song.suffix.map { CastManager.detectAudioContentType(forExtension: $0) }
+        
         return Track(
             url: streamURL,
             title: song.title,
@@ -510,7 +513,8 @@ class SubsonicManager {
             subsonicId: song.id,
             subsonicServerId: currentServer?.id,
             artworkThumb: song.coverArt,
-            genre: song.genre
+            genre: song.genre,
+            contentType: mimeType
         )
     }
     

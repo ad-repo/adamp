@@ -25,7 +25,8 @@ class LocalMediaServer {
     private var server: HTTPServer?
     private var serverTask: Task<Void, Never>?
     private var registeredFiles: [String: URL] = [:]  // token -> file URL
-    private var registeredStreams: [String: URL] = [:]  // token -> stream URL (for Subsonic proxy)
+    private var registeredStreams: [String: URL] = [:]  // token -> stream URL (for Subsonic/Jellyfin proxy)
+    private var registeredStreamContentTypes: [String: String] = [:]  // token -> MIME content type hint
     private let port: UInt16 = 8765
     private(set) var isRunning: Bool = false
     private var _localIPAddress: String?
@@ -222,15 +223,20 @@ class LocalMediaServer {
         queue.async(flags: .barrier) { [weak self] in
             self?.registeredFiles.removeAll()
             self?.registeredStreams.removeAll()
+            self?.registeredStreamContentTypes.removeAll()
             NSLog("LocalMediaServer: Unregistered all files and streams")
         }
     }
     
-    /// Register a remote stream URL for proxying (e.g., Subsonic streams).
+    /// Register a remote stream URL for proxying (e.g., Subsonic/Jellyfin streams).
     /// Returns an HTTP URL that cast devices can use.
     /// The proxy fetches from the original URL and serves to the cast device.
+    /// - Parameters:
+    ///   - url: The original stream URL to proxy
+    ///   - contentType: Optional MIME type hint (e.g. "audio/flac"). Used for HEAD responses when
+    ///     the original URL has no file extension (Subsonic/Jellyfin streaming endpoints).
     /// Note: Prefer calling start() explicitly before this method in async contexts.
-    func registerStreamURL(_ url: URL) -> URL? {
+    func registerStreamURL(_ url: URL, contentType: String? = nil) -> URL? {
         // Ensure server is running
         if !isRunning {
             let semaphore = DispatchSemaphore(value: 0)
@@ -266,13 +272,16 @@ class LocalMediaServer {
         
         queue.async(flags: .barrier) { [weak self] in
             self?.registeredStreams[tokenString] = url
+            if let contentType = contentType {
+                self?.registeredStreamContentTypes[tokenString] = contentType
+            }
         }
         
         // Return simple HTTP URL without query strings: http://192.168.x.x:8765/stream/token
         // Don't use file extension - let Content-Type header indicate format
         let httpURL = URL(string: "http://\(ip):\(port)/stream/\(tokenString)")
         
-        NSLog("LocalMediaServer: Registered stream proxy '%@' as %@", url.host ?? "unknown", httpURL?.absoluteString ?? "nil")
+        NSLog("LocalMediaServer: Registered stream proxy '%@' as %@, contentType=%@", url.host ?? "unknown", httpURL?.absoluteString ?? "nil", contentType ?? "auto-detect")
         
         return httpURL
     }
@@ -284,6 +293,7 @@ class LocalMediaServer {
             let tokenToRemove = self.registeredStreams.first { $0.value == url }?.key
             if let token = tokenToRemove {
                 self.registeredStreams.removeValue(forKey: token)
+                self.registeredStreamContentTypes.removeValue(forKey: token)
                 NSLog("LocalMediaServer: Unregistered stream '%@'", url.host ?? "unknown")
             }
         }
@@ -409,13 +419,19 @@ class LocalMediaServer {
         let token = filename.components(separatedBy: ".").first ?? filename
         
         var streamURL: URL?
-        queue.sync { streamURL = registeredStreams[token] }
+        var storedContentType: String?
+        queue.sync {
+            streamURL = registeredStreams[token]
+            storedContentType = registeredStreamContentTypes[token]
+        }
         
         guard let url = streamURL else {
             return HTTPResponse(statusCode: .notFound)
         }
         
-        let contentType = CastManager.detectAudioContentType(for: url)
+        // Use stored content type hint if available (Subsonic/Jellyfin URLs have no extension),
+        // otherwise fall back to URL extension detection
+        let contentType = storedContentType ?? CastManager.detectAudioContentType(for: url)
         NSLog("LocalMediaServer: HEAD /stream/ - token %@, contentType=%@", token, contentType)
         return HTTPResponse(
             statusCode: .ok,

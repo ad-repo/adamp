@@ -43,6 +43,9 @@ struct Track: Identifiable, Equatable {
     /// Genre metadata for Auto EQ
     let genre: String?
     
+    /// MIME content type hint for casting (e.g. "audio/flac"). When nil, detected from URL extension.
+    let contentType: String?
+    
     init(url: URL) {
         self.id = UUID()
         self.url = url
@@ -170,6 +173,7 @@ struct Track: Identifiable, Equatable {
         let videoTracks = asset.tracks(withMediaType: .video)
         self.mediaType = videoTracks.isEmpty ? .audio : .video
         self.genre = extractedGenre
+        self.contentType = nil  // Local files use URL extension detection
     }
     
     init(id: UUID = UUID(),
@@ -188,7 +192,8 @@ struct Track: Identifiable, Equatable {
          jellyfinServerId: String? = nil,
          artworkThumb: String? = nil,
          mediaType: MediaType = .audio,
-         genre: String? = nil) {
+         genre: String? = nil,
+         contentType: String? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -206,6 +211,7 @@ struct Track: Identifiable, Equatable {
         self.artworkThumb = artworkThumb
         self.mediaType = mediaType
         self.genre = genre
+        self.contentType = contentType
     }
     
     /// Display title (artist - title or just title)
