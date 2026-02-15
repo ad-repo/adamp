@@ -28,6 +28,12 @@ struct Track: Identifiable, Equatable {
     /// Subsonic server ID to identify which server the track belongs to
     let subsonicServerId: String?
     
+    /// Jellyfin item ID for scrobbling (nil for non-Jellyfin tracks)
+    let jellyfinId: String?
+    
+    /// Jellyfin server ID to identify which server the track belongs to
+    let jellyfinServerId: String?
+    
     /// Artwork identifier for casting (Plex thumb path or Subsonic coverArt ID)
     let artworkThumb: String?
     
@@ -36,6 +42,9 @@ struct Track: Identifiable, Equatable {
     
     /// Genre metadata for Auto EQ
     let genre: String?
+    
+    /// MIME content type hint for casting (e.g. "audio/flac"). When nil, detected from URL extension.
+    let contentType: String?
     
     init(url: URL) {
         self.id = UUID()
@@ -156,12 +165,15 @@ struct Track: Identifiable, Equatable {
         self.plexRatingKey = nil  // Local files don't have Plex rating keys
         self.subsonicId = nil     // Local files don't have Subsonic IDs
         self.subsonicServerId = nil
+        self.jellyfinId = nil     // Local files don't have Jellyfin IDs
+        self.jellyfinServerId = nil
         self.artworkThumb = nil   // Local files use embedded artwork
         
         // Detect media type by checking for video tracks in the asset
         let videoTracks = asset.tracks(withMediaType: .video)
         self.mediaType = videoTracks.isEmpty ? .audio : .video
         self.genre = extractedGenre
+        self.contentType = nil  // Local files use URL extension detection
     }
     
     init(id: UUID = UUID(),
@@ -176,9 +188,12 @@ struct Track: Identifiable, Equatable {
          plexRatingKey: String? = nil,
          subsonicId: String? = nil,
          subsonicServerId: String? = nil,
+         jellyfinId: String? = nil,
+         jellyfinServerId: String? = nil,
          artworkThumb: String? = nil,
          mediaType: MediaType = .audio,
-         genre: String? = nil) {
+         genre: String? = nil,
+         contentType: String? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -191,9 +206,12 @@ struct Track: Identifiable, Equatable {
         self.plexRatingKey = plexRatingKey
         self.subsonicId = subsonicId
         self.subsonicServerId = subsonicServerId
+        self.jellyfinId = jellyfinId
+        self.jellyfinServerId = jellyfinServerId
         self.artworkThumb = artworkThumb
         self.mediaType = mediaType
         self.genre = genre
+        self.contentType = contentType
     }
     
     /// Display title (artist - title or just title)

@@ -156,6 +156,25 @@ class UPnPManager {
         }
     }
     
+    /// Create a CastDevice from internal zone info.
+    /// Used during coordinator transfer when the target room may not yet be in sonosDevices
+    /// (which only contains group coordinators from the last topology fetch).
+    func sonosCastDevice(forZoneUDN udn: String) -> CastDevice? {
+        stateQueue.sync {
+            guard let zone = sonosZones[udn], zone.avTransportURL != nil else { return nil }
+            return CastDevice(
+                id: zone.udn,
+                name: zone.roomName,
+                type: .sonos,
+                address: zone.address,
+                port: zone.port,
+                manufacturer: "Sonos",
+                avTransportControlURL: zone.avTransportURL,
+                descriptionURL: zone.descriptionURL
+            )
+        }
+    }
+    
     /// Summary of a room for the simplified grouping UI
     struct SonosRoomSummary: Identifiable {
         let id: String              // Representative zone UDN (coordinator of this room's speakers)
@@ -1259,6 +1278,15 @@ class UPnPManager {
         NotificationCenter.default.post(name: CastManager.sessionDidChangeNotification, object: nil)
     }
     
+    /// Clear the active session without sending transport commands.
+    /// Used during coordinator transfer where the old device is already standalone.
+    func disconnectSession() {
+        guard activeSession != nil else { return }
+        NSLog("UPnPManager: Clearing session (no stop command)")
+        activeSession = nil
+        NotificationCenter.default.post(name: CastManager.sessionDidChangeNotification, object: nil)
+    }
+    
     /// Cast media to the connected device
     func cast(url: URL, metadata: CastMetadata) async throws {
         guard let session = activeSession,
@@ -1367,16 +1395,34 @@ class UPnPManager {
         }
     }
     
+    /// Consecutive fire-and-forget failures (Fix 7)
+    private var consecutiveFireAndForgetFailures = 0
+    private let maxConsecutiveFailures = 3
+    
     /// Send a playback control command without waiting for the response
     /// This is used for pause/resume/stop where immediate UI feedback is more important
     /// than confirming the command succeeded
+    /// Fix 7: Tracks consecutive failures and surfaces errors after threshold
     private func sendPlaybackControlFireAndForget(controlURL: URL, action: String, arguments: [(String, String)]) {
         Task {
             do {
                 try await sendSOAPActionNoRetry(controlURL: controlURL, action: action, arguments: arguments)
                 NSLog("UPnPManager: %@ command completed successfully", action)
+                consecutiveFireAndForgetFailures = 0  // Reset on success
             } catch {
-                NSLog("UPnPManager: %@ command failed: %@", action, error.localizedDescription)
+                consecutiveFireAndForgetFailures += 1
+                NSLog("UPnPManager: %@ command failed (%d consecutive): %@", action, consecutiveFireAndForgetFailures, error.localizedDescription)
+                
+                if consecutiveFireAndForgetFailures >= maxConsecutiveFailures {
+                    NSLog("UPnPManager: %d consecutive command failures - Sonos may be unreachable", consecutiveFireAndForgetFailures)
+                    await MainActor.run {
+                        NotificationCenter.default.post(
+                            name: CastManager.errorNotification,
+                            object: nil,
+                            userInfo: ["error": "Sonos speaker may be unreachable - \(self.consecutiveFireAndForgetFailures) commands failed"]
+                        )
+                    }
+                }
             }
         }
     }
@@ -1488,6 +1534,16 @@ class UPnPManager {
         throw CastError.playbackFailed("Seek not supported by this device")
     }
     
+    /// Poll Sonos transport state and position (called periodically during Sonos casting)
+    /// Returns (transportState, position, duration) or nil if not connected
+    func pollSonosPlaybackState() async -> (state: String, position: TimeInterval, duration: TimeInterval)? {
+        guard let transportState = try? await getTransportState() else { return nil }
+        guard let posInfo = try? await getPositionInfo() else {
+            return (state: transportState, position: 0, duration: 0)
+        }
+        return (state: transportState, position: posInfo.position, duration: posInfo.duration)
+    }
+    
     /// Get transport state (PLAYING, STOPPED, PAUSED_PLAYBACK, TRANSITIONING, etc.)
     private func getTransportState() async throws -> String? {
         guard let session = activeSession,
@@ -1545,6 +1601,19 @@ class UPnPManager {
         
         if httpResponse.statusCode >= 400 {
             let errorBody = String(data: data, encoding: .utf8) ?? ""
+            
+            // Fix 11: Detect connection security (401/403)
+            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+                NSLog("UPnPManager: SetAVTransportURI auth error %d - Sonos Connection Security may be enabled", httpResponse.statusCode)
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: CastManager.errorNotification,
+                        object: nil,
+                        userInfo: ["error": "Sonos rejected the command (HTTP \(httpResponse.statusCode)). Check Sonos app → Settings → Account → Privacy & Security → Connection Security. Ensure UPnP is ON and Authentication is OFF."]
+                    )
+                }
+            }
+            
             NSLog("UPnPManager: SetAVTransportURI SOAP error %d: %@", httpResponse.statusCode, errorBody)
             throw CastError.playbackFailed("SOAP error \(httpResponse.statusCode)")
         }
@@ -1953,6 +2022,19 @@ class UPnPManager {
                 if httpResponse.statusCode >= 400 {
                     let errorBody = String(data: data, encoding: .utf8) ?? ""
                     
+                    // Fix 11: Detect connection security (401/403)
+                    if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+                        NSLog("UPnPManager: Auth error %d - Sonos Connection Security may be enabled", httpResponse.statusCode)
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: CastManager.errorNotification,
+                                object: nil,
+                                userInfo: ["error": "Sonos rejected the command (HTTP \(httpResponse.statusCode)). Check Sonos app → Settings → Account → Privacy & Security → Connection Security. Ensure UPnP is ON and Authentication is OFF."]
+                            )
+                        }
+                        throw CastError.playbackFailed("Sonos Connection Security blocked the command (HTTP \(httpResponse.statusCode))")
+                    }
+                    
                     // Parse SOAP fault for more details
                     var errorDetail = "SOAP error \(httpResponse.statusCode)"
                     if let faultString = extractXMLValue(errorBody, tag: "faultstring") {
@@ -1963,6 +2045,22 @@ class UPnPManager {
                     // Also try to get UPnP error code
                     if let errorCode = extractXMLValue(errorBody, tag: "errorCode") {
                         errorDetail += " (code: \(errorCode))"
+                        
+                        // Fix 6: Handle UPnP Error 701 (Transition Not Available)
+                        // Wait for transport to be ready instead of blind retry
+                        if errorCode == "701" && attempt < maxRetries {
+                            NSLog("UPnPManager: Error 701 (Transition Not Available) - waiting for transport ready state")
+                            for waitAttempt in 1...5 {
+                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s between checks
+                                if let state = try? await getTransportState(),
+                                   state == "STOPPED" || state == "PLAYING" || state == "PAUSED_PLAYBACK" {
+                                    NSLog("UPnPManager: Transport now ready (%@) after %d waits, retrying", state, waitAttempt)
+                                    lastError = CastError.playbackFailed(errorDetail)
+                                    break // Will continue the retry loop
+                                }
+                            }
+                            continue // Retry the original action
+                        }
                     }
                     
                     // Check if this is a transient error worth retrying

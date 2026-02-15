@@ -44,6 +44,9 @@ class ModernSpectrumView: NSView {
     private var titleBarHeight: CGFloat { WindowManager.shared.hideTitleBars ? borderWidth : ModernSkinElements.spectrumTitleBarHeight }
     private var borderWidth: CGFloat { ModernSkinElements.spectrumBorderWidth }
     
+    /// Which edges are adjacent to another docked window (for seamless border rendering)
+    private var adjacentEdges: AdjacentEdges = []
+    
     // MARK: - Initialization
     
     override init(frame frameRect: NSRect) {
@@ -83,6 +86,10 @@ class ModernSpectrumView: NSView {
         // Observe double size changes
         NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
                                                 name: .doubleSizeDidChange, object: nil)
+        
+        // Observe window layout changes for seamless docked borders
+        NotificationCenter.default.addObserver(self, selector: #selector(windowLayoutDidChange),
+                                                name: .windowLayoutDidChange, object: nil)
         
         // Set accessibility
         setAccessibilityIdentifier("modernSpectrumView")
@@ -146,22 +153,13 @@ class ModernSpectrumView: NSView {
         // Draw window background
         renderer.drawWindowBackground(in: bounds, context: context)
         
-        // Draw window border with glow
-        renderer.drawWindowBorder(in: bounds, context: context)
+        // Draw window border with glow (seamless docking suppresses adjacent edges)
+        renderer.drawWindowBorder(in: bounds, context: context, adjacentEdges: adjacentEdges)
         
         // Draw title bar (unless hidden)
         if !WindowManager.shared.hideTitleBars {
-            // Use spectrum-specific title bar element if skin provides it
-            let titleBarId = "spectrum_titlebar"
-            if let img = renderer.skin.image(for: titleBarId) {
-                let scaledTitleRect = renderer.scaledRect(ModernSkinElements.spectrumTitleBar.defaultRect)
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-                img.draw(in: scaledTitleRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-                NSGraphicsContext.restoreGraphicsState()
-            }
-            // Draw title text and separator using the standard title bar renderer
-            renderer.drawTitleBar(in: ModernSkinElements.spectrumTitleBar.defaultRect, title: "NULLPLAYER ANALYZER", context: context)
+            // Draw title bar with spectrum prefix (handles per-window titlebar image + title text)
+            renderer.drawTitleBar(in: ModernSkinElements.spectrumTitleBar.defaultRect, title: "NULLPLAYER ANALYZER", prefix: "spectrum_", context: context)
             
             // Draw close button
             let closeState = (pressedButton == "spectrum_btn_close") ? "pressed" : "normal"
@@ -192,6 +190,15 @@ class ModernSpectrumView: NSView {
     
     @objc private func doubleSizeChanged() {
         skinDidChange()
+    }
+    
+    @objc private func windowLayoutDidChange() {
+        guard let window = window else { return }
+        let newEdges = WindowManager.shared.computeAdjacentEdges(for: window)
+        if newEdges != adjacentEdges {
+            adjacentEdges = newEdges
+            needsDisplay = true
+        }
     }
     
     // MARK: - Spectrum Data

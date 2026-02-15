@@ -2197,7 +2197,8 @@ final class NullPlayerTests: XCTestCase {
             discNumber: 1,
             created: Date(),
             starred: nil,
-            playCount: 100
+            playCount: 100,
+            userRating: nil
         )
         
         XCTAssertEqual(song.id, "song-1")
@@ -2232,7 +2233,8 @@ final class NullPlayerTests: XCTestCase {
             discNumber: nil,
             created: nil,
             starred: nil,
-            playCount: nil
+            playCount: nil,
+            userRating: nil
         )
         
         XCTAssertEqual(song.formattedDuration, "3:05")
@@ -2261,15 +2263,16 @@ final class NullPlayerTests: XCTestCase {
             discNumber: nil,
             created: nil,
             starred: nil,
-            playCount: nil
+            playCount: nil,
+            userRating: nil
         )
         
         XCTAssertEqual(song.durationInSeconds, 180.0)
     }
     
     func testSubsonicSongEquality() {
-        let song1 = SubsonicSong(id: "1", parent: nil, title: "Song", album: nil, artist: nil, albumId: nil, artistId: nil, track: nil, year: nil, genre: nil, coverArt: nil, size: nil, contentType: nil, suffix: nil, duration: 100, bitRate: nil, samplingRate: nil, path: nil, discNumber: nil, created: nil, starred: nil, playCount: nil)
-        let song2 = SubsonicSong(id: "1", parent: nil, title: "Song", album: nil, artist: nil, albumId: nil, artistId: nil, track: nil, year: nil, genre: nil, coverArt: nil, size: nil, contentType: nil, suffix: nil, duration: 100, bitRate: nil, samplingRate: nil, path: nil, discNumber: nil, created: nil, starred: nil, playCount: nil)
+        let song1 = SubsonicSong(id: "1", parent: nil, title: "Song", album: nil, artist: nil, albumId: nil, artistId: nil, track: nil, year: nil, genre: nil, coverArt: nil, size: nil, contentType: nil, suffix: nil, duration: 100, bitRate: nil, samplingRate: nil, path: nil, discNumber: nil, created: nil, starred: nil, playCount: nil, userRating: nil)
+        let song2 = SubsonicSong(id: "1", parent: nil, title: "Song", album: nil, artist: nil, albumId: nil, artistId: nil, track: nil, year: nil, genre: nil, coverArt: nil, size: nil, contentType: nil, suffix: nil, duration: 100, bitRate: nil, samplingRate: nil, path: nil, discNumber: nil, created: nil, starred: nil, playCount: nil, userRating: nil)
         
         XCTAssertEqual(song1, song2)
     }
@@ -2369,7 +2372,7 @@ final class NullPlayerTests: XCTestCase {
     func testSubsonicSearchResultsWithContent() {
         let artist = SubsonicArtist(id: "1", name: "Artist", albumCount: 1, coverArt: nil, artistImageUrl: nil, starred: nil)
         let album = SubsonicAlbum(id: "1", name: "Album", artist: nil, artistId: nil, year: nil, genre: nil, coverArt: nil, songCount: 10, duration: 100, created: nil, starred: nil, playCount: nil)
-        let song = SubsonicSong(id: "1", parent: nil, title: "Song", album: nil, artist: nil, albumId: nil, artistId: nil, track: nil, year: nil, genre: nil, coverArt: nil, size: nil, contentType: nil, suffix: nil, duration: 100, bitRate: nil, samplingRate: nil, path: nil, discNumber: nil, created: nil, starred: nil, playCount: nil)
+        let song = SubsonicSong(id: "1", parent: nil, title: "Song", album: nil, artist: nil, albumId: nil, artistId: nil, track: nil, year: nil, genre: nil, coverArt: nil, size: nil, contentType: nil, suffix: nil, duration: 100, bitRate: nil, samplingRate: nil, path: nil, discNumber: nil, created: nil, starred: nil, playCount: nil, userRating: nil)
         
         var results = SubsonicSearchResults()
         results.artists = [artist]
@@ -2436,6 +2439,273 @@ final class NullPlayerTests: XCTestCase {
     // NOTE: DTO tests removed - DTOs are internal implementation details for API parsing
     // The public model types (SubsonicArtist, SubsonicAlbum, etc.) are tested above
     
+    // MARK: - Jellyfin Model Tests
+    
+    func testJellyfinServerCreation() {
+        let server = JellyfinServer(
+            id: "server-123",
+            name: "My Jellyfin",
+            url: "http://localhost:8096",
+            username: "testuser",
+            userId: "user-uuid-123"
+        )
+        
+        XCTAssertEqual(server.id, "server-123")
+        XCTAssertEqual(server.name, "My Jellyfin")
+        XCTAssertEqual(server.url, "http://localhost:8096")
+        XCTAssertEqual(server.username, "testuser")
+        XCTAssertEqual(server.userId, "user-uuid-123")
+    }
+    
+    func testJellyfinServerDisplayURL() {
+        let server = JellyfinServer(
+            id: "1", name: "Test", url: "http://localhost:8096",
+            username: "user", userId: "uid"
+        )
+        XCTAssertEqual(server.displayURL, "http://localhost:8096")
+    }
+    
+    func testJellyfinServerBaseURL() {
+        let server = JellyfinServer(
+            id: "1", name: "Test", url: "http://localhost:8096",
+            username: "user", userId: "uid"
+        )
+        XCTAssertNotNil(server.baseURL)
+        XCTAssertEqual(server.baseURL?.host, "localhost")
+        XCTAssertEqual(server.baseURL?.port, 8096)
+    }
+    
+    func testJellyfinServerEquality() {
+        let server1 = JellyfinServer(id: "1", name: "Server", url: "http://localhost:8096", username: "user", userId: "uid")
+        let server2 = JellyfinServer(id: "1", name: "Server", url: "http://localhost:8096", username: "user", userId: "uid")
+        XCTAssertEqual(server1, server2)
+        
+        let server3 = JellyfinServer(id: "2", name: "Server", url: "http://localhost:8096", username: "user", userId: "uid")
+        XCTAssertNotEqual(server1, server3)
+    }
+    
+    func testJellyfinServerCredentialsCodable() throws {
+        let credentials = JellyfinServerCredentials(
+            id: "server-1",
+            name: "Test Server",
+            url: "http://localhost:8096",
+            username: "admin",
+            password: "password123",
+            accessToken: "token-abc-123",
+            userId: "user-uuid-456"
+        )
+        
+        let data = try JSONEncoder().encode(credentials)
+        let decoded = try JSONDecoder().decode(JellyfinServerCredentials.self, from: data)
+        
+        XCTAssertEqual(decoded.id, "server-1")
+        XCTAssertEqual(decoded.name, "Test Server")
+        XCTAssertEqual(decoded.url, "http://localhost:8096")
+        XCTAssertEqual(decoded.username, "admin")
+        XCTAssertEqual(decoded.password, "password123")
+        XCTAssertEqual(decoded.accessToken, "token-abc-123")
+        XCTAssertEqual(decoded.userId, "user-uuid-456")
+    }
+    
+    func testJellyfinArtistCreation() {
+        let artist = JellyfinArtist(
+            id: "artist-1",
+            name: "Test Artist",
+            albumCount: 5,
+            imageTag: "abc123",
+            isFavorite: true
+        )
+        
+        XCTAssertEqual(artist.id, "artist-1")
+        XCTAssertEqual(artist.name, "Test Artist")
+        XCTAssertEqual(artist.albumCount, 5)
+        XCTAssertEqual(artist.imageTag, "abc123")
+        XCTAssertTrue(artist.isFavorite)
+    }
+    
+    func testJellyfinArtistEquality() {
+        let artist1 = JellyfinArtist(id: "1", name: "Artist", albumCount: 5, imageTag: nil, isFavorite: false)
+        let artist2 = JellyfinArtist(id: "1", name: "Artist", albumCount: 5, imageTag: nil, isFavorite: false)
+        XCTAssertEqual(artist1, artist2)
+        
+        let artist3 = JellyfinArtist(id: "2", name: "Artist", albumCount: 5, imageTag: nil, isFavorite: false)
+        XCTAssertNotEqual(artist1, artist3)
+    }
+    
+    func testJellyfinAlbumCreation() {
+        let album = JellyfinAlbum(
+            id: "album-1",
+            name: "Test Album",
+            artist: "Test Artist",
+            artistId: "artist-1",
+            year: 2024,
+            genre: "Rock",
+            imageTag: "img123",
+            songCount: 12,
+            duration: 3600,
+            created: Date(),
+            isFavorite: false,
+            playCount: 42
+        )
+        
+        XCTAssertEqual(album.id, "album-1")
+        XCTAssertEqual(album.name, "Test Album")
+        XCTAssertEqual(album.artist, "Test Artist")
+        XCTAssertEqual(album.year, 2024)
+        XCTAssertEqual(album.genre, "Rock")
+        XCTAssertEqual(album.songCount, 12)
+        XCTAssertEqual(album.duration, 3600)
+        XCTAssertEqual(album.playCount, 42)
+    }
+    
+    func testJellyfinAlbumFormattedDurationMinutes() {
+        let album = JellyfinAlbum(
+            id: "1", name: "Test", artist: nil, artistId: nil,
+            year: nil, genre: nil, imageTag: nil, songCount: 0,
+            duration: 185, created: nil, isFavorite: false, playCount: nil
+        )
+        XCTAssertEqual(album.formattedDuration, "3:05")
+    }
+    
+    func testJellyfinAlbumFormattedDurationHours() {
+        let album = JellyfinAlbum(
+            id: "1", name: "Test", artist: nil, artistId: nil,
+            year: nil, genre: nil, imageTag: nil, songCount: 0,
+            duration: 3661, created: nil, isFavorite: false, playCount: nil
+        )
+        XCTAssertEqual(album.formattedDuration, "1:01:01")
+    }
+    
+    func testJellyfinSongCreation() {
+        let song = JellyfinSong(
+            id: "song-1",
+            title: "Test Song",
+            album: "Test Album",
+            artist: "Test Artist",
+            albumId: "album-1",
+            artistId: "artist-1",
+            track: 3,
+            year: 2024,
+            genre: "Rock",
+            imageTag: "img456",
+            size: 5_000_000,
+            contentType: "flac",
+            duration: 245,
+            bitRate: 320,
+            sampleRate: 44100,
+            channels: 2,
+            path: "/music/test.flac",
+            discNumber: 1,
+            created: Date(),
+            isFavorite: true,
+            playCount: 10,
+            userRating: 80
+        )
+        
+        XCTAssertEqual(song.id, "song-1")
+        XCTAssertEqual(song.title, "Test Song")
+        XCTAssertEqual(song.album, "Test Album")
+        XCTAssertEqual(song.artist, "Test Artist")
+        XCTAssertEqual(song.track, 3)
+        XCTAssertEqual(song.duration, 245)
+        XCTAssertEqual(song.bitRate, 320)
+        XCTAssertEqual(song.discNumber, 1)
+        XCTAssertTrue(song.isFavorite)
+        XCTAssertEqual(song.userRating, 80)
+    }
+    
+    func testJellyfinSongFormattedDuration() {
+        let song = JellyfinSong(
+            id: "1", title: "Song", album: nil, artist: nil,
+            albumId: nil, artistId: nil, track: nil, year: nil,
+            genre: nil, imageTag: nil, size: nil, contentType: nil,
+            duration: 185, bitRate: nil, sampleRate: nil, channels: nil,
+            path: nil, discNumber: nil, created: nil, isFavorite: false,
+            playCount: nil, userRating: nil
+        )
+        XCTAssertEqual(song.formattedDuration, "3:05")
+    }
+    
+    func testJellyfinSongDurationInSeconds() {
+        let song = JellyfinSong(
+            id: "1", title: "Song", album: nil, artist: nil,
+            albumId: nil, artistId: nil, track: nil, year: nil,
+            genre: nil, imageTag: nil, size: nil, contentType: nil,
+            duration: 245, bitRate: nil, sampleRate: nil, channels: nil,
+            path: nil, discNumber: nil, created: nil, isFavorite: false,
+            playCount: nil, userRating: nil
+        )
+        XCTAssertEqual(song.durationInSeconds, 245.0)
+    }
+    
+    func testJellyfinPlaylistCreation() {
+        let playlist = JellyfinPlaylist(
+            id: "playlist-1",
+            name: "My Playlist",
+            songCount: 25,
+            duration: 4500,
+            imageTag: "plimg123"
+        )
+        
+        XCTAssertEqual(playlist.id, "playlist-1")
+        XCTAssertEqual(playlist.name, "My Playlist")
+        XCTAssertEqual(playlist.songCount, 25)
+        XCTAssertEqual(playlist.duration, 4500)
+        XCTAssertEqual(playlist.imageTag, "plimg123")
+    }
+    
+    func testJellyfinPlaylistFormattedDurationMinutes() {
+        let playlist = JellyfinPlaylist(id: "1", name: "Test", songCount: 0, duration: 185, imageTag: nil)
+        XCTAssertEqual(playlist.formattedDuration, "3:05")
+    }
+    
+    func testJellyfinPlaylistFormattedDurationHours() {
+        let playlist = JellyfinPlaylist(id: "1", name: "Test", songCount: 0, duration: 3661, imageTag: nil)
+        XCTAssertEqual(playlist.formattedDuration, "1:01:01")
+    }
+    
+    func testJellyfinMusicLibraryCreation() {
+        let library = JellyfinMusicLibrary(id: "lib-1", name: "Music")
+        XCTAssertEqual(library.id, "lib-1")
+        XCTAssertEqual(library.name, "Music")
+    }
+    
+    func testJellyfinSearchResultsEmpty() {
+        let results = JellyfinSearchResults()
+        XCTAssertTrue(results.isEmpty)
+        XCTAssertEqual(results.totalCount, 0)
+    }
+    
+    func testJellyfinSearchResultsWithContent() {
+        let artist = JellyfinArtist(id: "1", name: "Artist", albumCount: 1, imageTag: nil, isFavorite: false)
+        let album = JellyfinAlbum(id: "1", name: "Album", artist: nil, artistId: nil, year: nil, genre: nil, imageTag: nil, songCount: 10, duration: 100, created: nil, isFavorite: false, playCount: nil)
+        let song = JellyfinSong(id: "1", title: "Song", album: nil, artist: nil, albumId: nil, artistId: nil, track: nil, year: nil, genre: nil, imageTag: nil, size: nil, contentType: nil, duration: 100, bitRate: nil, sampleRate: nil, channels: nil, path: nil, discNumber: nil, created: nil, isFavorite: false, playCount: nil, userRating: nil)
+        
+        let results = JellyfinSearchResults(artists: [artist], albums: [album], songs: [song])
+        XCTAssertFalse(results.isEmpty)
+        XCTAssertEqual(results.totalCount, 3)
+    }
+    
+    func testJellyfinClientErrorDescriptions() {
+        XCTAssertNotNil(JellyfinClientError.invalidURL.errorDescription)
+        XCTAssertNotNil(JellyfinClientError.invalidResponse.errorDescription)
+        XCTAssertNotNil(JellyfinClientError.unauthorized.errorDescription)
+        XCTAssertNotNil(JellyfinClientError.serverOffline.errorDescription)
+        XCTAssertNotNil(JellyfinClientError.authenticationFailed.errorDescription)
+        XCTAssertNotNil(JellyfinClientError.noContent.errorDescription)
+    }
+    
+    func testJellyfinClientErrorHTTPCode() {
+        let error = JellyfinClientError.httpError(statusCode: 503)
+        XCTAssertTrue(error.errorDescription?.contains("503") ?? false)
+    }
+    
+    func testJellyfinClientErrorNetworkError() {
+        let underlyingError = NSError(domain: "test", code: -1, userInfo: nil)
+        let error = JellyfinClientError.networkError(underlyingError)
+        XCTAssertNotNil(error.errorDescription)
+    }
+    
     // MARK: - AppStateManager.AppState Tests
     
     func testAppStateCodable() throws {
@@ -2472,7 +2742,6 @@ final class NullPlayerTests: XCTestCase {
             timeDisplayMode: "elapsed",
             isAlwaysOnTop: true,
             customSkinPath: "/path/to/skin.wsz",
-            baseSkinIndex: nil,
             stateVersion: 1
         )
         
@@ -2566,7 +2835,6 @@ final class NullPlayerTests: XCTestCase {
             timeDisplayMode: "elapsed",
             isAlwaysOnTop: false,
             customSkinPath: nil,
-            baseSkinIndex: 2,
             stateVersion: 1
         )
         
@@ -2577,6 +2845,5 @@ final class NullPlayerTests: XCTestCase {
         let decoded = try decoder.decode(AppStateManager.AppState.self, from: data)
         
         XCTAssertNil(decoded.customSkinPath)
-        XCTAssertEqual(decoded.baseSkinIndex, 2)
     }
 }

@@ -55,6 +55,9 @@ class ModernEQView: NSView {
     /// Glow multiplier from skin config
     private var glowMultiplier: CGFloat = 1.0
     
+    /// Which edges are adjacent to another docked window (for seamless border rendering)
+    private var adjacentEdges: AdjacentEdges = []
+    
     // MARK: - Layout Constants
     
     private var titleBarHeight: CGFloat { WindowManager.shared.hideTitleBars ? borderWidth : ModernSkinElements.eqTitleBarHeight }
@@ -155,6 +158,10 @@ class ModernEQView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
                                                 name: .doubleSizeDidChange, object: nil)
         
+        // Observe window layout changes for seamless docked borders
+        NotificationCenter.default.addObserver(self, selector: #selector(windowLayoutDidChange),
+                                                name: .windowLayoutDidChange, object: nil)
+        
         // Observe track changes for Auto EQ
         NotificationCenter.default.addObserver(self, selector: #selector(handleTrackChange(_:)),
                                                 name: .audioTrackDidChange, object: nil)
@@ -249,6 +256,13 @@ class ModernEQView: NSView {
             return
         }
         
+        // For Jellyfin tracks without genre, try to fetch it
+        if let jellyfinId = track.jellyfinId {
+            NSLog("Auto EQ: Track '%@' has no genre, fetching from Jellyfin...", track.title)
+            Task { await fetchAndApplyJellyfinGenre(itemId: jellyfinId, trackTitle: track.title) }
+            return
+        }
+        
         NSLog("Auto EQ: Track '%@' has no genre metadata", track.title)
     }
     
@@ -304,6 +318,17 @@ class ModernEQView: NSView {
         }
     }
     
+    private func fetchAndApplyJellyfinGenre(itemId: String, trackTitle: String) async {
+        guard let client = JellyfinManager.shared.serverClient else { return }
+        do {
+            if let song = try await client.fetchSong(id: itemId), let genre = song.genre {
+                await MainActor.run { self.applyPresetForGenre(genre) }
+            }
+        } catch {
+            NSLog("Auto EQ: Failed to fetch Jellyfin track details: %@", error.localizedDescription)
+        }
+    }
+    
     // MARK: - Notification Handlers
     
     @objc private func modernSkinDidChange() {
@@ -314,6 +339,15 @@ class ModernEQView: NSView {
         skinDidChange()
     }
     
+    @objc private func windowLayoutDidChange() {
+        guard let window = window else { return }
+        let newEdges = WindowManager.shared.computeAdjacentEdges(for: window)
+        if newEdges != adjacentEdges {
+            adjacentEdges = newEdges
+            needsDisplay = true
+        }
+    }
+    
     // MARK: - Drawing
     
     override func draw(_ dirtyRect: NSRect) {
@@ -322,12 +356,12 @@ class ModernEQView: NSView {
         // Draw window background
         renderer.drawWindowBackground(in: bounds, context: context)
         
-        // Draw window border with glow
-        renderer.drawWindowBorder(in: bounds, context: context)
+        // Draw window border with glow (seamless docking suppresses adjacent edges)
+        renderer.drawWindowBorder(in: bounds, context: context, adjacentEdges: adjacentEdges)
         
         // Draw title bar (unless hidden)
         if !WindowManager.shared.hideTitleBars {
-            renderer.drawTitleBar(in: titleBarBaseRect, title: "NULLPLAYER EQUALIZER", context: context)
+            renderer.drawTitleBar(in: titleBarBaseRect, title: "NULLPLAYER EQUALIZER", prefix: "eq_", context: context)
             
             // Draw close button
             let closeState = (pressedButton == "eq_btn_close") ? "pressed" : "normal"
@@ -965,6 +999,12 @@ class ModernEQView: NSView {
         if hitTestPresets(at: point) {
             pressedButton = "eq_presets"
             needsDisplay = true
+            return
+        }
+        
+        // Double-click slider area -> reset to flat
+        if event.clickCount == 2, hitTestSlider(at: point) != nil {
+            applyPreset(.flat)
             return
         }
         

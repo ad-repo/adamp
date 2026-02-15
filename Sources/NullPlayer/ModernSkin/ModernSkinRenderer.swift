@@ -1,5 +1,15 @@
 import AppKit
 
+/// Edges of a window that are adjacent (docked) to another window.
+/// Used by `drawWindowBorder` to suppress borders on shared edges.
+struct AdjacentEdges: OptionSet {
+    let rawValue: Int
+    static let top    = AdjacentEdges(rawValue: 1 << 0)
+    static let bottom = AdjacentEdges(rawValue: 1 << 1)
+    static let left   = AdjacentEdges(rawValue: 1 << 2)
+    static let right  = AdjacentEdges(rawValue: 1 << 3)
+}
+
 /// Renders modern skin elements using images or programmatic fallback.
 /// For each element, rendering priority is: skin image > programmatic fallback using palette colors.
 ///
@@ -55,13 +65,26 @@ class ModernSkinRenderer {
         }
     }
     
-    /// Draw the window border with optional glow
-    func drawWindowBorder(in bounds: NSRect, context: CGContext) {
+    /// Draw the window border with optional glow.
+    /// When `adjacentEdges` is non-empty and `seamlessDocking` > 0 in the skin config,
+    /// borders on those edges are faded or fully hidden to make docked windows look seamless.
+    func drawWindowBorder(in bounds: NSRect, context: CGContext, adjacentEdges: AdjacentEdges = []) {
         let borderWidth = skin.config.window.borderWidth ?? 1.0
         let cornerRadius = skin.config.window.cornerRadius ?? 0
         let borderColor = skin.borderColor
+        let seamless = min(1.0, max(0.0, skin.config.window.seamlessDocking ?? 0))
         
         context.saveGState()
+        
+        // For full seamless (1.0), clip away adjacent edges entirely before drawing
+        if seamless >= 1.0 && !adjacentEdges.isEmpty {
+            var clipRect = bounds
+            if adjacentEdges.contains(.top)    { clipRect.size.height -= borderWidth }
+            if adjacentEdges.contains(.bottom) { clipRect.origin.y += borderWidth; clipRect.size.height -= borderWidth }
+            if adjacentEdges.contains(.left)   { clipRect.origin.x += borderWidth; clipRect.size.width -= borderWidth }
+            if adjacentEdges.contains(.right)  { clipRect.size.width -= borderWidth }
+            context.clip(to: clipRect)
+        }
         
         let borderRect = bounds.insetBy(dx: borderWidth / 2, dy: borderWidth / 2)
         let path = CGPath(roundedRect: borderRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
@@ -85,20 +108,56 @@ class ModernSkinRenderer {
         context.strokePath()
         
         context.restoreGState()
+        
+        // For partial seamless (0 < value < 1), overdraw adjacent edges
+        // with background color at seamlessDocking alpha to progressively fade them
+        if seamless > 0 && seamless < 1.0 && !adjacentEdges.isEmpty {
+            let bgColor = skin.backgroundColor
+            context.saveGState()
+            context.setFillColor(bgColor.withAlphaComponent(seamless).cgColor)
+            let bw = borderWidth
+            if adjacentEdges.contains(.top) {
+                context.fill(CGRect(x: bounds.minX, y: bounds.maxY - bw, width: bounds.width, height: bw))
+            }
+            if adjacentEdges.contains(.bottom) {
+                context.fill(CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bw))
+            }
+            if adjacentEdges.contains(.left) {
+                context.fill(CGRect(x: bounds.minX, y: bounds.minY, width: bw, height: bounds.height))
+            }
+            if adjacentEdges.contains(.right) {
+                context.fill(CGRect(x: bounds.maxX - bw, y: bounds.minY, width: bw, height: bounds.height))
+            }
+            context.restoreGState()
+        }
     }
     
-    /// Draw the title bar
-    func drawTitleBar(in rect: NSRect, title: String, context: CGContext) {
+    /// Draw the title bar with per-window prefix support and three-tier text fallback.
+    ///
+    /// Title bar background image lookup: `{prefix}titlebar` -> `titlebar` -> no image (transparent).
+    /// Title text rendering (when `titleText.mode == .image`):
+    ///   1. Full pre-rendered title image: `{prefix}titlebar_text` -> `titlebar_text`
+    ///   2. Character sprite compositing (variable-width, with tinting support)
+    ///   3. System font fallback (current NSFont behavior)
+    ///
+    /// When `titleText.mode` is nil or `.font`, skips straight to system font (step 3).
+    ///
+    /// - Parameters:
+    ///   - rect: Title bar rect in base (unscaled) coordinates
+    ///   - title: Title text string (e.g. "NULLPLAYER", "NULLPLAYER PLAYLIST")
+    ///   - prefix: Per-window prefix for image lookups (e.g. "playlist_", "eq_"). Empty for main window.
+    ///   - context: Core Graphics context to draw into
+    func drawTitleBar(in rect: NSRect, title: String, prefix: String = "", context: CGContext) {
         let scaledR = scaledRect(rect)
         
-        // Try image (if skin provides one)
-        if let img = skin.image(for: "titlebar") {
+        // --- Title bar background image ---
+        // Try per-window image first, then fall back to shared titlebar image
+        if let img = skin.image(for: "\(prefix)titlebar") ?? (prefix.isEmpty ? nil : skin.image(for: "titlebar")) {
             drawImage(img, in: scaledR, context: context)
         }
         // No fallback fill -- title bar is transparent, showing the window background through
-        // This matches the reference where the title area blends seamlessly with the window
         
-        // Draw separator line at bottom of title bar
+        // --- Separator line at bottom of title bar ---
         let separatorY = scaledR.minY
         context.saveGState()
         if skin.config.glow.enabled {
@@ -112,7 +171,164 @@ class ModernSkinRenderer {
         context.strokePath()
         context.restoreGState()
         
-        // Draw title text
+        // --- Title text rendering (three-tier fallback) ---
+        let titleTextConfig = skin.config.titleText
+        let isImageMode = titleTextConfig?.mode == .image
+        if isImageMode {
+            // Tier 1: Full pre-rendered title image
+            let titleTextId = "\(prefix)titlebar_text"
+            if let img = skin.image(for: titleTextId) ?? (prefix.isEmpty ? nil : skin.image(for: "titlebar_text")) {
+                // Resolve per-window tint color: element config -> global tintColor -> nil
+                let tintColor = resolveTitleTintColor(prefix: prefix)
+                let finalImg = skin.tintedImage(img, key: titleTextId, color: tintColor)
+                // Center the image + decorations in the title bar rect
+                let imgAspect = finalImg.size.width / max(finalImg.size.height, 1)
+                let drawH = scaledR.height * 0.8
+                let drawW = drawH * imgAspect
+                let deco = resolveDecorations(height: drawH, tintColor: tintColor)
+                let totalContentW = drawW + deco.totalExtraWidth
+                var drawX = scaledR.midX - totalContentW / 2
+                let drawY = scaledR.midY - drawH / 2
+                
+                if let leftImg = deco.leftImage {
+                    drawPixelArtImage(leftImg, in: NSRect(x: drawX, y: drawY, width: deco.leftWidth, height: drawH), context: context)
+                    drawX += deco.leftWidth + deco.spacing
+                }
+                drawPixelArtImage(finalImg, in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH), context: context)
+                drawX += drawW
+                if let rightImg = deco.rightImage {
+                    drawX += deco.spacing
+                    drawPixelArtImage(rightImg, in: NSRect(x: drawX, y: drawY, width: deco.rightWidth, height: drawH), context: context)
+                }
+                return
+            }
+            
+            // Tier 2: Character sprite compositing
+            if drawTitleTextFromSprites(title, in: scaledR, prefix: prefix, context: context) {
+                return
+            }
+        }
+        
+        // Tier 3: System font fallback (default behavior)
+        drawTitleTextWithFont(title, in: scaledR, prefix: prefix, context: context)
+    }
+    
+    /// Composite a title string from individual character sprite images.
+    ///
+    /// Uses variable-width layout: each glyph image's actual pixel width is measured.
+    /// Applies `charSpacing`, `alignment`, `padLeft`, `padRight`, `verticalOffset`, and `tintColor`
+    /// from `TitleTextConfig`. Per-window color override via `elements["{prefix}titlebar_text"]["color"]`.
+    ///
+    /// If a character has no sprite, that character alone falls back to font rendering (mixed mode).
+    ///
+    /// - Returns: `true` if at least one character sprite was found and rendered, `false` if no sprites exist at all.
+    func drawTitleTextFromSprites(_ text: String, in rect: NSRect, prefix: String = "", context: CGContext) -> Bool {
+        guard skin.hasTitleCharSprites else { return false }
+        
+        let titleTextConfig = skin.config.titleText
+        let charSpacing = (titleTextConfig?.charSpacing ?? 1) * scaleFactor
+        let charHeight = (titleTextConfig?.charHeight ?? 10) * scaleFactor
+        let padLeft = (titleTextConfig?.padLeft ?? 0) * scaleFactor
+        let padRight = (titleTextConfig?.padRight ?? 0) * scaleFactor
+        let verticalOffset = (titleTextConfig?.verticalOffset ?? 0) * scaleFactor
+        let alignment = titleTextConfig?.alignment ?? .center
+        let tintColor = resolveTitleTintColor(prefix: prefix)
+        
+        // First pass: measure total width and collect glyph data
+        struct GlyphInfo {
+            let char: Character
+            let image: NSImage?     // nil = font fallback for this character
+            let width: CGFloat
+        }
+        
+        var glyphs: [GlyphInfo] = []
+        var totalWidth: CGFloat = 0
+        let fallbackFont = skin.titleBarFont()
+        
+        for char in text {
+            if let img = skin.titleCharImage(for: char) {
+                let tinted = skin.tintedImage(img, key: "title_char_\(char)", color: tintColor)
+                // Variable width: measure actual image aspect ratio
+                let aspect = tinted.size.width / max(tinted.size.height, 1)
+                let glyphWidth = charHeight * aspect
+                glyphs.append(GlyphInfo(char: char, image: tinted, width: glyphWidth))
+                totalWidth += glyphWidth
+            } else {
+                // Font fallback for this character
+                let charStr = NSAttributedString(string: String(char), attributes: [.font: fallbackFont])
+                let charWidth = charStr.size().width
+                glyphs.append(GlyphInfo(char: char, image: nil, width: charWidth))
+                totalWidth += charWidth
+            }
+        }
+        
+        // Add spacing between characters
+        if glyphs.count > 1 {
+            totalWidth += charSpacing * CGFloat(glyphs.count - 1)
+        }
+        
+        // If no image glyphs were found at all, return false to fall back entirely
+        guard glyphs.contains(where: { $0.image != nil }) else { return false }
+        
+        // Resolve decorations (drawn at charHeight, same tint as title text)
+        let deco = resolveDecorations(height: charHeight, tintColor: tintColor)
+        let totalContentWidth = totalWidth + deco.totalExtraWidth
+        
+        // Calculate starting X based on alignment (using total content width including decorations)
+        let availableWidth = rect.width - padLeft - padRight
+        let contentStartX: CGFloat
+        switch alignment {
+        case .left:
+            contentStartX = rect.minX + padLeft
+        case .right:
+            contentStartX = rect.maxX - padRight - totalContentWidth
+        case .center:
+            contentStartX = rect.minX + padLeft + (availableWidth - totalContentWidth) / 2
+        }
+        
+        // Calculate Y: center vertically in rect, then apply offset
+        let baseY = rect.midY - charHeight / 2 + verticalOffset
+        
+        // Second pass: draw left decoration, glyphs, right decoration
+        var x = contentStartX
+        
+        // Left decoration
+        if let leftImg = deco.leftImage {
+            drawPixelArtImage(leftImg, in: NSRect(x: x, y: baseY, width: deco.leftWidth, height: charHeight), context: context)
+            x += deco.leftWidth + deco.spacing
+        }
+        
+        // Draw each glyph
+        for glyph in glyphs {
+            if let img = glyph.image {
+                let glyphRect = NSRect(x: x, y: baseY, width: glyph.width, height: charHeight)
+                drawPixelArtImage(img, in: glyphRect, context: context)
+            } else {
+                // Font fallback for this single character
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: fallbackFont,
+                    .foregroundColor: tintColor ?? skin.textColor
+                ]
+                let charStr = NSAttributedString(string: String(glyph.char), attributes: attrs)
+                let charSize = charStr.size()
+                let charY = rect.midY - charSize.height / 2 + verticalOffset
+                charStr.draw(at: NSPoint(x: x, y: charY))
+            }
+            x += glyph.width + charSpacing
+        }
+        
+        // Right decoration
+        if let rightImg = deco.rightImage {
+            // x already has the last charSpacing added; subtract it and add decoration spacing instead
+            x = x - charSpacing + deco.spacing
+            drawPixelArtImage(rightImg, in: NSRect(x: x, y: baseY, width: deco.rightWidth, height: charHeight), context: context)
+        }
+        
+        return true
+    }
+    
+    /// Draw title text using the system font (tier 3 fallback).
+    private func drawTitleTextWithFont(_ title: String, in scaledR: NSRect, prefix: String = "", context: CGContext) {
         let titleFont = skin.titleBarFont()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
@@ -120,17 +336,100 @@ class ModernSkinRenderer {
         ]
         let titleStr = NSAttributedString(string: title, attributes: attrs)
         let titleSize = titleStr.size()
-        let titleOrigin = NSPoint(
-            x: scaledR.midX - titleSize.width / 2,
-            y: scaledR.midY - titleSize.height / 2
-        )
         
-        // Draw with glow
+        // Resolve decorations at font text height
+        let tintColor = resolveTitleTintColor(prefix: prefix)
+        let deco = resolveDecorations(height: titleSize.height, tintColor: tintColor)
+        let totalContentW = titleSize.width + deco.totalExtraWidth
+        var drawX = scaledR.midX - totalContentW / 2
+        let textY = scaledR.midY - titleSize.height / 2
+        
+        // Left decoration
+        if let leftImg = deco.leftImage {
+            drawPixelArtImage(leftImg, in: NSRect(x: drawX, y: textY, width: deco.leftWidth, height: titleSize.height), context: context)
+            drawX += deco.leftWidth + deco.spacing
+        }
+        
+        // Draw title text
+        let titleOrigin = NSPoint(x: drawX, y: textY)
         if skin.config.glow.enabled {
             drawTextWithGlow(titleStr, at: titleOrigin, glowColor: skin.textColor, context: context)
         } else {
             titleStr.draw(at: titleOrigin)
         }
+        drawX += titleSize.width
+        
+        // Right decoration
+        if let rightImg = deco.rightImage {
+            drawX += deco.spacing
+            drawPixelArtImage(rightImg, in: NSRect(x: drawX, y: textY, width: deco.rightWidth, height: titleSize.height), context: context)
+        }
+    }
+    
+    /// Resolve the tint color for title text, checking per-window element override first,
+    /// then global titleText.tintColor, then nil (no tinting).
+    private func resolveTitleTintColor(prefix: String) -> NSColor? {
+        // Per-window override: elements["{prefix}titlebar_text"]["color"]
+        let elementId = "\(prefix)titlebar_text"
+        if let colorHex = skin.elementConfig(for: elementId)?.color {
+            return NSColor.from(hex: colorHex)
+        }
+        // Also check unprefixed for main window
+        if !prefix.isEmpty, let colorHex = skin.elementConfig(for: "titlebar_text")?.color {
+            return NSColor.from(hex: colorHex)
+        }
+        // Global tint from titleText config
+        if let tintHex = skin.config.titleText?.tintColor {
+            return NSColor.from(hex: tintHex)
+        }
+        return nil
+    }
+    
+    /// Resolved decoration images and their scaled dimensions for drawing alongside title text.
+    private struct DecorationInfo {
+        let leftImage: NSImage?
+        let leftWidth: CGFloat
+        let rightImage: NSImage?
+        let rightWidth: CGFloat
+        let spacing: CGFloat
+        
+        /// Total extra width consumed by decorations (including spacing on each side).
+        var totalExtraWidth: CGFloat {
+            var w: CGFloat = 0
+            if leftImage != nil { w += leftWidth + spacing }
+            if rightImage != nil { w += rightWidth + spacing }
+            return w
+        }
+        
+        static let empty = DecorationInfo(leftImage: nil, leftWidth: 0, rightImage: nil, rightWidth: 0, spacing: 0)
+    }
+    
+    /// Resolve title decoration images and calculate their scaled dimensions.
+    /// Decorations are rendered at the given height, preserving the source image aspect ratio.
+    /// Supports the same tinting mechanism as character sprites.
+    private func resolveDecorations(height: CGFloat, tintColor: NSColor?) -> DecorationInfo {
+        let titleTextConfig = skin.config.titleText
+        let spacing = (titleTextConfig?.decorationSpacing ?? 3) * scaleFactor
+        
+        var leftImg: NSImage? = nil
+        var leftW: CGFloat = 0
+        if let leftKey = titleTextConfig?.decorationLeft, let img = skin.image(for: leftKey) {
+            let tinted = skin.tintedImage(img, key: leftKey, color: tintColor)
+            let aspect = tinted.size.width / max(tinted.size.height, 1)
+            leftW = height * aspect
+            leftImg = tinted
+        }
+        
+        var rightImg: NSImage? = nil
+        var rightW: CGFloat = 0
+        if let rightKey = titleTextConfig?.decorationRight, let img = skin.image(for: rightKey) {
+            let tinted = skin.tintedImage(img, key: rightKey, color: tintColor)
+            let aspect = tinted.size.width / max(tinted.size.height, 1)
+            rightW = height * aspect
+            rightImg = tinted
+        }
+        
+        return DecorationInfo(leftImage: leftImg, leftWidth: leftW, rightImage: rightImg, rightWidth: rightW, spacing: spacing)
     }
     
     /// Draw a time digit (0-9, minus, colon) as 7-segment LED display
@@ -151,7 +450,8 @@ class ModernSkinRenderer {
         }
         
         if let img = skin.image(for: imageName) {
-            drawImage(img, in: scaledR, context: context)
+            // Use pixel art rendering for crisp scaling of small digit sprites
+            drawPixelArtImage(img, in: scaledR, context: context)
         } else {
             // Programmatic 7-segment LED rendering
             draw7SegmentChar(character, in: scaledR, context: context)
@@ -714,6 +1014,16 @@ class ModernSkinRenderer {
     private func drawImage(_ image: NSImage, in rect: NSRect, context: CGContext) {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+    
+    /// Draw a pixel-art NSImage with nearest-neighbor interpolation (no smoothing).
+    /// Used for character sprites and other small pixel-art assets that should stay crisp when scaled.
+    private func drawPixelArtImage(_ image: NSImage, in rect: NSRect, context: CGContext) {
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        NSGraphicsContext.current?.imageInterpolation = .none
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
         NSGraphicsContext.restoreGraphicsState()
     }

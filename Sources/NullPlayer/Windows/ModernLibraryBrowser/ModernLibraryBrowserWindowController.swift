@@ -90,6 +90,12 @@ class ModernLibraryBrowserWindowController: NSWindowController, LibraryBrowserWi
         browserView.reloadData()
     }
     
+    /// Current browse mode raw value for state save/restore
+    var browseModeRawValue: Int {
+        get { browserView.browseModeRawValue }
+        set { browserView.browseModeRawValue = newValue }
+    }
+    
     func showLinkSheet() {
         guard let window = window else { return }
         

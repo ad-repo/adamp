@@ -450,6 +450,195 @@ Place the frame images in your `images/` directory. Repeat modes: `loop`, `rever
 
 ---
 
+## Image-Based Title Text
+
+By default, title bar text ("NULLPLAYER", "NULLPLAYER PLAYLIST", etc.) is rendered using the skin's font. You can replace it with custom image-based text for a fully bespoke look.
+
+### Enabling Image Title Text
+
+Add a `titleText` section to your `skin.json`:
+
+```json
+"titleText": {
+    "mode": "image",
+    "charSpacing": 1,
+    "charHeight": 10,
+    "alignment": "center"
+}
+```
+
+| Key | What it does | Default |
+|-----|-------------|---------|
+| `mode` | `"image"` enables image-based rendering; `"font"` uses system font | `"font"` |
+| `charSpacing` | Extra spacing between character sprites in base coords (negative tightens) | 1 |
+| `charHeight` | Height to render character sprites in base coords | 10 |
+| `alignment` | Horizontal alignment: `"left"`, `"center"`, `"right"` | `"center"` |
+| `tintColor` | Hex color to tint grayscale sprites (nil = draw as-is) | none |
+| `padLeft` | Left padding in base coords | 0 |
+| `padRight` | Right padding in base coords | 0 |
+| `verticalOffset` | Vertical nudge in base coords (positive = up) | 0 |
+
+### Three-Tier Fallback
+
+When `mode` is `"image"`, the engine checks in order:
+
+1. **Full pre-rendered title image** -- A single image for the entire title string (e.g. `titlebar_text.png`)
+2. **Character sprite compositing** -- Individual glyph images laid out and composited into the title string
+3. **System font** -- Current font-based rendering (unchanged)
+
+If `mode` is `"font"` or not specified, only the system font is used (no image lookup).
+
+### Full Title Images
+
+Provide a single pre-rendered image of the complete title text:
+
+```
+images/
+  titlebar_text.png              # Main window: "NULLPLAYER"
+  playlist_titlebar_text.png     # Playlist: "NULLPLAYER PLAYLIST"
+  eq_titlebar_text.png           # EQ: "NULLPLAYER EQUALIZER"
+  spectrum_titlebar_text.png     # Spectrum: "NULLPLAYER ANALYZER"
+  projectm_titlebar_text.png     # ProjectM: "projectM"
+  library_titlebar_text.png      # Library: "NULLPLAYER LIBRARY"
+```
+
+Each image is centered in the title bar. If a per-window image is not found, it falls back to `titlebar_text.png`, then to character sprites.
+
+### Character Sprites
+
+Provide individual glyph images and the engine composites them into any title string automatically.
+
+**Important -- Filesystem-Safe Naming**: Because macOS uses a case-insensitive filesystem by default, uppercase and lowercase letters use different prefixes to avoid collisions:
+
+```
+images/
+  title_upper_A.png ... title_upper_Z.png    # Uppercase letters
+  title_lower_a.png ... title_lower_z.png    # Lowercase (optional, falls back to uppercase)
+  title_char_0.png  ... title_char_9.png     # Digits
+  title_char_space.png                        # Space
+  title_char_dash.png                         # Hyphen (-)
+  title_char_dot.png                          # Period (.)
+  title_char_colon.png                        # Colon (:)
+  title_char_underscore.png                   # Underscore (_)
+  title_char_lparen.png                       # Left parenthesis (
+  title_char_rparen.png                       # Right parenthesis )
+  title_char_lbracket.png                     # Left bracket [
+  title_char_rbracket.png                     # Right bracket ]
+  title_char_amp.png                          # Ampersand (&)
+  title_char_apos.png                         # Apostrophe (')
+  title_char_plus.png                         # Plus (+)
+  title_char_hash.png                         # Hash (#)
+  title_char_slash.png                        # Slash (/)
+```
+
+The naming convention uses three prefixes:
+- `title_upper_` for A-Z (e.g. `title_upper_N.png`)
+- `title_lower_` for a-z (e.g. `title_lower_n.png`)
+- `title_char_` for digits, space, and punctuation (e.g. `title_char_0.png`, `title_char_space.png`)
+
+This avoids the macOS case-insensitive filesystem issue where `title_char_N.png` and `title_char_n.png` would collide and overwrite each other.
+
+**Variable-width layout**: The engine measures each glyph image's actual pixel width and lays them out proportionally. You can provide proportional (variable-width) or monospaced (fixed-width) sprites -- both work automatically.
+
+**Lowercase fallback**: If a lowercase sprite is missing (e.g. no `title_lower_p.png`), the engine automatically uses the uppercase version (`title_upper_P.png`). You can ship just uppercase sprites and still render mixed-case titles like "projectM".
+
+**Per-character font fallback**: If a character has no sprite at all, just that character alone is rendered with the system font. The rest of the string still uses sprites. This means you only need to provide sprites for characters you actually use.
+
+**Pixel art rendering**: Character sprites are rendered with nearest-neighbor interpolation (no smoothing), so pixel art stays crisp when scaled up. Design your sprites at small sizes (e.g. 7x11 pixels) and the engine scales them cleanly.
+
+**Design tips for character sprites**:
+- Use bold/thick strokes (2px wide at minimum) so characters are readable at small sizes
+- The title bar is 14 base units tall. A `charHeight` of 10-11 fills it nicely with a bit of vertical padding
+- A `charSpacing` of 1-2 gives comfortable letter spacing
+- Test with the longest title string ("NULLPLAYER EQUALIZER" = 20 characters) to make sure it fits
+
+### Sprite Tinting
+
+If your sprites are white or grayscale, use `tintColor` to colorize them at runtime:
+
+```json
+"titleText": {
+    "mode": "image",
+    "tintColor": "#e0a030"
+}
+```
+
+This lets you ship one set of white/grayscale character sprites and recolor them to match any palette. The engine uses `sourceAtop` compositing to tint the sprites and caches the results.
+
+You can also tint per-window using the `elements` section. The tint color is resolved with this priority: per-window element color > global `tintColor` > no tinting:
+
+```json
+"elements": {
+    "playlist_titlebar_text": { "color": "#40c8b0" },
+    "eq_titlebar_text": { "color": "#e0a030" }
+}
+```
+
+### Combining with Time Digit Images
+
+The same skin can provide image-based time digits alongside character sprites. Time digits use the existing naming convention:
+
+```
+images/
+  time_digit_0.png ... time_digit_9.png    # 7-segment LED digit images
+  time_colon.png                            # Colon separator
+  time_minus.png                            # Minus sign (remaining time mode)
+```
+
+Both time digits and character sprites are rendered with nearest-neighbor interpolation for crisp pixel art.
+
+### Example: Skulls Skin
+
+The bundled "Skulls" skin demonstrates the full image-based title text system:
+
+```json
+{
+    "meta": {
+        "name": "Skulls",
+        "author": "NullPlayer",
+        "version": "1.0",
+        "description": "Lo-fi stereo receiver skin with bitmap title text and amber VFD display"
+    },
+    "titleText": {
+        "mode": "image",
+        "charSpacing": 2,
+        "charHeight": 10,
+        "alignment": "center"
+    },
+    "palette": {
+        "primary": "#a0a0a0",
+        "secondary": "#808080",
+        "accent": "#e0a030",
+        "highlight": "#d4cfc0",
+        "background": "#2a2a2e",
+        "surface": "#1a1a1e",
+        "text": "#a0a0a0",
+        "textDim": "#606060",
+        "border": "#a0a0a0",
+        "timeColor": "#e0a030",
+        "marqueeColor": "#40c8b0",
+        "dataColor": "#e0a030"
+    },
+    "fonts": {
+        "primaryName": "DepartureMono-Regular",
+        "fallbackName": "Menlo"
+    },
+    "background": {},
+    "glow": { "enabled": false },
+    "window": { "borderWidth": 1, "cornerRadius": 0 }
+}
+```
+
+It includes:
+- **Bold 7x11 pixel character sprites** in cream (#d4cfc0) for title bar text -- thick 2px strokes for a vintage receiver faceplate look
+- **Amber 13x20 pixel 7-segment time digits** for the time display
+- **Beveled transport buttons** (28x24) with pressed states
+- **Silver seek/volume thumbs** (6x6)
+
+All assets are generated programmatically by `scripts/generate_skulls_skin.swift` -- run `swift scripts/generate_skulls_skin.swift` to regenerate them.
+
+---
+
 ## Example Skins
 
 ### Warm Sunset (Palette-Only)
@@ -535,7 +724,7 @@ Place your skin folder in:
 
 Then right-click the player and select your skin from **Modern UI > Select Skin**.
 
-Skin changes take effect immediately -- no restart needed.
+Skin changes take effect immediately -- no restart needed. However, if you're switching from Classic Mode to Modern Mode (or vice versa), NullPlayer will prompt you to restart.
 
 ### Packaging for Distribution
 

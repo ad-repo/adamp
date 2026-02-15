@@ -27,11 +27,20 @@ public struct Track: Identifiable, Equatable, Sendable {
     /// Subsonic server ID to identify which server the track belongs to
     public let subsonicServerId: String?
     
+    /// Jellyfin item ID for scrobbling (nil for non-Jellyfin tracks)
+    public let jellyfinId: String?
+    
+    /// Jellyfin server ID to identify which server the track belongs to
+    public let jellyfinServerId: String?
+    
     /// Artwork identifier for casting (Plex thumb path or Subsonic coverArt ID)
     public let artworkThumb: String?
     
     /// Media type (audio or video)
     public let mediaType: MediaType
+    
+    /// MIME content type hint for casting (e.g. "audio/flac"). When nil, detected from URL extension.
+    public let contentType: String?
     
     public init(id: UUID = UUID(),
                 url: URL,
@@ -45,8 +54,11 @@ public struct Track: Identifiable, Equatable, Sendable {
                 plexRatingKey: String? = nil,
                 subsonicId: String? = nil,
                 subsonicServerId: String? = nil,
+                jellyfinId: String? = nil,
+                jellyfinServerId: String? = nil,
                 artworkThumb: String? = nil,
-                mediaType: MediaType = .audio) {
+                mediaType: MediaType = .audio,
+                contentType: String? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -59,8 +71,11 @@ public struct Track: Identifiable, Equatable, Sendable {
         self.plexRatingKey = plexRatingKey
         self.subsonicId = subsonicId
         self.subsonicServerId = subsonicServerId
+        self.jellyfinId = jellyfinId
+        self.jellyfinServerId = jellyfinServerId
         self.artworkThumb = artworkThumb
         self.mediaType = mediaType
+        self.contentType = contentType
     }
     
     /// Initialize from URL, extracting title from filename
@@ -77,8 +92,11 @@ public struct Track: Identifiable, Equatable, Sendable {
         self.plexRatingKey = nil
         self.subsonicId = nil
         self.subsonicServerId = nil
+        self.jellyfinId = nil
+        self.jellyfinServerId = nil
         self.artworkThumb = nil
         self.mediaType = .audio
+        self.contentType = nil
     }
     
     /// Display title (artist - title or just title)

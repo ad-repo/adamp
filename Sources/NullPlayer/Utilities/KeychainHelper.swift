@@ -136,6 +136,59 @@ class KeychainHelper {
         delete(forKey: Keys.subsonicServers)
     }
     
+    // MARK: - Jellyfin Server Credentials
+    
+    private enum JellyfinKeys {
+        static let jellyfinServers = "jellyfin_servers"
+    }
+    
+    /// Store Jellyfin server credentials
+    func setJellyfinServers(_ servers: [JellyfinServerCredentials]) -> Bool {
+        guard let data = try? JSONEncoder().encode(servers) else { return false }
+        return setData(data, forKey: JellyfinKeys.jellyfinServers)
+    }
+    
+    /// Retrieve all stored Jellyfin server credentials
+    func getJellyfinServers() -> [JellyfinServerCredentials] {
+        guard let data = getData(forKey: JellyfinKeys.jellyfinServers) else { return [] }
+        return (try? JSONDecoder().decode([JellyfinServerCredentials].self, from: data)) ?? []
+    }
+    
+    /// Add a new Jellyfin server
+    func addJellyfinServer(_ server: JellyfinServerCredentials) -> Bool {
+        var servers = getJellyfinServers()
+        servers.removeAll { $0.id == server.id }
+        servers.append(server)
+        return setJellyfinServers(servers)
+    }
+    
+    /// Update an existing Jellyfin server
+    func updateJellyfinServer(_ server: JellyfinServerCredentials) -> Bool {
+        var servers = getJellyfinServers()
+        if let index = servers.firstIndex(where: { $0.id == server.id }) {
+            servers[index] = server
+            return setJellyfinServers(servers)
+        }
+        return false
+    }
+    
+    /// Remove a Jellyfin server by ID
+    func removeJellyfinServer(id: String) -> Bool {
+        var servers = getJellyfinServers()
+        servers.removeAll { $0.id == id }
+        return setJellyfinServers(servers)
+    }
+    
+    /// Get a specific Jellyfin server by ID
+    func getJellyfinServer(id: String) -> JellyfinServerCredentials? {
+        return getJellyfinServers().first { $0.id == id }
+    }
+    
+    /// Delete all Jellyfin server credentials
+    func clearJellyfinCredentials() {
+        delete(forKey: JellyfinKeys.jellyfinServers)
+    }
+    
     // MARK: - Generic Keychain Operations
     
     private func setString(_ value: String, forKey key: String) -> Bool {

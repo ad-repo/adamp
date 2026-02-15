@@ -32,8 +32,8 @@ class SubsonicServerClient {
         self.baseURL = url
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 120
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600  // 10 minutes for large library fetches
         self.session = URLSession(configuration: config)
     }
     

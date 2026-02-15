@@ -73,6 +73,9 @@ class ModernPlaylistView: NSView {
     private var borderWidth: CGFloat { ModernSkinElements.playlistBorderWidth }
     private var itemHeight: CGFloat { ModernSkinElements.playlistItemHeight }
     
+    /// Which edges are adjacent to another docked window (for seamless border rendering)
+    private var adjacentEdges: AdjacentEdges = []
+    
     // MARK: - Initialization
     
     override init(frame frameRect: NSRect) {
@@ -108,6 +111,10 @@ class ModernPlaylistView: NSView {
         // Observe double size changes
         NotificationCenter.default.addObserver(self, selector: #selector(doubleSizeChanged),
                                                 name: .doubleSizeDidChange, object: nil)
+        
+        // Observe window layout changes for seamless docked borders
+        NotificationCenter.default.addObserver(self, selector: #selector(windowLayoutDidChange),
+                                                name: .windowLayoutDidChange, object: nil)
         
         // Observe window visibility for timer management
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidMiniaturize),
@@ -219,6 +226,15 @@ class ModernPlaylistView: NSView {
         skinDidChange()
     }
     
+    @objc private func windowLayoutDidChange() {
+        guard let window = window else { return }
+        let newEdges = WindowManager.shared.computeAdjacentEdges(for: window)
+        if newEdges != adjacentEdges {
+            adjacentEdges = newEdges
+            needsDisplay = true
+        }
+    }
+    
     @objc private func windowDidMiniaturize(_ note: Notification) {
         stopDisplayTimer()
     }
@@ -256,12 +272,12 @@ class ModernPlaylistView: NSView {
         // Draw window background
         renderer.drawWindowBackground(in: bounds, context: context)
         
-        // Draw window border with glow
-        renderer.drawWindowBorder(in: bounds, context: context)
+        // Draw window border with glow (seamless docking suppresses adjacent edges)
+        renderer.drawWindowBorder(in: bounds, context: context, adjacentEdges: adjacentEdges)
         
         // Draw title bar (unless hidden)
         if !WindowManager.shared.hideTitleBars {
-            renderer.drawTitleBar(in: titleBarBaseRect, title: "NULLPLAYER PLAYLIST", context: context)
+            renderer.drawTitleBar(in: titleBarBaseRect, title: "NULLPLAYER PLAYLIST", prefix: "playlist_", context: context)
             
             // Draw close button
             let closeState = (pressedButton == "playlist_btn_close") ? "pressed" : "normal"
@@ -550,6 +566,8 @@ class ModernPlaylistView: NSView {
             } else if let subsonicId = track.subsonicId {
                 // Subsonic track - load cover art
                 image = await self.loadSubsonicArtwork(songId: subsonicId)
+            } else if let jellyfinId = track.jellyfinId {
+                image = await self.loadJellyfinArtwork(itemId: jellyfinId)
             } else if track.url.isFileURL {
                 // Local file - extract embedded artwork
                 image = await self.loadLocalArtwork(url: track.url)
@@ -601,6 +619,21 @@ class ModernPlaylistView: NSView {
             let (data, response) = try await URLSession.shared.data(from: artworkURL)
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200,
+                  let image = NSImage(data: data) else { return nil }
+            Self.artworkCache.setObject(image, forKey: cacheKey)
+            return image
+        } catch {
+            return nil
+        }
+    }
+    
+    private func loadJellyfinArtwork(itemId: String) async -> NSImage? {
+        let cacheKey = NSString(string: "playlist_jellyfin:\(itemId)")
+        if let cached = Self.artworkCache.object(forKey: cacheKey) { return cached }
+        guard let artworkURL = JellyfinManager.shared.imageURL(itemId: itemId, imageTag: nil, size: 400) else { return nil }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: artworkURL)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200,
                   let image = NSImage(data: data) else { return nil }
             Self.artworkCache.setObject(image, forKey: cacheKey)
             return image

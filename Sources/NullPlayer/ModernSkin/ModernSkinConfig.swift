@@ -26,6 +26,9 @@ struct ModernSkinConfig: Codable {
     /// Marquee/scrolling text configuration
     let marquee: MarqueeConfig?
     
+    /// Title text rendering configuration (image-based vs font)
+    let titleText: TitleTextConfig?
+    
     /// Per-element overrides (position, size, color, image path)
     let elements: [String: ElementConfig]?
     
@@ -135,11 +138,64 @@ struct WindowConfig: Codable {
     let borderColor: String?
     let cornerRadius: CGFloat?
     let scale: CGFloat?        // UI scale factor (defaults to 1.25)
+    let seamlessDocking: CGFloat?  // 0.0 (full borders) to 1.0 (fully hidden on docked edges). Default 0.
 }
 
 struct MarqueeConfig: Codable {
     let scrollSpeed: CGFloat?  // Scroll speed in points per second (defaults to 30)
     let scrollGap: CGFloat?    // Gap between repeated text in points (defaults to 50)
+}
+
+/// Title text rendering configuration.
+/// Controls whether title bar text uses image-based rendering (character sprites or full title images)
+/// or the default system font rendering.
+///
+/// Three-tier fallback: full title image -> character sprites -> system font.
+/// Character sprites use variable-width layout (each glyph's actual image width is measured).
+struct TitleTextConfig: Codable {
+    /// Rendering mode: "image" uses sprite/image-based rendering, "font" uses system font (default)
+    let mode: TitleTextMode?
+    
+    /// Extra spacing between character sprites in base coordinates (default 1). Negative tightens.
+    let charSpacing: CGFloat?
+    
+    /// Height to render character sprites in base coordinates (default 10)
+    let charHeight: CGFloat?
+    
+    /// Horizontal alignment within the title bar rect (default "center")
+    let alignment: TitleTextAlignment?
+    
+    /// Hex color to tint grayscale character sprites (nil = draw sprites as-is).
+    /// Skin authors can provide white/grayscale sprites and tint them to any color.
+    let tintColor: String?
+    
+    /// Left padding in base coordinates (default 0)
+    let padLeft: CGFloat?
+    
+    /// Right padding in base coordinates (default 0)
+    let padRight: CGFloat?
+    
+    /// Vertical nudge in base coordinates (default 0, positive = up)
+    let verticalOffset: CGFloat?
+    
+    /// Image key for decoration sprite drawn to the left of the title text (nil = none).
+    /// The image is loaded via `skin.image(for:)` and drawn at `charHeight`, preserving aspect ratio.
+    let decorationLeft: String?
+    
+    /// Image key for decoration sprite drawn to the right of the title text (nil = none).
+    let decorationRight: String?
+    
+    /// Spacing between decoration sprites and title text in base coordinates (default 3)
+    let decorationSpacing: CGFloat?
+    
+    enum TitleTextMode: String, Codable {
+        case image  // Use image-based rendering (full title image or character sprites)
+        case font   // Use system font (current default behavior)
+    }
+    
+    enum TitleTextAlignment: String, Codable {
+        case left, center, right
+    }
 }
 
 struct ElementConfig: Codable {

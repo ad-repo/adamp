@@ -91,6 +91,109 @@ class CastManager {
         await upnpManager.refreshSonosGroupTopology()
     }
     
+    /// Get UDNs of all rooms currently in the active Sonos cast group.
+    /// Returns empty array if not casting to Sonos.
+    func getRoomsInActiveCastGroup() -> [String] {
+        guard let targetUDN = activeSession?.device.id,
+              activeSession?.device.type == .sonos else { return [] }
+        let rooms = sonosRooms
+        return rooms.filter { room in
+            // Direct match: this room is the cast target (coordinator)
+            room.id == targetUDN ||
+            // This room's coordinator is the cast target
+            room.groupCoordinatorUDN == targetUDN ||
+            // This room IS a coordinator and the cast target is in its group
+            (room.isGroupCoordinator && rooms.first(where: { $0.id == targetUDN })?.groupCoordinatorUDN == room.id)
+        }.map { $0.id }
+    }
+    
+    /// Transfer an active Sonos cast from the current coordinator to a different room.
+    /// Called when the user unchecks the coordinator while other rooms remain in the group.
+    /// There will be a brief (~1-2s) playback interruption during the transfer.
+    ///
+    /// - Parameters:
+    ///   - oldCoordinatorUDN: UDN of the current coordinator being removed
+    ///   - newCoordinatorUDN: UDN of the room to become the new coordinator
+    ///   - otherRoomUDNs: UDNs of additional rooms to join to the new coordinator (may be empty)
+    func transferSonosCast(fromCoordinator oldCoordinatorUDN: String, toRoom newCoordinatorUDN: String, otherRooms otherRoomUDNs: [String]) async throws {
+        NSLog("CastManager: Transferring cast from %@ to %@ (other rooms: %@)",
+              oldCoordinatorUDN, newCoordinatorUDN, otherRoomUDNs.joined(separator: ", "))
+        
+        // 1. Save session state before tearing anything down
+        guard let session = upnpManager.activeSession,
+              let savedURL = session.currentURL,
+              let savedMetadata = session.metadata else {
+            NSLog("CastManager: Transfer failed - no active session or missing URL/metadata")
+            await stopCasting()
+            throw CastError.sessionNotActive
+        }
+        
+        // Get accurate position by polling Sonos directly (more reliable than local timer)
+        var savedPosition: TimeInterval = 0
+        if let pollResult = await upnpManager.pollSonosPlaybackState() {
+            savedPosition = pollResult.position
+        }
+        NSLog("CastManager: Saved state - URL: %@, position: %.1f", savedURL.absoluteString, savedPosition)
+        
+        // 2. Stop polling and topology refresh to prevent interference during swap
+        stopSonosPolling()
+        stopTopologyRefresh()
+        consecutiveFireAndForgetFailures = 0
+        
+        // 3. Make old coordinator standalone (leaves group, stops its playback)
+        // This also stops playback on all grouped members since they were following the coordinator
+        do {
+            try await unjoinSonos(zoneUDN: oldCoordinatorUDN)
+            NSLog("CastManager: Old coordinator %@ is now standalone", oldCoordinatorUDN)
+        } catch {
+            NSLog("CastManager: Failed to make old coordinator standalone: %@", error.localizedDescription)
+            // Continue anyway - the cast to new coordinator may still work
+        }
+        
+        // 4. Clear old session without sending Stop (old coordinator is already standalone)
+        upnpManager.disconnectSession()
+        
+        // 5. Create CastDevice for new coordinator from zone info
+        guard let newDevice = upnpManager.sonosCastDevice(forZoneUDN: newCoordinatorUDN) else {
+            NSLog("CastManager: Transfer failed - could not find device for zone %@", newCoordinatorUDN)
+            // Fall back to full stop - old coordinator already standalone, just clean up
+            await stopCasting()
+            throw CastError.playbackFailed("Could not find Sonos device for room")
+        }
+        NSLog("CastManager: New coordinator device: %@ (%@:%d)", newDevice.name, newDevice.address, newDevice.port)
+        
+        // 6. Cast to new coordinator
+        // Since we cleared activeSession in step 4, cast(to:) won't call stopCasting()
+        do {
+            try await cast(to: newDevice, url: savedURL, metadata: savedMetadata, startPosition: savedPosition)
+            NSLog("CastManager: Transfer successful - now casting to %@", newDevice.name)
+        } catch {
+            NSLog("CastManager: Transfer cast failed: %@", error.localizedDescription)
+            // Clean up whatever partial state exists
+            await stopCasting()
+            throw error
+        }
+        
+        // 7. Join other remaining rooms to the new coordinator
+        if !otherRoomUDNs.isEmpty {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s for cast to establish
+            for udn in otherRoomUDNs {
+                do {
+                    NSLog("CastManager: Joining room %@ to new coordinator %@", udn, newDevice.id)
+                    try await joinSonosToGroup(zoneUDN: udn, coordinatorUDN: newDevice.id)
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s between joins
+                } catch {
+                    NSLog("CastManager: Failed to join room %@ to new group: %@", udn, error.localizedDescription)
+                    // Non-fatal: continue with other rooms
+                }
+            }
+        }
+        
+        // 8. Refresh topology to update group state
+        await refreshSonosGroups()
+        NSLog("CastManager: Transfer complete")
+    }
+    
     /// Current active cast session (if any)
     var activeSession: CastSession? {
         if let session = chromecastManager.activeSession, session.state != .idle {
@@ -200,6 +303,16 @@ class CastManager {
     
     // MARK: - Initialization
     
+    /// Timer for polling Sonos playback state during active casting
+    private var sonosPollingTimer: Timer?
+    
+    /// Timer for periodic Sonos group topology refresh during casting
+    private var topologyRefreshTimer: Timer?
+    
+    /// Consecutive fire-and-forget command failures (for error surfacing)
+    private var consecutiveFireAndForgetFailures = 0
+    private let maxConsecutiveFailures = 3
+    
     private init() {
         // Start discovery automatically
         startDiscovery()
@@ -216,11 +329,28 @@ class CastManager {
             name: ChromecastManager.mediaStatusDidUpdateNotification,
             object: nil
         )
+        
+        // Subscribe to sleep/wake notifications (Fix 8)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWillSleep),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleDidWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
     }
     
     deinit {
         discoveryRefreshTimer?.invalidate()
+        sonosPollingTimer?.invalidate()
+        topologyRefreshTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
     
     // MARK: - Chromecast Status Updates
@@ -464,6 +594,12 @@ class CastManager {
                     // Sonos/DLNA don't provide status updates - start timer immediately
                     WindowManager.shared.audioEngine.startCastPlayback(from: trackingPosition)
                 }
+                
+                // For Sonos, start status polling and topology refresh (Fix 1 & 9)
+                if device.type == .sonos {
+                    self.startSonosPolling()
+                    self.startTopologyRefresh()
+                }
             }
             NotificationCenter.default.post(name: Self.sessionDidChangeNotification, object: nil)
             NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
@@ -498,34 +634,24 @@ class CastManager {
     /// Cast a specific track to a device
     func castTrack(_ track: Track, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
         NSLog("CastManager: castTrack called for '%@' - track.url: %@", track.title, track.url.absoluteString)
-        NSLog("CastManager: track.subsonicId=%@, track.plexRatingKey=%@", 
-              track.subsonicId ?? "nil", track.plexRatingKey ?? "nil")
+        NSLog("CastManager: track.subsonicId=%@, track.jellyfinId=%@, track.plexRatingKey=%@", 
+              track.subsonicId ?? "nil", track.jellyfinId ?? "nil", track.plexRatingKey ?? "nil")
         
-        // Get castable URL
+        // Get castable URL and effective content type
         let castURL: URL
+        var effectiveContentType: String? = track.contentType
         
-        // Check if this is a Subsonic track casting to Sonos - needs proxy due to query string issues
+        // Check if this is a Subsonic/Jellyfin track casting to Sonos - needs proxy due to query string issues
         let needsSubsonicProxy = track.subsonicId != nil && device.type == .sonos
+        let needsJellyfinProxy = track.jellyfinId != nil && device.type == .sonos
         
         if track.url.scheme == "http" || track.url.scheme == "https" {
-            if needsSubsonicProxy {
-                // Subsonic to Sonos: Use proxy to avoid query string issues
-                // Ensure server is running
-                if !LocalMediaServer.shared.isRunning {
-                    do {
-                        try await LocalMediaServer.shared.start()
-                    } catch {
-                        throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
-                    }
-                }
-                
-                // Rewrite localhost first, then register for proxy
-                let rewrittenURL = rewriteLocalhostForCasting(track.url)
-                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL) else {
-                    throw CastError.localServerError("Could not register stream with local media server")
-                }
-                castURL = proxyURL
-                NSLog("CastManager: Using proxy for Subsonic->Sonos: %@", proxyURL.absoluteString)
+            if needsSubsonicProxy || needsJellyfinProxy {
+                // Subsonic/Jellyfin to Sonos: Use proxy with HEAD-based content type detection
+                let result = try await prepareProxyURL(for: track, device: device)
+                castURL = result.url
+                effectiveContentType = result.contentType
+                NSLog("CastManager: Using proxy for Subsonic/Jellyfin->Sonos: %@", castURL.absoluteString)
             } else {
                 // For Plex/remote URLs, ensure token is included
                 if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
@@ -555,16 +681,24 @@ class CastManager {
         var artworkURL: URL?
         if let plexTrack = findPlexTrack(matching: track) {
             artworkURL = PlexManager.shared.artworkURL(thumb: plexTrack.thumb)
-        } else if let coverArtId = track.artworkThumb {
+        } else if track.subsonicId != nil, let coverArtId = track.artworkThumb {
             // Subsonic/Navidrome tracks have artwork via coverArt ID
             if let subsonicArtwork = SubsonicManager.shared.coverArtURL(coverArtId: coverArtId) {
                 artworkURL = rewriteLocalhostForCasting(subsonicArtwork)
             }
+        } else if track.jellyfinId != nil, let imageTag = track.artworkThumb {
+            // Jellyfin track - use server's image URL
+            if let jellyfinArtwork = JellyfinManager.shared.imageURL(itemId: track.jellyfinId!, imageTag: imageTag, size: 300) {
+                artworkURL = rewriteLocalhostForCasting(jellyfinArtwork)
+            }
         }
         
-        // Use audio/flac for Subsonic proxy since that's what Navidrome typically serves
-        // For other sources, use audio/mpeg as a safe default
-        let contentType = needsSubsonicProxy ? "audio/flac" : "audio/mpeg"
+        // Use effective content type (from track or upstream HEAD detection),
+        // otherwise fall back to URL extension detection (works for Plex and local files)
+        let contentType = effectiveContentType ?? Self.detectAudioContentType(for: track.url)
+        
+        // For radio streams cast to Sonos, use x-rincon-mp3radio:// scheme (Fix 10)
+        let finalCastURL = sonosRadioURL(for: castURL, device: device)
         
         let metadata = CastMetadata(
             title: track.title,
@@ -575,9 +709,9 @@ class CastManager {
             contentType: contentType
         )
         
-        NSLog("CastManager: castTrack URL: %@", castURL.absoluteString)
+        NSLog("CastManager: castTrack URL: %@, contentType: %@", finalCastURL.absoluteString, contentType)
         
-        try await cast(to: device, url: castURL, metadata: metadata, startPosition: startPosition)
+        try await cast(to: device, url: finalCastURL, metadata: metadata, startPosition: startPosition)
     }
     
     /// Cast a new track to the already connected device (for next/previous)
@@ -589,13 +723,14 @@ class CastManager {
         // Check if this is a local file (needs loading state due to async registration)
         let isLocalFile = track.url.scheme != "http" && track.url.scheme != "https"
         
-        // Check if Subsonic track to Sonos - also needs loading state since we use proxy
+        // Check if Subsonic/Jellyfin track to Sonos - also needs loading state since we use proxy
         let needsSubsonicProxy = track.subsonicId != nil && session.device.type == .sonos
+        let needsJellyfinProxy = track.jellyfinId != nil && session.device.type == .sonos
         
         // Check if this is a radio station to Sonos - needs loading state for click guarding
         let isRadioToSonos = RadioManager.shared.isActive && session.device.type == .sonos
         
-        let needsLoadingState = isLocalFile || needsSubsonicProxy || isRadioToSonos
+        let needsLoadingState = isLocalFile || needsSubsonicProxy || needsJellyfinProxy || isRadioToSonos
         
         // Increment generation to invalidate any in-flight cast operations
         // This prevents race conditions when user rapidly clicks through tracks
@@ -630,28 +765,21 @@ class CastManager {
             }
         }
         
-        // Get castable URL
+        // Get castable URL and effective content type
         let castURL: URL
+        var effectiveContentType: String? = track.contentType
         if track.url.scheme == "http" || track.url.scheme == "https" {
-            if needsSubsonicProxy {
-                // Subsonic to Sonos: Use proxy to avoid query string issues
-                // Ensure server is running before registering
-                if !LocalMediaServer.shared.isRunning {
-                    do {
-                        try await LocalMediaServer.shared.start()
-                    } catch {
-                        await clearLoadingState()
-                        throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
-                    }
-                }
-                
-                let rewrittenURL = rewriteLocalhostForCasting(track.url)
-                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL) else {
+            if needsSubsonicProxy || needsJellyfinProxy {
+                // Subsonic/Jellyfin to Sonos: Use proxy with HEAD-based content type detection
+                do {
+                    let result = try await prepareProxyURL(for: track, device: session.device)
+                    castURL = result.url
+                    effectiveContentType = result.contentType
+                    NSLog("CastManager: castNewTrack using proxy for Subsonic/Jellyfin->Sonos: %@", castURL.absoluteString)
+                } catch {
                     await clearLoadingState()
-                    throw CastError.localServerError("Could not register stream with local media server")
+                    throw error
                 }
-                castURL = proxyURL
-                NSLog("CastManager: castNewTrack using proxy for Subsonic->Sonos: %@", proxyURL.absoluteString)
             } else if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
                 castURL = rewriteLocalhostForCasting(tokenizedURL)
             } else {
@@ -696,15 +824,24 @@ class CastManager {
         var artworkURL: URL?
         if let plexTrack = findPlexTrack(matching: track) {
             artworkURL = PlexManager.shared.artworkURL(thumb: plexTrack.thumb)
-        } else if let coverArtId = track.artworkThumb {
+        } else if track.subsonicId != nil, let coverArtId = track.artworkThumb {
             // Subsonic/Navidrome tracks have artwork via coverArt ID
             if let subsonicArtwork = SubsonicManager.shared.coverArtURL(coverArtId: coverArtId) {
                 artworkURL = rewriteLocalhostForCasting(subsonicArtwork)
             }
+        } else if track.jellyfinId != nil, let imageTag = track.artworkThumb {
+            // Jellyfin track - use server's image URL
+            if let jellyfinArtwork = JellyfinManager.shared.imageURL(itemId: track.jellyfinId!, imageTag: imageTag, size: 300) {
+                artworkURL = rewriteLocalhostForCasting(jellyfinArtwork)
+            }
         }
         
-        // Use audio/flac for Subsonic proxy since that's what Navidrome typically serves
-        let contentType = needsSubsonicProxy ? "audio/flac" : "audio/mpeg"
+        // Use effective content type (from track or upstream HEAD detection),
+        // otherwise fall back to URL extension detection (works for Plex and local files)
+        let contentType = effectiveContentType ?? Self.detectAudioContentType(for: track.url)
+        
+        // For radio streams cast to Sonos, use x-rincon-mp3radio:// scheme (Fix 10)
+        let finalCastURL = sonosRadioURL(for: castURL, device: session.device)
         
         let metadata = CastMetadata(
             title: track.title,
@@ -715,17 +852,17 @@ class CastManager {
             contentType: contentType
         )
         
-        NSLog("CastManager: Casting new track '%@' to %@", track.title, session.device.name)
+        NSLog("CastManager: Casting new track '%@' to %@, contentType: %@", track.title, session.device.name, contentType)
         
         // Cast to the existing connected device
         // Wrap in do/catch to ensure loading state is cleared on failure
         do {
             switch session.device.type {
             case .chromecast:
-                try await chromecastManager.cast(url: castURL, metadata: metadata)
+                try await chromecastManager.cast(url: finalCastURL, metadata: metadata)
                 
             case .sonos, .dlnaTV:
-                try await upnpManager.cast(url: castURL, metadata: metadata)
+                try await upnpManager.cast(url: finalCastURL, metadata: metadata)
             }
         } catch {
             NSLog("CastManager: castNewTrack '%@' failed: %@", track.title, error.localizedDescription)
@@ -904,6 +1041,88 @@ class CastManager {
         try await cast(to: device, url: castURL, metadata: metadata, startPosition: startPosition)
     }
     
+    /// Cast a Jellyfin movie to a video-capable device
+    /// - Parameters:
+    ///   - movie: The JellyfinMovie to cast
+    ///   - device: Target cast device (must support video)
+    ///   - startPosition: Optional position to resume from (seconds)
+    func castJellyfinMovie(_ movie: JellyfinMovie, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
+        guard device.supportsVideo else {
+            throw CastError.unsupportedDevice
+        }
+        
+        guard let streamURL = JellyfinManager.shared.videoStreamURL(for: movie) else {
+            throw CastError.invalidURL
+        }
+        
+        // Get artwork URL
+        let artworkURL = JellyfinManager.shared.imageURL(itemId: movie.id, imageTag: movie.imageTag, size: 600)
+        
+        let contentType = "video/mp4"
+        
+        let metadata = CastMetadata(
+            title: movie.title,
+            artist: nil,
+            album: nil,
+            artworkURL: artworkURL,
+            duration: movie.duration.map { Double($0) },
+            contentType: contentType,
+            mediaType: .video,
+            resolution: nil,
+            year: movie.year,
+            summary: movie.overview
+        )
+        
+        NSLog("CastManager: Casting Jellyfin movie '%@' to %@", movie.title, device.name)
+        NSLog("CastManager: Cast URL: %@", redactedURL(streamURL))
+        try await cast(to: device, url: streamURL, metadata: metadata, startPosition: startPosition)
+    }
+    
+    /// Cast a Jellyfin episode to a video-capable device
+    /// - Parameters:
+    ///   - episode: The JellyfinEpisode to cast
+    ///   - device: Target cast device (must support video)
+    ///   - startPosition: Optional position to resume from (seconds)
+    func castJellyfinEpisode(_ episode: JellyfinEpisode, to device: CastDevice, startPosition: TimeInterval = 0) async throws {
+        guard device.supportsVideo else {
+            throw CastError.unsupportedDevice
+        }
+        
+        guard let streamURL = JellyfinManager.shared.videoStreamURL(for: episode) else {
+            throw CastError.invalidURL
+        }
+        
+        // Get artwork URL
+        let artworkURL = JellyfinManager.shared.imageURL(itemId: episode.id, imageTag: episode.imageTag, size: 600)
+        
+        // Build title: "Show Name - S01E01 - Episode Title"
+        let title: String
+        if let showName = episode.seriesName {
+            title = "\(showName) - \(episode.episodeIdentifier) - \(episode.title)"
+        } else {
+            title = episode.title
+        }
+        
+        let contentType = "video/mp4"
+        
+        let metadata = CastMetadata(
+            title: title,
+            artist: episode.seriesName,
+            album: episode.seasonName,
+            artworkURL: artworkURL,
+            duration: episode.duration.map { Double($0) },
+            contentType: contentType,
+            mediaType: .video,
+            resolution: nil,
+            year: nil,
+            summary: episode.overview
+        )
+        
+        NSLog("CastManager: Casting Jellyfin episode '%@' to %@", title, device.name)
+        NSLog("CastManager: Cast URL: %@", redactedURL(streamURL))
+        try await cast(to: device, url: streamURL, metadata: metadata, startPosition: startPosition)
+    }
+    
     /// Cast a local video file to a video-capable device
     /// - Parameters:
     ///   - url: Local file URL
@@ -949,6 +1168,26 @@ class CastManager {
     /// Stop casting and disconnect
     func stopCasting() async {
         NSLog("CastManager: Stopping casting")
+        
+        // Stop Sonos polling and topology refresh
+        stopSonosPolling()
+        stopTopologyRefresh()
+        consecutiveFireAndForgetFailures = 0
+        
+        // Ungroup all Sonos member rooms before stopping the coordinator.
+        // This prevents stale group topology that causes SOAP errors on subsequent casts.
+        if upnpManager.activeSession?.device.type == .sonos {
+            let groupRoomUDNs = getRoomsInActiveCastGroup()
+            let coordinatorUDN = upnpManager.activeSession?.device.id
+            for udn in groupRoomUDNs where udn != coordinatorUDN {
+                NSLog("CastManager: Ungrouping room %@ before stop", udn)
+                try? await unjoinSonos(zoneUDN: udn)
+            }
+            if groupRoomUDNs.count > 1 {
+                // Brief delay for Sonos to process ungrouping
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+        }
         
         if chromecastManager.activeSession != nil {
             chromecastManager.stop()
@@ -996,6 +1235,11 @@ class CastManager {
     /// This avoids deadlock when called from applicationWillTerminate on the main thread
     func stopCastingSync() {
         NSLog("CastManager: Stopping casting (sync for termination)")
+        
+        // Stop Sonos polling and topology refresh
+        stopSonosPolling()
+        stopTopologyRefresh()
+        consecutiveFireAndForgetFailures = 0
         
         // Stop Chromecast - these are synchronous
         if chromecastManager.activeSession != nil {
@@ -1161,6 +1405,209 @@ class CastManager {
         } else {
             throw CastError.sessionNotActive
         }
+    }
+    
+    // MARK: - Sonos Playback State Polling (Fix 1)
+    
+    /// Start polling Sonos for playback state and position
+    private func startSonosPolling() {
+        stopSonosPolling()
+        DispatchQueue.main.async {
+            self.sonosPollingTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+                self?.pollSonosState()
+            }
+            RunLoop.main.add(self.sonosPollingTimer!, forMode: .common)
+        }
+    }
+    
+    /// Stop Sonos playback state polling
+    private func stopSonosPolling() {
+        sonosPollingTimer?.invalidate()
+        sonosPollingTimer = nil
+    }
+    
+    /// Poll Sonos transport state and sync position with AudioEngine
+    private func pollSonosState() {
+        Task {
+            guard let result = await upnpManager.pollSonosPlaybackState() else { return }
+            
+            await MainActor.run {
+                let engine = WindowManager.shared.audioEngine
+                guard engine.isCastingActive else { return }
+                
+                switch result.state {
+                case "PLAYING":
+                    // Sync position with actual Sonos position to prevent drift
+                    engine.updateCastPosition(
+                        currentTime: result.position,
+                        isPlaying: true,
+                        isBuffering: false
+                    )
+                case "PAUSED_PLAYBACK":
+                    if engine.state == .playing {
+                        engine.pauseCastPlayback()
+                        NSLog("CastManager: Sonos reported PAUSED (external pause detected)")
+                    }
+                case "STOPPED", "NO_MEDIA_PRESENT":
+                    NSLog("CastManager: Sonos reported %@ - playback ended externally", result.state)
+                    // Don't auto-disconnect, just update state so UI reflects reality
+                    engine.pauseCastPlayback()
+                    NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
+                case "TRANSITIONING":
+                    // Sonos is loading/buffering - don't change state, just wait
+                    break
+                default:
+                    NSLog("CastManager: Unknown Sonos state: %@", result.state)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Mac Sleep/Wake Handling (Fix 8)
+    
+    @objc private func handleWillSleep() {
+        NSLog("CastManager: Mac going to sleep, casting will be interrupted")
+        // Nothing to do proactively -- Sonos will stop on its own when it can't reach the server
+    }
+    
+    @objc private func handleDidWake() {
+        NSLog("CastManager: Mac woke up, checking cast state")
+        guard isCasting else { return }
+        
+        Task {
+            // Wait a moment for network to reconnect
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            
+            // Check if LocalMediaServer IP changed
+            if let oldIP = LocalMediaServer.shared.localIPAddress,
+               let newIP = LocalMediaServer.shared.refreshIPAddress(),
+               oldIP != newIP {
+                NSLog("CastManager: IP changed after wake (%@ -> %@)", oldIP, newIP)
+            }
+            
+            // Poll Sonos to see if it's still playing
+            if let result = await upnpManager.pollSonosPlaybackState() {
+                NSLog("CastManager: Post-wake Sonos state: %@, position: %.1f", result.state, result.position)
+                if result.state == "STOPPED" || result.state == "NO_MEDIA_PRESENT" {
+                    NSLog("CastManager: Sonos stopped during sleep")
+                    await MainActor.run {
+                        WindowManager.shared.audioEngine.pauseCastPlayback()
+                        NotificationCenter.default.post(name: Self.playbackStateDidChangeNotification, object: nil)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Sonos Group Topology Refresh (Fix 9)
+    
+    /// Start periodic group topology refresh during Sonos casting
+    private func startTopologyRefresh() {
+        stopTopologyRefresh()
+        DispatchQueue.main.async {
+            self.topologyRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+                Task {
+                    await self?.refreshSonosGroups()
+                }
+            }
+        }
+    }
+    
+    /// Stop periodic group topology refresh
+    private func stopTopologyRefresh() {
+        topologyRefreshTimer?.invalidate()
+        topologyRefreshTimer = nil
+    }
+    
+    // MARK: - Proxy URL Preparation
+    
+    /// Prepare a proxy URL for casting a Subsonic/Jellyfin track to Sonos.
+    /// Starts LocalMediaServer if needed, rewrites localhost URLs, detects content type
+    /// via upstream HEAD request when track.contentType is nil, and registers the proxy.
+    /// Returns the proxy URL and the effective content type for DIDL-Lite metadata.
+    private func prepareProxyURL(for track: Track, device: CastDevice) async throws -> (url: URL, contentType: String?) {
+        if !LocalMediaServer.shared.isRunning {
+            do {
+                try await LocalMediaServer.shared.start()
+            } catch {
+                throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
+            }
+        }
+        
+        let rewrittenURL = rewriteLocalhostForCasting(track.url)
+        
+        // Detect content type from upstream if track doesn't have it
+        var effectiveContentType = track.contentType
+        if effectiveContentType == nil {
+            effectiveContentType = await detectUpstreamContentType(rewrittenURL)
+            NSLog("CastManager: Detected upstream content type: %@", effectiveContentType ?? "nil")
+        }
+        
+        guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL, contentType: effectiveContentType) else {
+            throw CastError.localServerError("Could not register stream with local media server")
+        }
+        
+        return (proxyURL, effectiveContentType)
+    }
+    
+    /// Send a HEAD request to an upstream URL to detect its Content-Type.
+    /// Returns the MIME type if it starts with "audio/", nil otherwise.
+    private func detectUpstreamContentType(_ url: URL) async -> String? {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse,
+              let ct = http.value(forHTTPHeaderField: "Content-Type"),
+              ct.hasPrefix("audio/") else {
+            NSLog("CastManager: HEAD content type detection failed or returned non-audio for %@", url.host ?? "unknown")
+            return nil
+        }
+        NSLog("CastManager: HEAD response Content-Type: %@", ct)
+        return ct
+    }
+    
+    // MARK: - Content Type Detection (Fix 2)
+    
+    /// Detect audio content type from a file extension string (e.g. "flac" -> "audio/flac")
+    static func detectAudioContentType(forExtension ext: String) -> String {
+        switch ext.lowercased() {
+        case "mp3":                   return "audio/mpeg"
+        case "flac":                  return "audio/flac"
+        case "m4a", "aac":            return "audio/mp4"
+        case "wav":                   return "audio/wav"
+        case "aiff", "aif":          return "audio/aiff"
+        case "ogg":                   return "audio/ogg"
+        case "opus":                  return "audio/opus"
+        case "wma":                   return "audio/x-ms-wma"
+        case "alac":                  return "audio/mp4"
+        default:                      return "audio/mpeg"  // Safe default
+        }
+    }
+    
+    /// Detect audio content type from URL path extension
+    static func detectAudioContentType(for url: URL) -> String {
+        detectAudioContentType(forExtension: url.pathExtension)
+    }
+    
+    // MARK: - Sonos Radio URI (Fix 10)
+    
+    /// Convert HTTP radio stream URL to Sonos x-rincon-mp3radio:// scheme for better buffering
+    private func sonosRadioURL(for url: URL, device: CastDevice) -> URL {
+        // Only for Sonos devices, only for http:// streams, only for radio
+        guard device.type == .sonos,
+              url.scheme == "http" || url.scheme == "https",
+              RadioManager.shared.isActive else {
+            return url
+        }
+        // Replace http:// with x-rincon-mp3radio://
+        var urlString = url.absoluteString
+        if urlString.hasPrefix("http://") {
+            urlString = "x-rincon-mp3radio://" + urlString.dropFirst(7)
+        } else if urlString.hasPrefix("https://") {
+            urlString = "x-rincon-mp3radio://" + urlString.dropFirst(8)
+        }
+        return URL(string: urlString) ?? url
     }
     
     // MARK: - Error Handling

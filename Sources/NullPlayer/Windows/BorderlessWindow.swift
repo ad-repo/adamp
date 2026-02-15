@@ -198,6 +198,13 @@ class BorderlessWindow: NSWindow {
             newFrame.size.height = maxSize.height
         }
         
+        // Round to integer coordinates to prevent sub-pixel accumulation
+        // that can cause 1-2 pixel misalignment between docked windows
+        newFrame.origin.x = round(newFrame.origin.x)
+        newFrame.origin.y = round(newFrame.origin.y)
+        newFrame.size.width = round(newFrame.size.width)
+        newFrame.size.height = round(newFrame.size.height)
+        
         setFrame(newFrame, display: true)
     }
 }

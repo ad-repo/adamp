@@ -169,6 +169,12 @@ class PlexBrowserWindowController: NSWindowController, LibraryBrowserWindowProvi
         browserView.reloadData()
     }
     
+    /// Current browse mode raw value for state save/restore
+    var browseModeRawValue: Int {
+        get { browserView.browseModeRawValue }
+        set { browserView.browseModeRawValue = newValue }
+    }
+    
     /// Show the Plex link sheet
     func showLinkSheet() {
         guard let window = window else { return }

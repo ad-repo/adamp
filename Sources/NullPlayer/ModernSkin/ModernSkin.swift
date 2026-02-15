@@ -192,6 +192,126 @@ class ModernSkin {
     /// Playlist track list text font (default base size 8)
     func playlistFont() -> NSFont { scaledFont(size: config.fonts.playlistSize ?? 8) }
     
+    // MARK: - Title Character Sprites
+    
+    /// Cache for tinted character sprite images, keyed by "{imageKey}_{colorHex}".
+    /// Invalidated on skin change (new ModernSkin instance created).
+    private var tintedImageCache: [String: NSImage] = [:]
+    
+    /// Get a title character sprite image for the given character.
+    ///
+    /// Image key mapping (filesystem-safe -- avoids case collisions on macOS APFS):
+    /// - Uppercase `A-Z` -> `title_upper_A` ... `title_upper_Z`
+    /// - Lowercase `a-z` -> `title_lower_a` ... `title_lower_z` (falls back to uppercase)
+    /// - Digits `0-9` -> `title_char_0` ... `title_char_9`
+    /// - Space -> `title_char_space`
+    /// - Punctuation: `-` -> `title_char_dash`, `.` -> `title_char_dot`, etc.
+    ///
+    /// Returns nil if no sprite is available (caller should fall back to font for this character).
+    func titleCharImage(for character: Character) -> NSImage? {
+        let key = titleCharImageKey(for: character)
+        guard let key = key else { return nil }
+        
+        // Try exact key first
+        if let img = images[key] {
+            return img
+        }
+        
+        // Lowercase fallback: try uppercase version
+        if character.isLowercase, let upper = character.uppercased().first {
+            let upperKey = titleCharImageKey(for: upper)
+            if let upperKey = upperKey, let img = images[upperKey] {
+                return img
+            }
+        }
+        
+        return nil
+    }
+    
+    /// Debug-only: expose key mapping for logging
+    func titleCharImageKey_debug(for character: Character) -> String? {
+        return titleCharImageKey(for: character)
+    }
+    
+    /// Map a character to its image key string.
+    /// Uses `title_upper_` / `title_lower_` prefixes for letters to avoid case collisions
+    /// on macOS's case-insensitive filesystem (APFS default).
+    private func titleCharImageKey(for character: Character) -> String? {
+        switch character {
+        case "A"..."Z":
+            return "title_upper_\(character)"
+        case "a"..."z":
+            return "title_lower_\(character)"
+        case "0"..."9":
+            return "title_char_\(character)"
+        case " ":
+            return "title_char_space"
+        case "-":
+            return "title_char_dash"
+        case ".":
+            return "title_char_dot"
+        case "_":
+            return "title_char_underscore"
+        case ":":
+            return "title_char_colon"
+        case "(":
+            return "title_char_lparen"
+        case ")":
+            return "title_char_rparen"
+        case "[":
+            return "title_char_lbracket"
+        case "]":
+            return "title_char_rbracket"
+        case "&":
+            return "title_char_amp"
+        case "'":
+            return "title_char_apos"
+        case "+":
+            return "title_char_plus"
+        case "#":
+            return "title_char_hash"
+        case "/":
+            return "title_char_slash"
+        default:
+            return nil
+        }
+    }
+    
+    /// Return a tinted copy of an image, using sourceAtop compositing on grayscale sprites.
+    /// Results are cached by "{imageKey}_{colorHex}" to avoid per-frame compositing.
+    /// Returns the original image if tintColor is nil.
+    func tintedImage(_ image: NSImage, key: String, color: NSColor?) -> NSImage {
+        guard let color = color else { return image }
+        
+        // Build cache key from image key + color hex
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        (color.usingColorSpace(.sRGB) ?? color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        let colorHex = String(format: "%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        let cacheKey = "\(key)_\(colorHex)"
+        
+        if let cached = tintedImageCache[cacheKey] {
+            return cached
+        }
+        
+        // Create tinted copy
+        let size = image.size
+        let tinted = NSImage(size: size)
+        tinted.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1.0)
+        color.set()
+        NSRect(origin: .zero, size: size).fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        
+        tintedImageCache[cacheKey] = tinted
+        return tinted
+    }
+    
+    /// Check if this skin has any title character sprites loaded.
+    /// Quick check to avoid sprite compositing attempts when no sprites exist.
+    var hasTitleCharSprites: Bool {
+        images.keys.contains { $0.hasPrefix("title_upper_") || $0.hasPrefix("title_lower_") || $0.hasPrefix("title_char_") }
+    }
+    
     // MARK: - Spectrum Colors
     
     /// Generate spectrum visualization colors from the skin palette.

@@ -121,7 +121,7 @@ See [AGENTS.md](AGENTS.md) for documentation links and key source files.
 
 ## Skins
 
-NullPlayer has two UI modes, selectable from the right-click context menu under **UI Mode**:
+NullPlayer has two UI modes, selectable from the right-click context menu under **Skins**. Switching between modes triggers an automatic restart prompt:
 
 ### Classic Mode
 

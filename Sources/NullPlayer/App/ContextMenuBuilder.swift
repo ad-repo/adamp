@@ -51,6 +51,9 @@ class ContextMenuBuilder {
         // Subsonic submenu
         menu.addItem(buildSubsonicMenuItem())
         
+        // Jellyfin submenu
+        menu.addItem(buildJellyfinMenuItem())
+        
         // Output Devices submenu (includes local, AirPlay, and casting)
         menu.addItem(buildOutputDevicesMenuItem())
         
@@ -1013,6 +1016,119 @@ class ContextMenuBuilder {
         return subsonicItem
     }
     
+    // MARK: - Jellyfin Submenu
+    
+    private static func buildJellyfinMenuItem() -> NSMenuItem {
+        let jellyfinItem = NSMenuItem(title: "Jellyfin", action: nil, keyEquivalent: "")
+        let jellyfinMenu = NSMenu()
+        jellyfinMenu.autoenablesItems = false
+        
+        let servers = JellyfinManager.shared.servers
+        let currentServer = JellyfinManager.shared.currentServer
+        
+        // Add Server / Manage Servers
+        if servers.isEmpty {
+            let addItem = NSMenuItem(title: "Add Server...", action: #selector(MenuActions.addJellyfinServer), keyEquivalent: "")
+            addItem.target = MenuActions.shared
+            jellyfinMenu.addItem(addItem)
+        } else {
+            // Connection status
+            switch JellyfinManager.shared.connectionState {
+            case .connected:
+                if let server = currentServer {
+                    let statusItem = NSMenuItem(title: "✓ Connected to \(server.name)", action: nil, keyEquivalent: "")
+                    jellyfinMenu.addItem(statusItem)
+                }
+            case .connecting:
+                let statusItem = NSMenuItem(title: "Connecting...", action: nil, keyEquivalent: "")
+                jellyfinMenu.addItem(statusItem)
+            case .error:
+                let statusItem = NSMenuItem(title: "⚠ Connection Error", action: nil, keyEquivalent: "")
+                jellyfinMenu.addItem(statusItem)
+            case .disconnected:
+                let statusItem = NSMenuItem(title: "Not Connected", action: nil, keyEquivalent: "")
+                jellyfinMenu.addItem(statusItem)
+            }
+            
+            jellyfinMenu.addItem(NSMenuItem.separator())
+            
+            // Servers submenu
+            let serversItem = NSMenuItem(title: "Servers", action: nil, keyEquivalent: "")
+            let serversMenu = NSMenu()
+            serversMenu.autoenablesItems = false
+            
+            for server in servers {
+                let serverItem = NSMenuItem(title: server.name, action: #selector(MenuActions.selectJellyfinServer(_:)), keyEquivalent: "")
+                serverItem.target = MenuActions.shared
+                serverItem.representedObject = server.id
+                serverItem.state = server.id == currentServer?.id ? .on : .off
+                serversMenu.addItem(serverItem)
+            }
+            
+            serversMenu.addItem(NSMenuItem.separator())
+            
+            let addServerItem = NSMenuItem(title: "Add Server...", action: #selector(MenuActions.addJellyfinServer), keyEquivalent: "")
+            addServerItem.target = MenuActions.shared
+            serversMenu.addItem(addServerItem)
+            
+            let manageItem = NSMenuItem(title: "Manage Servers...", action: #selector(MenuActions.manageJellyfinServers), keyEquivalent: "")
+            manageItem.target = MenuActions.shared
+            serversMenu.addItem(manageItem)
+            
+            serversItem.submenu = serversMenu
+            jellyfinMenu.addItem(serversItem)
+            
+            jellyfinMenu.addItem(NSMenuItem.separator())
+            
+            // Disconnect option (if connected)
+            if currentServer != nil {
+                let disconnectItem = NSMenuItem(title: "Disconnect", action: #selector(MenuActions.disconnectJellyfin), keyEquivalent: "")
+                disconnectItem.target = MenuActions.shared
+                jellyfinMenu.addItem(disconnectItem)
+                
+                jellyfinMenu.addItem(NSMenuItem.separator())
+            }
+        }
+        
+        // Video libraries submenu (if multiple video libraries)
+        let videoLibs = JellyfinManager.shared.videoLibraries
+        if videoLibs.count > 1 {
+            let videoLibItem = NSMenuItem(title: "Video Libraries", action: nil, keyEquivalent: "")
+            let videoLibMenu = NSMenu()
+            videoLibMenu.autoenablesItems = false
+            
+            for lib in videoLibs {
+                let libItem = NSMenuItem(title: lib.name, action: #selector(MenuActions.selectJellyfinVideoLibrary(_:)), keyEquivalent: "")
+                libItem.target = MenuActions.shared
+                libItem.representedObject = lib.id
+                let isMovieLib = lib.id == JellyfinManager.shared.currentMovieLibrary?.id
+                let isShowLib = lib.id == JellyfinManager.shared.currentShowLibrary?.id
+                libItem.state = (isMovieLib || isShowLib) ? .on : .off
+                videoLibMenu.addItem(libItem)
+            }
+            
+            videoLibItem.submenu = videoLibMenu
+            jellyfinMenu.addItem(videoLibItem)
+            
+            jellyfinMenu.addItem(NSMenuItem.separator())
+        }
+        
+        // Refresh Library
+        let refreshItem = NSMenuItem(title: "Refresh Library", action: #selector(MenuActions.refreshJellyfinLibrary), keyEquivalent: "")
+        refreshItem.target = MenuActions.shared
+        refreshItem.isEnabled = currentServer != nil
+        jellyfinMenu.addItem(refreshItem)
+        
+        // Show in Browser
+        let browserItem = NSMenuItem(title: "Show in Library Browser", action: #selector(MenuActions.showJellyfinInBrowser), keyEquivalent: "")
+        browserItem.target = MenuActions.shared
+        browserItem.isEnabled = currentServer != nil
+        jellyfinMenu.addItem(browserItem)
+        
+        jellyfinItem.submenu = jellyfinMenu
+        return jellyfinItem
+    }
+    
     // MARK: - Output Devices Submenu (Unified)
     
     /// Public access to the output devices menu (used by modern skin CAST button)
@@ -1286,10 +1402,30 @@ class SonosRoomCheckboxView: NSView {
                         let isCoordinator = info.roomUDN == castManager.activeSession?.device.id
                         
                         if isCoordinator {
-                            // Unchecking the coordinator - must stop casting
-                            // User can restart casting with a different room selected
-                            NSLog("SonosRoomCheckboxView: Unchecking coordinator '%@' - stopping cast", info.roomName)
-                            await castManager.stopCasting()
+                            // Unchecking the coordinator - check if other rooms remain
+                            let groupRooms = castManager.getRoomsInActiveCastGroup()
+                            let otherRooms = groupRooms.filter { $0 != info.roomUDN }
+                            
+                            if otherRooms.isEmpty {
+                                // Only room in group - just stop casting
+                                NSLog("SonosRoomCheckboxView: Unchecking sole coordinator '%@' - stopping cast", info.roomName)
+                                await castManager.stopCasting()
+                            } else {
+                                // Transfer playback to next remaining room
+                                let newCoordinator = otherRooms[0]
+                                let remainingOthers = Array(otherRooms.dropFirst())
+                                NSLog("SonosRoomCheckboxView: Transferring cast from '%@' to room %@ (+%d others)",
+                                      info.roomName, newCoordinator, remainingOthers.count)
+                                try await castManager.transferSonosCast(
+                                    fromCoordinator: info.roomUDN,
+                                    toRoom: newCoordinator,
+                                    otherRooms: remainingOthers
+                                )
+                            }
+                            // Close menu after coordinator change to force UI refresh on next open
+                            await MainActor.run {
+                                self.parentMenu?.cancelTracking()
+                            }
                             return
                         }
                         
@@ -1641,6 +1777,12 @@ class MenuActions: NSObject {
             return
         }
         
+        // Check if this is a Jellyfin track
+        if let jellyfinId = track.jellyfinId {
+            showJellyfinTrackInfo(track, jellyfinId: jellyfinId)
+            return
+        }
+        
         // Local file
         showLocalTrackInfo(track)
     }
@@ -1753,6 +1895,35 @@ class MenuActions: NSObject {
         alert.runModal()
     }
     
+    private func showJellyfinTrackInfo(_ track: Track, jellyfinId: String) {
+        let alert = NSAlert()
+        alert.messageText = track.displayTitle
+        
+        var info = [String]()
+        
+        info.append("Title: \(track.title)")
+        if let artist = track.artist { info.append("Artist: \(artist)") }
+        if let album = track.album { info.append("Album: \(album)") }
+        info.append("")
+        
+        info.append("Duration: \(track.formattedDuration)")
+        if let bitrate = track.bitrate { info.append("Bitrate: \(bitrate) kbps") }
+        if let sampleRate = track.sampleRate { info.append("Sample Rate: \(sampleRate) Hz") }
+        if let channels = track.channels { info.append("Channels: \(formatChannels(channels))") }
+        info.append("")
+        
+        // Source
+        if let serverName = JellyfinManager.shared.currentServer?.name {
+            info.append("Source: Jellyfin (\(serverName))")
+        } else {
+            info.append("Source: Jellyfin")
+        }
+        info.append("Track ID: \(jellyfinId)")
+        
+        alert.informativeText = info.joined(separator: "\n")
+        alert.runModal()
+    }
+    
     private func showLocalTrackInfo(_ track: Track) {
         let alert = NSAlert()
         alert.messageText = track.displayTitle
@@ -1847,7 +2018,11 @@ class MenuActions: NSObject {
         if wm.isModernUIEnabled {
             // Switch to classic mode with default skin on next launch
             wm.isModernUIEnabled = false
-            showRestartAlert()
+            if !showRestartAlert() {
+                // User cancelled — revert
+                wm.isModernUIEnabled = true
+                UserDefaults.standard.removeObject(forKey: "lastClassicSkinPath")
+            }
         } else {
             // Already in classic mode - load bundled default skin now
             wm.loadBundledDefaultSkin()
@@ -1878,12 +2053,21 @@ class MenuActions: NSObject {
         let wm = WindowManager.shared
         
         // Persist the last used classic skin path
+        let previousSkinPath = UserDefaults.standard.string(forKey: "lastClassicSkinPath")
         UserDefaults.standard.set(url.path, forKey: "lastClassicSkinPath")
         
         if wm.isModernUIEnabled {
             // Switch to classic mode and load this skin on next launch
             wm.isModernUIEnabled = false
-            showRestartAlert()
+            if !showRestartAlert() {
+                // User cancelled — revert
+                wm.isModernUIEnabled = true
+                if let previousSkinPath = previousSkinPath {
+                    UserDefaults.standard.set(previousSkinPath, forKey: "lastClassicSkinPath")
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "lastClassicSkinPath")
+                }
+            }
         } else {
             // Already in classic mode — load the skin immediately
             wm.loadSkin(from: url)
@@ -1897,12 +2081,21 @@ class MenuActions: NSObject {
         
         // Persist the selected modern skin name (ModernSkinEngine does this too, but
         // we need it set before restart when switching from classic mode)
+        let previousSkinName = UserDefaults.standard.string(forKey: "modernSkinName")
         UserDefaults.standard.set(name, forKey: "modernSkinName")
         
         if !wm.isModernUIEnabled {
             // Switch to modern mode — skin will load on next launch
             wm.isModernUIEnabled = true
-            showRestartAlert()
+            if !showRestartAlert() {
+                // User cancelled — revert
+                wm.isModernUIEnabled = false
+                if let previousSkinName = previousSkinName {
+                    UserDefaults.standard.set(previousSkinName, forKey: "modernSkinName")
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "modernSkinName")
+                }
+            }
         } else {
             // Already in modern mode — load the skin immediately
             ModernSkinEngine.shared.loadSkin(named: name)
@@ -1917,21 +2110,51 @@ class MenuActions: NSObject {
     
     @objc func setClassicMode() {
         WindowManager.shared.isModernUIEnabled = false
-        showRestartAlert()
+        if !showRestartAlert() {
+            // User cancelled — revert
+            WindowManager.shared.isModernUIEnabled = true
+        }
     }
     
     @objc func setModernMode() {
         WindowManager.shared.isModernUIEnabled = true
-        showRestartAlert()
+        if !showRestartAlert() {
+            // User cancelled — revert
+            WindowManager.shared.isModernUIEnabled = false
+        }
     }
     
-    private func showRestartAlert() {
+    /// Shows a restart confirmation alert. Returns `true` if the user confirmed and the app is restarting.
+    @discardableResult
+    private func showRestartAlert() -> Bool {
         let alert = NSAlert()
         alert.messageText = "Restart Required"
-        alert.informativeText = "The UI mode change will take effect after restarting NullPlayer."
+        alert.informativeText = "NullPlayer needs to restart to apply the UI mode change. Restart now?"
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        alert.addButton(withTitle: "Restart")
+        alert.addButton(withTitle: "Cancel")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            // User confirmed — relaunch the app
+            relaunchApp()
+            return true
+        }
+        return false
+    }
+    
+    /// Relaunch the application by opening a new instance and terminating the current one.
+    private func relaunchApp() {
+        guard let bundleURL = Bundle.main.bundleURL as URL? else { return }
+        
+        // Use a small delay so the current process can begin terminating
+        // before the new instance tries to launch
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.5; open \"\(bundleURL.path)\""]
+        try? task.run()
+        
+        NSApp.terminate(nil)
     }
     
     // MARK: - Options
@@ -2282,6 +2505,59 @@ class MenuActions: NSObject {
             name: NSNotification.Name("SetBrowserSource"),
             object: BrowserSource.subsonic(serverId: serverId)
         )
+    }
+    
+    // MARK: - Jellyfin
+    
+    @objc func addJellyfinServer() {
+        WindowManager.shared.showJellyfinLinkSheet()
+    }
+    
+    @objc func manageJellyfinServers() {
+        WindowManager.shared.showJellyfinServerList()
+    }
+    
+    @objc func selectJellyfinServer(_ sender: NSMenuItem) {
+        guard let serverID = sender.representedObject as? String,
+              let server = JellyfinManager.shared.servers.first(where: { $0.id == serverID }) else { return }
+        Task {
+            do {
+                try await JellyfinManager.shared.connect(to: server)
+                await MainActor.run { NotificationCenter.default.post(name: JellyfinManager.serversDidChangeNotification, object: nil) }
+            } catch {
+                await MainActor.run { let a = NSAlert(); a.messageText = "Failed to Connect"; a.informativeText = error.localizedDescription; a.runModal() }
+            }
+        }
+    }
+    
+    @objc func disconnectJellyfin() {
+        JellyfinManager.shared.disconnect()
+        NotificationCenter.default.post(name: JellyfinManager.connectionStateDidChangeNotification, object: nil)
+    }
+    
+    @objc func refreshJellyfinLibrary() {
+        Task { await JellyfinManager.shared.preloadLibraryContent() }
+    }
+    
+    @objc func showJellyfinInBrowser() {
+        // Show the library browser with Jellyfin source selected
+        guard let serverId = JellyfinManager.shared.currentServer?.id else { return }
+        
+        WindowManager.shared.showPlexBrowser()
+        
+        // Set the browser source to Jellyfin
+        NotificationCenter.default.post(
+            name: NSNotification.Name("SetBrowserSource"),
+            object: BrowserSource.jellyfin(serverId: serverId)
+        )
+    }
+    
+    @objc func selectJellyfinVideoLibrary(_ sender: NSMenuItem) {
+        guard let libId = sender.representedObject as? String,
+              let lib = JellyfinManager.shared.videoLibraries.first(where: { $0.id == libId }) else { return }
+        // Select for both movie and show (Jellyfin video libs can contain both)
+        JellyfinManager.shared.selectMovieLibrary(lib)
+        JellyfinManager.shared.selectShowLibrary(lib)
     }
     
     // MARK: - Output Device

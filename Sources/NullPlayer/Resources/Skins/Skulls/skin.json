@@ -1,0 +1,44 @@
+{
+    "meta": {
+        "name": "Skulls",
+        "author": "NullPlayer",
+        "version": "1.0",
+        "description": "Lo-fi stereo receiver skin with bitmap title text and amber VFD display"
+    },
+    "titleText": {
+        "mode": "image",
+        "charSpacing": 2,
+        "charHeight": 10,
+        "alignment": "center",
+        "decorationLeft": "title_decoration_skull",
+        "decorationRight": "title_decoration_skull",
+        "decorationSpacing": 5
+    },
+    "palette": {
+        "primary": "#a0a0a0",
+        "secondary": "#808080",
+        "accent": "#e0a030",
+        "highlight": "#d4cfc0",
+        "background": "#2a2a2e",
+        "surface": "#1a1a1e",
+        "text": "#a0a0a0",
+        "textDim": "#606060",
+        "border": "#a0a0a0",
+        "timeColor": "#e0a030",
+        "marqueeColor": "#40c8b0",
+        "dataColor": "#e0a030"
+    },
+    "fonts": {
+        "primaryName": "DepartureMono-Regular",
+        "fallbackName": "Menlo"
+    },
+    "background": {},
+    "glow": {
+        "enabled": false
+    },
+    "window": {
+        "borderWidth": 1,
+        "cornerRadius": 0,
+        "seamlessDocking": 0.8
+    }
+}

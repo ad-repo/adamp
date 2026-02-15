@@ -972,6 +972,9 @@ class AudioEngine {
             
             // Report resume to Subsonic
             SubsonicPlaybackReporter.shared.trackResumed()
+            
+            // Report resume to Jellyfin
+            JellyfinPlaybackReporter.shared.trackResumed()
         } else {
             // Local file playback via AVAudioEngine
             // Ensure we have a valid audio file loaded before attempting to play
@@ -1001,6 +1004,9 @@ class AudioEngine {
                 
                 // Report resume to Subsonic
                 SubsonicPlaybackReporter.shared.trackResumed()
+                
+                // Report resume to Jellyfin
+                JellyfinPlaybackReporter.shared.trackResumed()
             } catch {
                 print("Failed to start audio engine: \(error)")
             }
@@ -1058,6 +1064,9 @@ class AudioEngine {
         
         // Report pause to Subsonic
         SubsonicPlaybackReporter.shared.trackPaused()
+        
+        // Report pause to Jellyfin
+        JellyfinPlaybackReporter.shared.trackPaused()
     }
     
     func stop() {
@@ -1093,6 +1102,10 @@ class AudioEngine {
             streamingPlayer?.stop()
         } else {
             playerNode.stop()
+            // Also stop crossfade player and reset to playerNode as primary
+            crossfadePlayerNode.stop()
+            crossfadePlayerNode.volume = 0
+            crossfadePlayerIsActive = false
         }
         
         playbackStartDate = nil
@@ -1106,6 +1119,9 @@ class AudioEngine {
         
         // Report stop to Subsonic
         SubsonicPlaybackReporter.shared.trackStopped()
+        
+        // Report stop to Jellyfin
+        JellyfinPlaybackReporter.shared.trackStopped()
         
         // Clear spectrum analyzer
         clearSpectrum()
@@ -1430,6 +1446,14 @@ class AudioEngine {
             guard let file = audioFile else { return }
             
             let wasPlaying = state == .playing
+            
+            // Ensure crossfade player is stopped and reset to playerNode as primary
+            // (after a completed crossfade, crossfadePlayerNode may be the active player)
+            if crossfadePlayerIsActive {
+                crossfadePlayerNode.stop()
+                crossfadePlayerNode.volume = 0
+                crossfadePlayerIsActive = false
+            }
             
             _currentTime = seekTime
             lastReportedTime = seekTime  // Keep in sync
@@ -1768,6 +1792,18 @@ class AudioEngine {
                 )
             }
             
+            // Update Jellyfin playback position (for scrobbling)
+            if let track = self.currentTrack,
+               let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId {
+                JellyfinPlaybackReporter.shared.updatePlayback(
+                    trackId: jellyfinId,
+                    serverId: serverId,
+                    position: current,
+                    duration: trackDuration
+                )
+            }
+            
             // Decay spectrum when not playing locally (casting or stopped)
             if self.isCastingActive || self.state != .playing {
                 self.decaySpectrum()
@@ -2092,6 +2128,27 @@ class AudioEngine {
         delegate?.audioEngineDidChangePlaylist()
     }
     
+    /// Set the playlist from pre-built Track objects without starting playback.
+    /// Unlike setPlaylistFiles (which takes URLs), this accepts Track objects directly,
+    /// preserving metadata and streaming IDs. Used by state restoration to maintain
+    /// playlist ordering when mixing local and streaming tracks.
+    func setPlaylistTracks(_ tracks: [Track]) {
+        NSLog("setPlaylistTracks: %d tracks", tracks.count)
+        playlist.removeAll()
+        playlist.append(contentsOf: tracks)
+        currentIndex = -1  // No track selected
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
+    /// Replace a track at a specific index without affecting playback.
+    /// Used to swap placeholder tracks with fully-resolved streaming tracks
+    /// during state restoration.
+    func replaceTrack(at index: Int, with track: Track) {
+        guard index >= 0 && index < playlist.count else { return }
+        playlist[index] = track
+        delegate?.audioEngineDidChangePlaylist()
+    }
+    
     /// Insert tracks immediately after the current position.
     /// If nothing is playing (currentIndex == -1), inserts at index 0.
     /// Starts playback if playlist was empty and startPlaybackIfEmpty is true.
@@ -2334,6 +2391,12 @@ class AudioEngine {
         stopStreamingPlayer()
         isStreamingPlayback = false
         
+        // Ensure crossfade player is stopped and reset to playerNode as primary
+        // (after a completed crossfade, crossfadePlayerNode may still be playing)
+        crossfadePlayerNode.stop()
+        crossfadePlayerNode.volume = 0
+        crossfadePlayerIsActive = false
+        
         // Reset AudioEngine's adaptive normalization peaks for clean start
         // When streaming was active, AudioEngine just forwarded StreamingAudioPlayer's
         // pre-normalized data without updating its own peaks. These stale peaks
@@ -2395,6 +2458,13 @@ class AudioEngine {
                let serverId = track.subsonicServerId,
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
+            }
+            
+            // Report track start to Jellyfin
+            if let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
             }
             
             NSLog("loadLocalTrack: file scheduled, EQ bypass = %d, normGain = %.2f", eqNode.bypass, normalizationGain)
@@ -2510,6 +2580,13 @@ class AudioEngine {
             SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
         }
         
+        // Report track start to Jellyfin
+        if let jellyfinId = track.jellyfinId,
+           let serverId = track.jellyfinServerId,
+           let trackDuration = track.duration {
+            JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
+        }
+        
         NSLog("  Created StreamingAudioPlayer, starting playback with EQ")
     }
     
@@ -2545,12 +2622,22 @@ class AudioEngine {
     }
     
     private func trackDidFinish() {
+        // Safety guard: if a crossfade is in progress, ignore stray completion callbacks
+        // (the crossfade handles the transition via completeCrossfade/completeStreamingCrossfade)
+        guard !isCrossfading else {
+            NSLog("trackDidFinish: Ignoring during crossfade")
+            return
+        }
+        
         // Report track finished to Plex (natural end)
         let finishPosition = duration
         PlexPlaybackReporter.shared.trackDidStop(at: finishPosition, finished: true)
         
         // Report track finished to Subsonic (track stopped is called since it finished)
         SubsonicPlaybackReporter.shared.trackStopped()
+        
+        // Report stop to Jellyfin
+        JellyfinPlaybackReporter.shared.trackStopped()
         
         // Check if we have a gaplessly pre-scheduled next track (local files)
         if gaplessPlaybackEnabled && nextScheduledFile != nil && nextScheduledTrackIndex >= 0 {
@@ -2577,6 +2664,14 @@ class AudioEngine {
                let serverId = track.subsonicServerId,
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
+            }
+            
+            // Report track start to Jellyfin
+            if let track = currentTrack,
+               let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
             }
             
             // Apply normalization for the new track
@@ -2616,6 +2711,14 @@ class AudioEngine {
                let serverId = track.subsonicServerId,
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
+            }
+            
+            // Report track start to Jellyfin
+            if let track = currentTrack,
+               let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
             }
             
             // Schedule the next track for gapless
@@ -2790,16 +2893,23 @@ class AudioEngine {
         do {
             let nextFile = try AVAudioFile(forReading: nextTrack.url)
             
+            // Invalidate the outgoing player's completion handler from loadLocalTrack()
+            // so it doesn't call trackDidFinish() when the outgoing track's audio finishes
+            playbackGeneration += 1
+            let currentGeneration = playbackGeneration
+            
             // Determine which player is currently active and which will be the crossfade target
             let outgoingPlayer = crossfadePlayerIsActive ? crossfadePlayerNode : playerNode
             let incomingPlayer = crossfadePlayerIsActive ? playerNode : crossfadePlayerNode
             
-            // Schedule on incoming player
+            // Schedule on incoming player with proper completion handler
+            // Uses .dataPlayedBack so trackDidFinish fires when this track ends after crossfade
             incomingPlayer.stop()
             incomingPlayer.volume = 0
-            incomingPlayer.scheduleFile(nextFile, at: nil) {
-                // This fires when the incoming track finishes
-                // We handle track completion in completeCrossfade
+            incomingPlayer.scheduleFile(nextFile, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.handlePlaybackComplete(generation: currentGeneration)
+                }
             }
             
             // Start the incoming player
@@ -2833,6 +2943,9 @@ class AudioEngine {
     
     /// Start crossfade for streaming playback
     private func startStreamingCrossfade(to nextTrack: Track, nextIndex: Int) {
+        // Invalidate any stale completion handlers (defense-in-depth for streaming path)
+        playbackGeneration += 1
+        
         // Create secondary streaming player if needed
         if crossfadeStreamingPlayer == nil {
             crossfadeStreamingPlayer = StreamingAudioPlayer()
@@ -2949,6 +3062,13 @@ class AudioEngine {
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
             }
+            
+            // Report track start to Jellyfin
+            if let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
+            }
         }
         
         // Apply normalization for new track
@@ -2966,7 +3086,9 @@ class AudioEngine {
     
     /// Complete streaming crossfade
     private func completeStreamingCrossfade(nextIndex: Int) {
-        // Stop outgoing player
+        // Nil delegate BEFORE stopping to prevent stale synchronous callbacks
+        // (stop can trigger .stopped state change on the delegate)
+        streamingPlayer?.delegate = nil
         streamingPlayer?.stop()
         
         // Swap players - crossfade player becomes primary
@@ -2976,7 +3098,7 @@ class AudioEngine {
         
         // Set delegate on new primary player
         streamingPlayer?.delegate = self
-        crossfadeStreamingPlayer?.delegate = nil
+        // crossfadeStreamingPlayer (old primary) already has nil delegate from above
         
         // Restore primary player to master volume (crossfade ended at masterVolume * 1.0)
         streamingPlayer?.volume = volume
@@ -3004,6 +3126,13 @@ class AudioEngine {
                let trackDuration = track.duration {
                 SubsonicPlaybackReporter.shared.trackStarted(trackId: subsonicId, serverId: serverId, duration: trackDuration)
             }
+            
+            // Report track start to Jellyfin
+            if let jellyfinId = track.jellyfinId,
+               let serverId = track.jellyfinServerId,
+               let trackDuration = track.duration {
+                JellyfinPlaybackReporter.shared.trackStarted(trackId: jellyfinId, serverId: serverId, duration: trackDuration)
+            }
         }
         
         NSLog("Sweet Fades: Streaming crossfade complete, now playing: %@", currentTrack?.title ?? "Unknown")
@@ -3015,6 +3144,10 @@ class AudioEngine {
         
         crossfadeTimer?.invalidate()
         crossfadeTimer = nil
+        
+        // Invalidate any completion handlers from the crossfade immediately
+        // (defense-in-depth: callers also increment generation, but this closes any gap)
+        playbackGeneration += 1
         
         // Stop incoming track/player
         if isStreamingPlayback {
@@ -3035,6 +3168,8 @@ class AudioEngine {
         
         isCrossfading = false
         crossfadeTargetIndex = -1
+        // Reset to playerNode as primary (crossfade was incomplete, outgoing player continues)
+        crossfadePlayerIsActive = false
         NSLog("Sweet Fades: Crossfade cancelled")
     }
     
@@ -3272,6 +3407,9 @@ class AudioEngine {
         // Stop Subsonic playback tracking
         SubsonicPlaybackReporter.shared.trackStopped()
         
+        // Report stop to Jellyfin
+        JellyfinPlaybackReporter.shared.trackStopped()
+        
         NSLog("clearPlaylist: done, playlist count=%d", playlist.count)
         delegate?.audioEngineDidChangePlaylist()
     }
@@ -3467,6 +3605,18 @@ class AudioEngine {
 
 extension AudioEngine: StreamingAudioPlayerDelegate {
     func streamingPlayerDidChangeState(_ state: AudioPlayerState) {
+        // During crossfade, ignore stopped/error from the outgoing player
+        // to prevent corrupting playback state mid-crossfade
+        if isCrossfading {
+            switch state {
+            case .stopped, .error:
+                NSLog("AudioEngine: Ignoring streaming state %@ during crossfade", String(describing: state))
+                return
+            default:
+                break
+            }
+        }
+        
         // Map AudioStreaming state to our PlaybackState
         switch state {
         case .playing:
@@ -3512,6 +3662,13 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
         // is set before stopping and cleared after the new track starts.
         guard !isLoadingNewStreamingTrack else {
             NSLog("AudioEngine: Ignoring EOF during track switch")
+            return
+        }
+        
+        // During crossfade, the outgoing streaming player fires EOF - ignore it
+        // (the crossfade handles the transition via completeStreamingCrossfade)
+        guard !isCrossfading else {
+            NSLog("AudioEngine: Ignoring streaming EOF during crossfade")
             return
         }
         
@@ -3581,6 +3738,8 @@ extension AudioEngine: StreamingAudioPlayerDelegate {
                 plexRatingKey: track.plexRatingKey,
                 subsonicId: track.subsonicId,
                 subsonicServerId: track.subsonicServerId,
+                jellyfinId: track.jellyfinId,
+                jellyfinServerId: track.jellyfinServerId,
                 artworkThumb: track.artworkThumb,
                 mediaType: track.mediaType,
                 genre: track.genre
