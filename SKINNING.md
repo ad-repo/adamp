@@ -587,14 +587,14 @@ images/
 
 Both time digits and character sprites are rendered with nearest-neighbor interpolation for crisp pixel art.
 
-### Example: Stereo Gear Skin
+### Example: Skulls Skin
 
-The bundled "Stereo Gear" skin demonstrates the full image-based title text system:
+The bundled "Skulls" skin demonstrates the full image-based title text system:
 
 ```json
 {
     "meta": {
-        "name": "Stereo Gear",
+        "name": "Skulls",
         "author": "NullPlayer",
         "version": "1.0",
         "description": "Lo-fi stereo receiver skin with bitmap title text and amber VFD display"
@@ -635,7 +635,7 @@ It includes:
 - **Beveled transport buttons** (28x24) with pressed states
 - **Silver seek/volume thumbs** (6x6)
 
-All assets are generated programmatically by `scripts/generate_stereo_skin.swift` -- run `swift scripts/generate_stereo_skin.swift` to regenerate them.
+All assets are generated programmatically by `scripts/generate_skulls_skin.swift` -- run `swift scripts/generate_skulls_skin.swift` to regenerate them.
 
 ---
 

@@ -5,7 +5,7 @@
 //
 // Produces pure-white 7x11 pixel-art character sprites (A-Z, 0-9, punctuation).
 // At runtime, the renderer tints these to NeonWave's cyan (#00ffcc) via titleText.tintColor.
-// Uses the same bold pixel font as StereoGear for a consistent retro aesthetic.
+// Uses the same bold pixel font as the Skulls skin for a consistent retro aesthetic.
 
 import AppKit
 import Foundation
@@ -52,7 +52,7 @@ func clearBitmap(_ rep: NSBitmapImageRep) {
 
 /// Each character is 7-wide x 11-tall, stored as 11 rows of UInt8 (bits 6..0 = pixels left-to-right).
 /// Bold/thick strokes (2px wide) for a distinctive retro look.
-/// Same font data as StereoGear -- shared aesthetic across bundled skins.
+/// Same font data as the Skulls skin -- shared aesthetic across bundled skins.
 let pixelFont: [Character: [UInt8]] = [
     "A": [0b0011100, 0b0111110, 0b1100011, 0b1100011, 0b1100011, 0b1111111, 0b1111111, 0b1100011, 0b1100011, 0b1100011, 0b1100011],
     "B": [0b1111100, 0b1111110, 0b1100011, 0b1100011, 0b1111100, 0b1111110, 0b1100011, 0b1100011, 0b1100011, 0b1111110, 0b1111100],

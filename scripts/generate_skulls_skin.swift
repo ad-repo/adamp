@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
-// generate_stereo_skin.swift
-// Generates PNG assets for the StereoGear modern skin.
-// Run: swift scripts/generate_stereo_skin.swift
+// generate_skulls_skin.swift
+// Generates PNG assets for the Skulls modern skin.
+// Run: swift scripts/generate_skulls_skin.swift
 //
 // Produces pixel-art style images with no antialiasing:
 // - Character sprites (A-Z, a-z, 0-9, space, punctuation) in cream/silver
@@ -298,6 +298,42 @@ func renderTransportButton(icon: String, pressed: Bool) -> NSBitmapImageRep {
     return rep
 }
 
+// MARK: - Skull Decoration Sprite (11x11)
+
+/// 11-wide x 11-tall skull for title bar decorations. Uses UInt16 rows (bits 10..0 = pixels left-to-right).
+/// Larger than the 7-wide font glyphs for better readability at small sizes.
+/// Features: 2px-wide eye sockets, bold nose, clear alternating teeth.
+let skullW = 11
+let skullH = 11
+let skullRows: [UInt16] = [
+    0b00111111100,  // ..#######..  cranium top
+    0b01111111110,  // .#########.  cranium
+    0b11111111111,  // ###########  cranium full
+    0b11001110011,  // ##..###..##  eye sockets (2px wide)
+    0b11001110011,  // ##..###..##  eye sockets (2px tall)
+    0b11111111111,  // ###########  bridge
+    0b11110101111,  // ####.#.####  nose
+    0b01111111110,  // .#########.  upper jaw
+    0b01010101010,  // .#.#.#.#.#.  teeth
+    0b00111111100,  // ..#######..  lower jaw
+    0b00011111000,  // ...#####...  chin
+]
+
+func renderSkullSprite(color: (Int, Int, Int)) -> NSBitmapImageRep {
+    let rep = createBitmap(width: skullW, height: skullH)
+    clearBitmap(rep)
+    
+    for row in 0..<skullH {
+        let bits = skullRows[row]
+        for col in 0..<skullW {
+            if bits & (1 << (10 - col)) != 0 {
+                setPixel(rep, x: col, y: row, color)
+            }
+        }
+    }
+    return rep
+}
+
 // MARK: - Seek/Volume Thumb (6x6)
 
 func renderThumb() -> NSBitmapImageRep {
@@ -320,13 +356,13 @@ let outputDir: String
 if CommandLine.arguments.count > 1 {
     outputDir = CommandLine.arguments[1]
 } else {
-    outputDir = "Sources/NullPlayer/Resources/Skins/StereoGear/images"
+    outputDir = "Sources/NullPlayer/Resources/Skins/Skulls/images"
 }
 
 // Create output directory
 try! FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
 
-print("Generating StereoGear skin assets to: \(outputDir)")
+print("Generating Skulls skin assets to: \(outputDir)")
 
 // Character-to-filename mapping (filesystem-safe: no case collisions on macOS APFS)
 func charFilename(_ c: Character) -> String {
@@ -382,4 +418,8 @@ print("\n--- Thumbs ---")
 savePNG(renderThumb(), to: "\(outputDir)/seek_thumb_normal.png")
 savePNG(renderThumb(), to: "\(outputDir)/volume_thumb_normal.png")
 
-print("\nDone! Generated \(pixelFont.count + 12 + 12 + 2) assets.")
+// 5. Title decoration sprites
+print("\n--- Title Decorations ---")
+savePNG(renderSkullSprite(color: C.cream), to: "\(outputDir)/title_decoration_skull.png")
+
+print("\nDone! Generated \(pixelFont.count + 12 + 12 + 2 + 1) assets.")

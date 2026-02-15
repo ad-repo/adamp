@@ -178,6 +178,16 @@ struct TitleTextConfig: Codable {
     /// Vertical nudge in base coordinates (default 0, positive = up)
     let verticalOffset: CGFloat?
     
+    /// Image key for decoration sprite drawn to the left of the title text (nil = none).
+    /// The image is loaded via `skin.image(for:)` and drawn at `charHeight`, preserving aspect ratio.
+    let decorationLeft: String?
+    
+    /// Image key for decoration sprite drawn to the right of the title text (nil = none).
+    let decorationRight: String?
+    
+    /// Spacing between decoration sprites and title text in base coordinates (default 3)
+    let decorationSpacing: CGFloat?
+    
     enum TitleTextMode: String, Codable {
         case image  // Use image-based rendering (full title image or character sprites)
         case font   // Use system font (current default behavior)

@@ -181,17 +181,25 @@ class ModernSkinRenderer {
                 // Resolve per-window tint color: element config -> global tintColor -> nil
                 let tintColor = resolveTitleTintColor(prefix: prefix)
                 let finalImg = skin.tintedImage(img, key: titleTextId, color: tintColor)
-                // Center the image in the title bar rect
+                // Center the image + decorations in the title bar rect
                 let imgAspect = finalImg.size.width / max(finalImg.size.height, 1)
                 let drawH = scaledR.height * 0.8
                 let drawW = drawH * imgAspect
-                let drawRect = NSRect(
-                    x: scaledR.midX - drawW / 2,
-                    y: scaledR.midY - drawH / 2,
-                    width: drawW,
-                    height: drawH
-                )
-                drawPixelArtImage(finalImg, in: drawRect, context: context)
+                let deco = resolveDecorations(height: drawH, tintColor: tintColor)
+                let totalContentW = drawW + deco.totalExtraWidth
+                var drawX = scaledR.midX - totalContentW / 2
+                let drawY = scaledR.midY - drawH / 2
+                
+                if let leftImg = deco.leftImage {
+                    drawPixelArtImage(leftImg, in: NSRect(x: drawX, y: drawY, width: deco.leftWidth, height: drawH), context: context)
+                    drawX += deco.leftWidth + deco.spacing
+                }
+                drawPixelArtImage(finalImg, in: NSRect(x: drawX, y: drawY, width: drawW, height: drawH), context: context)
+                drawX += drawW
+                if let rightImg = deco.rightImage {
+                    drawX += deco.spacing
+                    drawPixelArtImage(rightImg, in: NSRect(x: drawX, y: drawY, width: deco.rightWidth, height: drawH), context: context)
+                }
                 return
             }
             
@@ -202,7 +210,7 @@ class ModernSkinRenderer {
         }
         
         // Tier 3: System font fallback (default behavior)
-        drawTitleTextWithFont(title, in: scaledR, context: context)
+        drawTitleTextWithFont(title, in: scaledR, prefix: prefix, context: context)
     }
     
     /// Composite a title string from individual character sprite images.
@@ -262,23 +270,35 @@ class ModernSkinRenderer {
         // If no image glyphs were found at all, return false to fall back entirely
         guard glyphs.contains(where: { $0.image != nil }) else { return false }
         
-        // Calculate starting X based on alignment
+        // Resolve decorations (drawn at charHeight, same tint as title text)
+        let deco = resolveDecorations(height: charHeight, tintColor: tintColor)
+        let totalContentWidth = totalWidth + deco.totalExtraWidth
+        
+        // Calculate starting X based on alignment (using total content width including decorations)
         let availableWidth = rect.width - padLeft - padRight
-        let startX: CGFloat
+        let contentStartX: CGFloat
         switch alignment {
         case .left:
-            startX = rect.minX + padLeft
+            contentStartX = rect.minX + padLeft
         case .right:
-            startX = rect.maxX - padRight - totalWidth
+            contentStartX = rect.maxX - padRight - totalContentWidth
         case .center:
-            startX = rect.minX + padLeft + (availableWidth - totalWidth) / 2
+            contentStartX = rect.minX + padLeft + (availableWidth - totalContentWidth) / 2
         }
         
         // Calculate Y: center vertically in rect, then apply offset
         let baseY = rect.midY - charHeight / 2 + verticalOffset
         
-        // Second pass: draw each glyph
-        var x = startX
+        // Second pass: draw left decoration, glyphs, right decoration
+        var x = contentStartX
+        
+        // Left decoration
+        if let leftImg = deco.leftImage {
+            drawPixelArtImage(leftImg, in: NSRect(x: x, y: baseY, width: deco.leftWidth, height: charHeight), context: context)
+            x += deco.leftWidth + deco.spacing
+        }
+        
+        // Draw each glyph
         for glyph in glyphs {
             if let img = glyph.image {
                 let glyphRect = NSRect(x: x, y: baseY, width: glyph.width, height: charHeight)
@@ -297,11 +317,18 @@ class ModernSkinRenderer {
             x += glyph.width + charSpacing
         }
         
+        // Right decoration
+        if let rightImg = deco.rightImage {
+            // x already has the last charSpacing added; subtract it and add decoration spacing instead
+            x = x - charSpacing + deco.spacing
+            drawPixelArtImage(rightImg, in: NSRect(x: x, y: baseY, width: deco.rightWidth, height: charHeight), context: context)
+        }
+        
         return true
     }
     
     /// Draw title text using the system font (tier 3 fallback).
-    private func drawTitleTextWithFont(_ title: String, in scaledR: NSRect, context: CGContext) {
+    private func drawTitleTextWithFont(_ title: String, in scaledR: NSRect, prefix: String = "", context: CGContext) {
         let titleFont = skin.titleBarFont()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
@@ -309,16 +336,33 @@ class ModernSkinRenderer {
         ]
         let titleStr = NSAttributedString(string: title, attributes: attrs)
         let titleSize = titleStr.size()
-        let titleOrigin = NSPoint(
-            x: scaledR.midX - titleSize.width / 2,
-            y: scaledR.midY - titleSize.height / 2
-        )
         
-        // Draw with glow if enabled
+        // Resolve decorations at font text height
+        let tintColor = resolveTitleTintColor(prefix: prefix)
+        let deco = resolveDecorations(height: titleSize.height, tintColor: tintColor)
+        let totalContentW = titleSize.width + deco.totalExtraWidth
+        var drawX = scaledR.midX - totalContentW / 2
+        let textY = scaledR.midY - titleSize.height / 2
+        
+        // Left decoration
+        if let leftImg = deco.leftImage {
+            drawPixelArtImage(leftImg, in: NSRect(x: drawX, y: textY, width: deco.leftWidth, height: titleSize.height), context: context)
+            drawX += deco.leftWidth + deco.spacing
+        }
+        
+        // Draw title text
+        let titleOrigin = NSPoint(x: drawX, y: textY)
         if skin.config.glow.enabled {
             drawTextWithGlow(titleStr, at: titleOrigin, glowColor: skin.textColor, context: context)
         } else {
             titleStr.draw(at: titleOrigin)
+        }
+        drawX += titleSize.width
+        
+        // Right decoration
+        if let rightImg = deco.rightImage {
+            drawX += deco.spacing
+            drawPixelArtImage(rightImg, in: NSRect(x: drawX, y: textY, width: deco.rightWidth, height: titleSize.height), context: context)
         }
     }
     
@@ -339,6 +383,53 @@ class ModernSkinRenderer {
             return NSColor.from(hex: tintHex)
         }
         return nil
+    }
+    
+    /// Resolved decoration images and their scaled dimensions for drawing alongside title text.
+    private struct DecorationInfo {
+        let leftImage: NSImage?
+        let leftWidth: CGFloat
+        let rightImage: NSImage?
+        let rightWidth: CGFloat
+        let spacing: CGFloat
+        
+        /// Total extra width consumed by decorations (including spacing on each side).
+        var totalExtraWidth: CGFloat {
+            var w: CGFloat = 0
+            if leftImage != nil { w += leftWidth + spacing }
+            if rightImage != nil { w += rightWidth + spacing }
+            return w
+        }
+        
+        static let empty = DecorationInfo(leftImage: nil, leftWidth: 0, rightImage: nil, rightWidth: 0, spacing: 0)
+    }
+    
+    /// Resolve title decoration images and calculate their scaled dimensions.
+    /// Decorations are rendered at the given height, preserving the source image aspect ratio.
+    /// Supports the same tinting mechanism as character sprites.
+    private func resolveDecorations(height: CGFloat, tintColor: NSColor?) -> DecorationInfo {
+        let titleTextConfig = skin.config.titleText
+        let spacing = (titleTextConfig?.decorationSpacing ?? 3) * scaleFactor
+        
+        var leftImg: NSImage? = nil
+        var leftW: CGFloat = 0
+        if let leftKey = titleTextConfig?.decorationLeft, let img = skin.image(for: leftKey) {
+            let tinted = skin.tintedImage(img, key: leftKey, color: tintColor)
+            let aspect = tinted.size.width / max(tinted.size.height, 1)
+            leftW = height * aspect
+            leftImg = tinted
+        }
+        
+        var rightImg: NSImage? = nil
+        var rightW: CGFloat = 0
+        if let rightKey = titleTextConfig?.decorationRight, let img = skin.image(for: rightKey) {
+            let tinted = skin.tintedImage(img, key: rightKey, color: tintColor)
+            let aspect = tinted.size.width / max(tinted.size.height, 1)
+            rightW = height * aspect
+            rightImg = tinted
+        }
+        
+        return DecorationInfo(leftImage: leftImg, leftWidth: leftW, rightImage: rightImg, rightWidth: rightW, spacing: spacing)
     }
     
     /// Draw a time digit (0-9, minus, colon) as 7-segment LED display

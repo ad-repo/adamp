@@ -1,6 +1,6 @@
 {
     "meta": {
-        "name": "Stereo Gear",
+        "name": "Skulls",
         "author": "NullPlayer",
         "version": "1.0",
         "description": "Lo-fi stereo receiver skin with bitmap title text and amber VFD display"
@@ -9,7 +9,10 @@
         "mode": "image",
         "charSpacing": 2,
         "charHeight": 10,
-        "alignment": "center"
+        "alignment": "center",
+        "decorationLeft": "title_decoration_skull",
+        "decorationRight": "title_decoration_skull",
+        "decorationSpacing": 5
     },
     "palette": {
         "primary": "#a0a0a0",
