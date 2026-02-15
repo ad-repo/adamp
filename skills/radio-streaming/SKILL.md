@@ -1,3 +1,8 @@
+---
+name: radio-streaming
+description: Internet radio, Shoutcast/Icecast protocols, auto-reconnect, ICY metadata, and casting. Use when working on radio station playback, streaming metadata, auto-reconnect logic, or radio casting.
+---
+
 # Internet Radio
 
 NullPlayer supports Shoutcast and Icecast internet radio streaming with automatic reconnection and live metadata display.

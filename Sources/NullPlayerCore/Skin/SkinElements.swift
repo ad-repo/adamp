@@ -3,8 +3,8 @@ import AppKit
 // =============================================================================
 // SKIN ELEMENTS - Sprite coordinates and layout constants
 // =============================================================================
-// For comprehensive documentation on skin skin format, sprite coordinates,
-// and implementation notes, see: AGENT_DOCS/SKIN_FORMAT_RESEARCH.md
+// For comprehensive documentation on Winamp skin format, sprite coordinates,
+// and implementation notes, see: skills/ui-guide/SKILL.md
 //
 // =============================================================================
 

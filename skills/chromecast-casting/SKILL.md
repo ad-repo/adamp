@@ -1,10 +1,13 @@
+---
+name: chromecast-casting
+description: Google Cast Protocol v2, message framing, debugging, and test scripts. Use when working on Chromecast casting, debugging Cast protocol issues, or implementing Cast commands.
+---
+
 # Chromecast Implementation
 
 NullPlayer implements Google Cast Protocol v2 for casting audio and video to Chromecast devices.
 
-## Architecture
-
-### Key Files
+## Key Files
 
 | File | Purpose |
 |------|---------|
@@ -13,7 +16,7 @@ NullPlayer implements Google Cast Protocol v2 for casting audio and video to Chr
 | `Casting/CastManager.swift` | High-level casting coordinator for all device types |
 | `scripts/test_chromecast.swift` | Standalone test script for debugging |
 
-### Discovery
+## Discovery
 
 Chromecast devices are discovered via mDNS (Bonjour):
 - Service type: `_googlecast._tcp`
@@ -21,7 +24,7 @@ Chromecast devices are discovered via mDNS (Bonjour):
 - Uses `NWBrowser` for discovery
 - Resolves to IP:port (default port 8009)
 
-### Protocol Overview
+## Protocol Overview
 
 Google Cast Protocol v2:
 1. **TLS Connection** - Port 8009, self-signed certificate (must accept)
@@ -35,7 +38,7 @@ Google Cast Protocol v2:
    - CONNECT to the transportId
    - LOAD media with URL and metadata
 
-### Message Namespaces
+## Message Namespaces
 
 | Namespace | Purpose |
 |-----------|---------|
@@ -44,9 +47,7 @@ Google Cast Protocol v2:
 | `urn:x-cast:com.google.cast.receiver` | App lifecycle (LAUNCH, STOP, GET_STATUS) |
 | `urn:x-cast:com.google.cast.media` | Media control (LOAD, PLAY, PAUSE, SEEK, STOP) |
 
-## Implementation Details
-
-### CastSessionController
+## CastSessionController
 
 The `CastSessionController` class manages a single Chromecast session:
 - Thread-safe with `NSLock` for state access
@@ -54,7 +55,7 @@ The `CastSessionController` class manages a single Chromecast session:
 - Completion-based async API (bridged to async/await in ChromecastManager)
 - Implements `CastSessionControllerDelegate` protocol for status updates
 
-### Position Synchronization
+## Position Synchronization
 
 To keep the main window timer synced with actual Chromecast playback:
 
@@ -65,7 +66,7 @@ To keep the main window timer synced with actual Chromecast playback:
 
 This handles buffering delays - when Chromecast buffers, the `playerState` changes to `BUFFERING` and local time interpolation pauses until playback resumes.
 
-### CastMediaStatus
+## CastMediaStatus
 
 The `CastMediaStatus` struct contains:
 - `currentTime`: Current playback position in seconds
@@ -73,14 +74,14 @@ The `CastMediaStatus` struct contains:
 - `playerState`: One of IDLE, BUFFERING, PLAYING, PAUSED
 - `mediaSessionId`: The media session identifier
 
-### Protobuf Encoding
+## Protobuf Encoding
 
 Manual protobuf implementation (no external library):
 - Varint encoding for integers
 - Length-delimited strings
 - Field numbers match official CastMessage proto definition
 
-### Key Implementation Gotcha: Data Slice Indexing
+## Key Implementation Gotcha: Data Slice Indexing
 
 Swift `Data` slices maintain original indices. When processing a receive buffer:
 
