@@ -210,4 +210,4 @@ The following files have working changes that should be KEPT:
 - `Sources/NullPlayer/Plex/PlexManager.swift` - artworkThumb in convertToTrack (KEEP this part)
 - `Sources/NullPlayer/Subsonic/SubsonicManager.swift` - artworkThumb in convertToTrack
 - `Sources/NullPlayer/Audio/AudioEngine.swift` - artworkThumb preservation
-- `AGENT_DOCS/SONOS.md` - Documentation for artwork (can keep or remove)
+- `skills/sonos-casting/SKILL.md` - Documentation for artwork (can keep or remove)

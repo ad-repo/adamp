@@ -1,10 +1,15 @@
+---
+name: ui-guide
+description: Coordinate systems, scaling architecture, hit testing, and skin sprite rendering for NullPlayer's UI. Use when working on window scaling, skin rendering, coordinate transforms, visual layout, or playlist/marquee text rendering.
+---
+
 # UI & Skin Rendering Guide
 
 Reference for working on NullPlayer's skin-style UI and skin system.
 
 ## Coordinate Systems
 
-**skin**: Y=0 at top, Y increases downward  
+**Winamp**: Y=0 at top, Y increases downward  
 **macOS**: Y=0 at bottom, Y increases upward
 
 Apply this transform before drawing:
@@ -46,7 +51,7 @@ override func draw(_ dirtyRect: NSRect) {
     
     // Use low interpolation for clean sprite scaling on large monitors
     // .none causes artifacts, .high causes blur
-    // NOTE: For non-Retina specific fixes, see NON_RETINA_DISPLAY_FIXES.md
+    // NOTE: For non-Retina specific fixes, see non-retina-fixes skill
     context.interpolationQuality = .low
     
     if scale != 1.0 {
@@ -95,7 +100,7 @@ private var effectiveWindowSize: NSSize {
 Convert view coordinates to skin coordinates:
 
 ```swift
-private func convertToskinCoordinates(_ point: NSPoint) -> NSPoint {
+private func convertToWinampCoordinates(_ point: NSPoint) -> NSPoint {
     let scale = scaleFactor
     let scaledWidth = originalWindowSize.width * scale
     let scaledHeight = originalWindowSize.height * scale
@@ -104,9 +109,9 @@ private func convertToskinCoordinates(_ point: NSPoint) -> NSPoint {
     
     let unscaledX = (point.x - offsetX) / scale
     let unscaledY = (point.y - offsetY) / scale
-    let skinY = originalWindowSize.height - unscaledY
+    let winampY = originalWindowSize.height - unscaledY
     
-    return NSPoint(x: unscaledX, y: skinY)
+    return NSPoint(x: unscaledX, y: winampY)
 }
 ```
 
@@ -153,7 +158,7 @@ Width = (N * 25) + 50  (50 = left corner + right corner)
 
 Valid widths: 275, 300, 425, 450, 475, 500, 550px
 
-**Non-Retina displays**: Even with aligned widths, tile seams may be visible on 1x displays. See [NON_RETINA_DISPLAY_FIXES.md](NON_RETINA_DISPLAY_FIXES.md) for techniques like background fill, tile overlap, and bottom-to-top drawing.
+**Non-Retina displays**: Even with aligned widths, tile seams may be visible on 1x displays. See the non-retina-fixes skill for techniques like background fill, tile overlap, and bottom-to-top drawing.
 
 ## Custom Sprites
 
@@ -272,7 +277,7 @@ The main window uses a scrolling marquee to display the current track title.
 
 ### Skin Bitmap Font
 
-By default, the marquee uses the skin's `TEXT.BMP` bitmap font, which provides the authentic skin look. This font only supports:
+By default, the marquee uses the skin's `TEXT.BMP` bitmap font, which provides the authentic Winamp look. This font only supports:
 - A-Z (case-insensitive)
 - 0-9
 - Common symbols: `" @ : ( ) - ' ! _ + \ / [ ] ^ & % . = $ # ? *`
@@ -351,7 +356,7 @@ The offscreen buffer approach processes pixels at native resolution before scali
 4. **Non-tile-aligned widths** - causes sprite interpolation artifacts
 5. **Drawing over skin sprites** - they already contain labels
 6. **Using blend modes for color conversion** - causes sub-pixel artifacts when scaling; use offscreen pixel manipulation instead
-7. **Tile seams on non-Retina** - visible lines at tile boundaries on 1x displays; requires background fill, overlap, and careful draw order (see [NON_RETINA_DISPLAY_FIXES.md](NON_RETINA_DISPLAY_FIXES.md))
+7. **Tile seams on non-Retina** - visible lines at tile boundaries on 1x displays; requires background fill, overlap, and careful draw order (see non-retina-fixes skill)
 
 ## Key Files
 
@@ -441,7 +446,7 @@ The Spectrum Analyzer participates in the docking system alongside Main, EQ, and
 
 | Mode | Description |
 |------|-------------|
-| **skin** | Discrete color bands from skin's `viscolor.txt` with floating peak indicators, 3D bar shading, and segmented LED gaps |
+| **Winamp** | Discrete color bands from skin's `viscolor.txt` with floating peak indicators, 3D bar shading, and segmented LED gaps |
 | **Enhanced** | Rainbow LED matrix with gravity-bouncing peaks, warm amber fade trails, 3D inner glow cells, and anti-aliased rounded corners |
 | **Ultra** | Maximum fidelity seamless gradient with smooth exponential decay, perceptual gamma, and warm color trails |
 | **Fire** | GPU fire simulation with audio-reactive flame tongues in 4 color styles |
@@ -456,7 +461,7 @@ Controls how quickly spectrum bars fall after peaks:
 | Instant | 0% | No smoothing, immediate response |
 | Snappy | 25% | Fast and punchy (default) |
 | Balanced | 40% | Good middle ground |
-| Smooth | 55% | Original skin feel |
+| Smooth | 55% | Original Winamp feel |
 
 ### Window Specifications
 
@@ -468,7 +473,7 @@ Controls how quickly spectrum bars fall after peaks:
 ### Context Menu
 
 Right-click on the spectrum window for:
-- **Mode** submenu - Switch between skin/Enhanced/Fire/JWST modes
+- **Mode** submenu - Switch between Winamp/Enhanced/Fire/JWST modes
 - **Responsiveness** submenu - Adjust decay behavior
 - **Flame Style** - Choose flame color preset (Fire mode only)
 - **Fire Intensity** - Choose Mellow or Intense reactivity (Fire mode only)
@@ -478,8 +483,8 @@ Settings are persisted across app restarts.
 
 ## Related Documentation
 
-- [NON_RETINA_DISPLAY_FIXES.md](NON_RETINA_DISPLAY_FIXES.md) - Fixes for rendering artifacts on 1x displays (blue lines, tile seams, text shimmering)
+- **non-retina-fixes skill** - Fixes for rendering artifacts on 1x displays (blue lines, tile seams, text shimmering)
 
 ## External References
 
-- [Skin Archive](https://skins.webamp.org/) - Community skin downloads
+- [Winamp Skin Archive](https://skins.webamp.org/) - Community skin downloads

@@ -49,7 +49,7 @@ playground.xcworkspace
 *.xcresult
 
 # Documentation
-AGENT_DOCS/_build/
+skills/_build/
 
 # Temporary files
 tmp/
