@@ -1926,7 +1926,9 @@ class ModernLibraryBrowserView: NSView {
                 let bStars = bVal.filter { $0 == "★" }.count
                 return ascending ? aStars < bStars : aStars > bStars
             }
-            let result = aVal.localizedCaseInsensitiveCompare(bVal)
+            let aSort = sortName(for: aVal)
+            let bSort = sortName(for: bVal)
+            let result = aSort.localizedCaseInsensitiveCompare(bSort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
         
@@ -2614,6 +2616,14 @@ class ModernLibraryBrowserView: NSView {
         }
         guard let firstChar = sortTitle.first else { return "#" }
         return firstChar.isLetter ? String(firstChar) : "#"
+    }
+    
+    private func sortName(for title: String) -> String {
+        let upper = title.uppercased()
+        for prefix in ["THE ", "AN ", "A "] {
+            if upper.hasPrefix(prefix) { return String(title.dropFirst(prefix.count)) }
+        }
+        return title
     }
     
     private func scrollToLetter(_ letter: String) {
@@ -5223,7 +5233,7 @@ class ModernLibraryBrowserView: NSView {
     // Subsonic items
     private func buildSubsonicArtistItems() {
         displayItems.removeAll()
-        for artist in cachedSubsonicArtists.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+        for artist in cachedSubsonicArtists.sorted(by: { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }) {
             let info = artist.albumCount > 0 ? "\(artist.albumCount) albums" : nil
             let expanded = expandedSubsonicArtists.contains(artist.id)
             displayItems.append(ModernDisplayItem(id: artist.id, title: artist.name, info: info, indentLevel: 0, hasChildren: true, type: .subsonicArtist(artist)))
@@ -5241,7 +5251,7 @@ class ModernLibraryBrowserView: NSView {
     }
     
     private func buildSubsonicAlbumItems() {
-        displayItems = cachedSubsonicAlbums.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }).map {
+        displayItems = cachedSubsonicAlbums.sorted(by: { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }).map {
             ModernDisplayItem(id: $0.id, title: "\($0.artist ?? "Unknown") - \($0.name)", info: $0.year.map { String($0) }, indentLevel: 0, hasChildren: true, type: .subsonicAlbum($0))
         }
     }
@@ -5281,7 +5291,7 @@ class ModernLibraryBrowserView: NSView {
     
     private func buildSubsonicPlaylistItems() {
         displayItems.removeAll()
-        for playlist in cachedSubsonicPlaylists.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+        for playlist in cachedSubsonicPlaylists.sorted(by: { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }) {
             let expanded = expandedSubsonicPlaylists.contains(playlist.id)
             displayItems.append(ModernDisplayItem(id: playlist.id, title: playlist.name, info: "\(playlist.songCount) tracks", indentLevel: 0, hasChildren: playlist.songCount > 0, type: .subsonicPlaylist(playlist)))
             if expanded, let tracks = subsonicPlaylistTracks[playlist.id] {
@@ -5294,7 +5304,7 @@ class ModernLibraryBrowserView: NSView {
     
     private func buildJellyfinArtistItems() {
         displayItems.removeAll()
-        for artist in cachedJellyfinArtists.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+        for artist in cachedJellyfinArtists.sorted(by: { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }) {
             let info = artist.albumCount > 0 ? "\(artist.albumCount) albums" : nil
             let expanded = expandedJellyfinArtists.contains(artist.id)
             displayItems.append(ModernDisplayItem(id: artist.id, title: artist.name, info: info, indentLevel: 0, hasChildren: true, type: .jellyfinArtist(artist)))
@@ -5312,7 +5322,7 @@ class ModernLibraryBrowserView: NSView {
     }
     
     private func buildJellyfinAlbumItems() {
-        displayItems = cachedJellyfinAlbums.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }).map {
+        displayItems = cachedJellyfinAlbums.sorted(by: { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }).map {
             ModernDisplayItem(id: $0.id, title: "\($0.artist ?? "Unknown") - \($0.name)", info: $0.year.map { String($0) }, indentLevel: 0, hasChildren: true, type: .jellyfinAlbum($0))
         }
     }
@@ -5370,26 +5380,26 @@ class ModernLibraryBrowserView: NSView {
     
     private func sortArtists(_ artists: [Artist]) -> [Artist] {
         switch currentSort {
-        case .nameAsc: return artists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        case .nameDesc: return artists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedDescending }
-        default: return artists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .nameAsc: return artists.sorted { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }
+        case .nameDesc: return artists.sorted { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedDescending }
+        default: return artists.sorted { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }
         }
     }
     
     private func sortAlbums(_ albums: [Album]) -> [Album] {
         switch currentSort {
-        case .nameAsc: return albums.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        case .nameDesc: return albums.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedDescending }
+        case .nameAsc: return albums.sorted { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }
+        case .nameDesc: return albums.sorted { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedDescending }
         case .yearDesc: return albums.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
         case .yearAsc: return albums.sorted { ($0.year ?? 0) < ($1.year ?? 0) }
-        default: return albums.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        default: return albums.sorted { sortName(for: $0.name).localizedCaseInsensitiveCompare(sortName(for: $1.name)) == .orderedAscending }
         }
     }
     
     private func sortTracks(_ tracks: [LibraryTrack]) -> [LibraryTrack] {
         switch currentSort {
-        case .nameAsc: return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .nameDesc: return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
+        case .nameAsc: return tracks.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedAscending }
+        case .nameDesc: return tracks.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedDescending }
         case .dateAddedDesc: return tracks.sorted { $0.dateAdded > $1.dateAdded }
         case .dateAddedAsc: return tracks.sorted { $0.dateAdded < $1.dateAdded }
         case .yearDesc: return tracks.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
@@ -5399,18 +5409,18 @@ class ModernLibraryBrowserView: NSView {
     
     private func sortPlexArtists(_ artists: [PlexArtist]) -> [PlexArtist] {
         switch currentSort {
-        case .nameAsc: return artists.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .nameDesc: return artists.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
+        case .nameAsc: return artists.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedAscending }
+        case .nameDesc: return artists.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedDescending }
         case .dateAddedDesc: return artists.sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
         case .dateAddedAsc: return artists.sorted { ($0.addedAt ?? .distantPast) < ($1.addedAt ?? .distantPast) }
-        default: return artists.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        default: return artists.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedAscending }
         }
     }
     
     private func sortPlexAlbums(_ albums: [PlexAlbum]) -> [PlexAlbum] {
         switch currentSort {
-        case .nameAsc: return albums.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .nameDesc: return albums.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
+        case .nameAsc: return albums.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedAscending }
+        case .nameDesc: return albums.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedDescending }
         case .dateAddedDesc: return albums.sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
         case .dateAddedAsc: return albums.sorted { ($0.addedAt ?? .distantPast) < ($1.addedAt ?? .distantPast) }
         case .yearDesc: return albums.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
@@ -5420,11 +5430,11 @@ class ModernLibraryBrowserView: NSView {
     
     private func sortPlexTracks(_ tracks: [PlexTrack]) -> [PlexTrack] {
         switch currentSort {
-        case .nameAsc: return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .nameDesc: return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
+        case .nameAsc: return tracks.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedAscending }
+        case .nameDesc: return tracks.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedDescending }
         case .dateAddedDesc: return tracks.sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
         case .dateAddedAsc: return tracks.sorted { ($0.addedAt ?? .distantPast) < ($1.addedAt ?? .distantPast) }
-        default: return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        default: return tracks.sorted { sortName(for: $0.title).localizedCaseInsensitiveCompare(sortName(for: $1.title)) == .orderedAscending }
         }
     }
     
