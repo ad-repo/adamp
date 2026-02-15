@@ -66,8 +66,8 @@ class JellyfinServerClient {
         self.baseURL = url
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 120
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600  // 10 minutes for large library fetches
         self.session = URLSession(configuration: config)
     }
     
@@ -310,7 +310,7 @@ class JellyfinServerClient {
     func fetchMovies(libraryId: String) async throws -> [JellyfinMovie] {
         var allMovies: [JellyfinMovie] = []
         var offset = 0
-        let pageSize = 500
+        let pageSize = 10000
         
         while true {
             let params = [
@@ -360,7 +360,7 @@ class JellyfinServerClient {
     func fetchShows(libraryId: String) async throws -> [JellyfinShow] {
         var allShows: [JellyfinShow] = []
         var offset = 0
-        let pageSize = 500
+        let pageSize = 10000
         
         while true {
             let params = [
@@ -438,7 +438,7 @@ class JellyfinServerClient {
     func fetchAllArtists(libraryId: String? = nil) async throws -> [JellyfinArtist] {
         var allArtists: [JellyfinArtist] = []
         var offset = 0
-        let pageSize = 500
+        let pageSize = 10000
         
         while true {
             var params = [
@@ -505,7 +505,7 @@ class JellyfinServerClient {
     func fetchAllAlbums(libraryId: String? = nil) async throws -> [JellyfinAlbum] {
         var allAlbums: [JellyfinAlbum] = []
         var offset = 0
-        let pageSize = 500
+        let pageSize = 10000
         
         while true {
             var params = [

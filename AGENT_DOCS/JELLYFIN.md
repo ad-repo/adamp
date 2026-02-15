@@ -176,8 +176,19 @@ Jellyfin video libraries (movies and tvshows) are also managed by `JellyfinManag
 - `videoLibraries: [JellyfinMusicLibrary]` — all movie/tvshow libraries (reuses `JellyfinMusicLibrary` struct)
 - `currentMovieLibrary: JellyfinMusicLibrary?` — selected movie library
 - `currentShowLibrary: JellyfinMusicLibrary?` — selected TV show library
-- Auto-selects if only one video library exists (for both movies and shows)
+- `JellyfinMusicLibrary.collectionType` stores the library type (`"music"`, `"movies"`, `"tvshows"`)
+- Auto-selection priority: saved UserDefaults ID → match by `collectionType` → single library fallback
 - Persisted via `JellyfinCurrentMovieLibraryID` / `JellyfinCurrentShowLibraryID` UserDefaults keys
+
+## Startup Connection Deduplication
+
+On app start, `JellyfinManager.init()` restores the saved server and calls `connectInBackground()`. Meanwhile, the library browser may restore its saved Jellyfin source and call `loadJellyfinData(serverId:)`. To avoid duplicate connections, `loadJellyfinData` checks if the manager is already in `.connecting` state for the same server and polls until it finishes instead of starting a redundant connection. The same pattern applies to `loadSubsonicData`.
+
+## Artist Expansion Performance
+
+When expanding a Jellyfin artist in the library browser, albums are resolved from the preloaded cache (`cachedJellyfinAlbums`) by filtering on `artistId`, making expansion instant. Network fallback only occurs if the cache has no matching albums. The same optimization applies to Subsonic artist expansion.
+
+**Important**: Expand tasks must use `Task.detached` (not `Task { }`) to avoid inheriting cancellation state from the calling context, which can cause immediate task cancellation on the main actor.
 
 ## State Persistence
 

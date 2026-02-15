@@ -2565,9 +2565,27 @@ class ModernLibraryBrowserView: NSView {
         case .local: MediaLibrary.shared.rescanWatchFolders(); loadLocalData()
         case .plex: refreshData()
         case .subsonic:
-            Task { await SubsonicManager.shared.preloadLibraryContent(); await MainActor.run { self.refreshData() } }
+            // Cancel any in-flight load task first to prevent race conditions
+            subsonicLoadTask?.cancel()
+            subsonicLoadTask = nil
+            SubsonicManager.shared.clearCachedContent()
+            // Show loading state immediately, then preload in parallel and refresh
+            isLoading = true; errorMessage = nil; displayItems = []; startLoadingAnimation(); needsDisplay = true
+            Task { @MainActor [weak self] in
+                await SubsonicManager.shared.preloadLibraryContent()
+                self?.refreshData()
+            }
         case .jellyfin:
-            Task { await JellyfinManager.shared.preloadLibraryContent(); await MainActor.run { self.refreshData() } }
+            // Cancel any in-flight load task first to prevent race conditions
+            jellyfinLoadTask?.cancel()
+            jellyfinLoadTask = nil
+            JellyfinManager.shared.clearCachedContent()
+            // Show loading state immediately, then preload in parallel and refresh
+            isLoading = true; errorMessage = nil; displayItems = []; startLoadingAnimation(); needsDisplay = true
+            Task { @MainActor [weak self] in
+                await JellyfinManager.shared.preloadLibraryContent()
+                self?.refreshData()
+            }
         case .radio: break
         }
     }
@@ -4660,10 +4678,23 @@ class ModernLibraryBrowserView: NSView {
     }
     
     func refreshData() {
+        // Plex caches
         cachedArtists = []; cachedAlbums = []; cachedTracks = []; artistAlbums = [:]; albumTracks = [:]; artistAlbumCounts = [:]
         cachedMovies = []; cachedShows = []; showSeasons = [:]; seasonEpisodes = [:]
         cachedPlexPlaylists = []; plexPlaylistTracks = [:]; searchResults = nil
         expandedArtists = []; expandedAlbums = []; expandedShows = []; expandedSeasons = []; expandedPlexPlaylists = []
+        // Subsonic caches
+        cachedSubsonicArtists = []; cachedSubsonicAlbums = []; cachedSubsonicPlaylists = []
+        subsonicArtistAlbums = [:]; subsonicPlaylistTracks = [:]; subsonicAlbumSongs = [:]
+        expandedSubsonicArtists = []; expandedSubsonicAlbums = []; expandedSubsonicPlaylists = []
+        // Jellyfin caches
+        cachedJellyfinArtists = []; cachedJellyfinAlbums = []; cachedJellyfinPlaylists = []
+        jellyfinArtistAlbums = [:]; jellyfinPlaylistTracks = [:]; jellyfinAlbumSongs = [:]
+        expandedJellyfinArtists = []; expandedJellyfinAlbums = []; expandedJellyfinPlaylists = []
+        cachedJellyfinMovies = []; cachedJellyfinShows = []
+        jellyfinShowSeasons = [:]; jellyfinSeasonEpisodes = [:]
+        expandedJellyfinShows = []; expandedJellyfinSeasons = []
+        // Common state
         selectedIndices = []; scrollOffset = 0
         isLoading = true; errorMessage = nil; displayItems = []; startLoadingAnimation(); needsDisplay = true
         PlexManager.shared.clearCachedContent()
@@ -4779,6 +4810,22 @@ class ModernLibraryBrowserView: NSView {
         isLoading = true; errorMessage = nil; startLoadingAnimation(); needsDisplay = true
         let manager = SubsonicManager.shared
         if manager.currentServer?.id != serverId {
+            // If manager is already connecting to this server, wait for it instead of starting a redundant connection
+            if case .connecting = manager.connectionState,
+               let savedId = UserDefaults.standard.string(forKey: "SubsonicCurrentServerID"), savedId == serverId {
+                Task { @MainActor in
+                    NSLog("ModernLibraryBrowser: Waiting for existing Subsonic connection to '%@'...", serverId)
+                    while case .connecting = manager.connectionState {
+                        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    }
+                    if case .connected = manager.connectionState, manager.currentServer?.id == serverId {
+                        loadSubsonicDataForCurrentMode()
+                    } else {
+                        isLoading = false; stopLoadingAnimation(); errorMessage = "Connection failed"; needsDisplay = true
+                    }
+                }
+                return
+            }
             if let server = manager.servers.first(where: { $0.id == serverId }) {
                 Task { @MainActor in
                     do { try await manager.connect(to: server); loadSubsonicDataForCurrentMode() }
@@ -4797,6 +4844,14 @@ class ModernLibraryBrowserView: NSView {
             guard let self = self else { return }
             do {
                 try Task.checkCancellation()
+                // If a preload is already in progress, wait for it instead of starting duplicate fetches
+                if manager.isPreloading {
+                    NSLog("ModernLibraryBrowser: Waiting for Subsonic preload to complete...")
+                    while manager.isPreloading {
+                        try Task.checkCancellation()
+                        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    }
+                }
                 switch browseMode {
                 case .artists:
                     if cachedSubsonicArtists.isEmpty {
@@ -4827,6 +4882,7 @@ class ModernLibraryBrowserView: NSView {
                 }
                 isLoading = false; stopLoadingAnimation(); needsDisplay = true
             } catch is CancellationError { }
+            catch where Task.isCancelled { }
             catch { isLoading = false; stopLoadingAnimation(); errorMessage = error.localizedDescription; needsDisplay = true }
         }
     }
@@ -4837,6 +4893,22 @@ class ModernLibraryBrowserView: NSView {
         isLoading = true; errorMessage = nil; startLoadingAnimation(); needsDisplay = true
         let manager = JellyfinManager.shared
         if manager.currentServer?.id != serverId {
+            // If manager is already connecting to this server, wait for it instead of starting a redundant connection
+            if case .connecting = manager.connectionState,
+               let savedId = UserDefaults.standard.string(forKey: "JellyfinCurrentServerID"), savedId == serverId {
+                Task { @MainActor in
+                    NSLog("ModernLibraryBrowser: Waiting for existing Jellyfin connection to '%@'...", serverId)
+                    while case .connecting = manager.connectionState {
+                        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    }
+                    if case .connected = manager.connectionState, manager.currentServer?.id == serverId {
+                        loadJellyfinDataForCurrentMode()
+                    } else {
+                        isLoading = false; stopLoadingAnimation(); errorMessage = "Connection failed"; needsDisplay = true
+                    }
+                }
+                return
+            }
             if let server = manager.servers.first(where: { $0.id == serverId }) {
                 Task { @MainActor in
                     do { try await manager.connect(to: server); loadJellyfinDataForCurrentMode() }
@@ -4855,6 +4927,14 @@ class ModernLibraryBrowserView: NSView {
             guard let self = self else { return }
             do {
                 try Task.checkCancellation()
+                // If a preload is already in progress, wait for it instead of starting duplicate fetches
+                if manager.isPreloading {
+                    NSLog("ModernLibraryBrowser: Waiting for Jellyfin preload to complete...")
+                    while manager.isPreloading {
+                        try Task.checkCancellation()
+                        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    }
+                }
                 switch browseMode {
                 case .artists:
                     if cachedJellyfinArtists.isEmpty {
@@ -4896,6 +4976,7 @@ class ModernLibraryBrowserView: NSView {
                 }
                 isLoading = false; stopLoadingAnimation(); needsDisplay = true
             } catch is CancellationError { }
+            catch where Task.isCancelled { }
             catch { isLoading = false; stopLoadingAnimation(); errorMessage = error.localizedDescription; needsDisplay = true }
         }
     }
@@ -5499,12 +5580,18 @@ class ModernLibraryBrowserView: NSView {
             else {
                 expandedSubsonicArtists.insert(artist.id)
                 if subsonicArtistAlbums[artist.id] == nil {
-                    let id = artist.id; subsonicExpandTask?.cancel()
-                    subsonicExpandTask = Task { @MainActor [weak self] in
-                        guard let self = self else { return }
-                        do { let albums = try await SubsonicManager.shared.fetchAlbums(forArtist: artist); subsonicArtistAlbums[id] = albums; rebuildCurrentModeItems() }
-                        catch is CancellationError { } catch { NSLog("Failed: \(error)") }
-                    }; return
+                    // Try cached albums first (instant) before falling back to network
+                    let cached = cachedSubsonicAlbums.filter { $0.artistId == artist.id }
+                    if !cached.isEmpty {
+                        subsonicArtistAlbums[artist.id] = cached
+                    } else {
+                        let id = artist.id; subsonicExpandTask?.cancel()
+                        subsonicExpandTask = Task.detached { @MainActor [weak self] in
+                            guard let self = self else { return }
+                            do { let albums = try await SubsonicManager.shared.fetchAlbums(forArtist: artist); subsonicArtistAlbums[id] = albums; rebuildCurrentModeItems() }
+                            catch is CancellationError { } catch where Task.isCancelled { } catch { NSLog("Failed: \(error)") }
+                        }; return
+                    }
                 }
             }
         case .subsonicAlbum(let album):
@@ -5513,10 +5600,10 @@ class ModernLibraryBrowserView: NSView {
                 expandedSubsonicAlbums.insert(album.id)
                 if subsonicAlbumSongs[album.id] == nil {
                     let id = album.id; subsonicExpandTask?.cancel()
-                    subsonicExpandTask = Task { @MainActor [weak self] in
+                    subsonicExpandTask = Task.detached { @MainActor [weak self] in
                         guard let self = self else { return }
                         do { let songs = try await SubsonicManager.shared.fetchSongs(forAlbum: album); subsonicAlbumSongs[id] = songs; rebuildCurrentModeItems() }
-                        catch is CancellationError { } catch { NSLog("Failed: \(error)") }
+                        catch is CancellationError { } catch where Task.isCancelled { } catch { NSLog("Failed: \(error)") }
                     }; return
                 }
             }
@@ -5526,10 +5613,10 @@ class ModernLibraryBrowserView: NSView {
                 expandedSubsonicPlaylists.insert(playlist.id)
                 if subsonicPlaylistTracks[playlist.id] == nil {
                     let id = playlist.id; subsonicExpandTask?.cancel()
-                    subsonicExpandTask = Task { @MainActor [weak self] in
+                    subsonicExpandTask = Task.detached { @MainActor [weak self] in
                         guard let self = self else { return }
                         do { let (_, tracks) = try await SubsonicManager.shared.serverClient?.fetchPlaylist(id: id) ?? (playlist, []); subsonicPlaylistTracks[id] = tracks; rebuildCurrentModeItems() }
-                        catch is CancellationError { } catch { NSLog("Failed: \(error)") }
+                        catch is CancellationError { } catch where Task.isCancelled { } catch { NSLog("Failed: \(error)") }
                     }; return
                 }
             }
@@ -5538,12 +5625,18 @@ class ModernLibraryBrowserView: NSView {
             else {
                 expandedJellyfinArtists.insert(artist.id)
                 if jellyfinArtistAlbums[artist.id] == nil {
-                    let id = artist.id; jellyfinExpandTask?.cancel()
-                    jellyfinExpandTask = Task { @MainActor [weak self] in
-                        guard let self = self else { return }
-                        do { let albums = try await JellyfinManager.shared.fetchAlbums(forArtist: artist); jellyfinArtistAlbums[id] = albums; rebuildCurrentModeItems() }
-                        catch is CancellationError { } catch { NSLog("Failed: \(error)") }
-                    }; return
+                    // Try cached albums first (instant) before falling back to network
+                    let cached = cachedJellyfinAlbums.filter { $0.artistId == artist.id }
+                    if !cached.isEmpty {
+                        jellyfinArtistAlbums[artist.id] = cached
+                    } else {
+                        let id = artist.id; jellyfinExpandTask?.cancel()
+                        jellyfinExpandTask = Task.detached { @MainActor [weak self] in
+                            guard let self = self else { return }
+                            do { let albums = try await JellyfinManager.shared.fetchAlbums(forArtist: artist); jellyfinArtistAlbums[id] = albums; rebuildCurrentModeItems() }
+                            catch is CancellationError { } catch where Task.isCancelled { } catch { NSLog("Failed: \(error)") }
+                        }; return
+                    }
                 }
             }
         case .jellyfinAlbum(let album):
@@ -5552,10 +5645,10 @@ class ModernLibraryBrowserView: NSView {
                 expandedJellyfinAlbums.insert(album.id)
                 if jellyfinAlbumSongs[album.id] == nil {
                     let id = album.id; jellyfinExpandTask?.cancel()
-                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                    jellyfinExpandTask = Task.detached { @MainActor [weak self] in
                         guard let self = self else { return }
                         do { let songs = try await JellyfinManager.shared.fetchSongs(forAlbum: album); jellyfinAlbumSongs[id] = songs; rebuildCurrentModeItems() }
-                        catch is CancellationError { } catch { NSLog("Failed: \(error)") }
+                        catch is CancellationError { } catch where Task.isCancelled { } catch { NSLog("Failed: \(error)") }
                     }; return
                 }
             }
@@ -5565,10 +5658,10 @@ class ModernLibraryBrowserView: NSView {
                 expandedJellyfinPlaylists.insert(playlist.id)
                 if jellyfinPlaylistTracks[playlist.id] == nil {
                     let id = playlist.id; jellyfinExpandTask?.cancel()
-                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                    jellyfinExpandTask = Task.detached { @MainActor [weak self] in
                         guard let self = self else { return }
                         do { let (_, tracks) = try await JellyfinManager.shared.serverClient?.fetchPlaylist(id: id) ?? (playlist, []); jellyfinPlaylistTracks[id] = tracks; rebuildCurrentModeItems() }
-                        catch is CancellationError { } catch { NSLog("Failed: \(error)") }
+                        catch is CancellationError { } catch where Task.isCancelled { } catch { NSLog("Failed: \(error)") }
                     }; return
                 }
             }
@@ -5578,10 +5671,10 @@ class ModernLibraryBrowserView: NSView {
                 expandedJellyfinShows.insert(show.id)
                 if jellyfinShowSeasons[show.id] == nil {
                     let id = show.id; jellyfinExpandTask?.cancel()
-                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                    jellyfinExpandTask = Task.detached { @MainActor [weak self] in
                         guard let self = self else { return }
                         do { let seasons = try await JellyfinManager.shared.fetchSeasons(forShow: show); jellyfinShowSeasons[id] = seasons; rebuildCurrentModeItems() }
-                        catch is CancellationError { } catch { expandedJellyfinShows.remove(id); rebuildCurrentModeItems(); NSLog("Failed: \(error)") }
+                        catch is CancellationError { } catch where Task.isCancelled { } catch { expandedJellyfinShows.remove(id); rebuildCurrentModeItems(); NSLog("Failed: \(error)") }
                     }; return
                 }
             }
@@ -5591,10 +5684,10 @@ class ModernLibraryBrowserView: NSView {
                 expandedJellyfinSeasons.insert(season.id)
                 if jellyfinSeasonEpisodes[season.id] == nil {
                     let id = season.id; jellyfinExpandTask?.cancel()
-                    jellyfinExpandTask = Task { @MainActor [weak self] in
+                    jellyfinExpandTask = Task.detached { @MainActor [weak self] in
                         guard let self = self else { return }
                         do { let episodes = try await JellyfinManager.shared.fetchEpisodes(forSeason: season); jellyfinSeasonEpisodes[id] = episodes; rebuildCurrentModeItems() }
-                        catch is CancellationError { } catch { expandedJellyfinSeasons.remove(id); rebuildCurrentModeItems(); NSLog("Failed: \(error)") }
+                        catch is CancellationError { } catch where Task.isCancelled { } catch { expandedJellyfinSeasons.remove(id); rebuildCurrentModeItems(); NSLog("Failed: \(error)") }
                     }; return
                 }
             }

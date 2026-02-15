@@ -335,7 +335,7 @@ class SubsonicManager {
     }
     
     /// Clear cached library content
-    private func clearCachedContent() {
+    func clearCachedContent() {
         cachedArtists = []
         cachedAlbums = []
         cachedPlaylists = []

@@ -126,6 +126,7 @@ struct JellyfinPlaylist: Identifiable, Equatable {
 struct JellyfinMusicLibrary: Identifiable, Equatable {
     let id: String
     let name: String
+    let collectionType: String?  // "music", "movies", "tvshows"
 }
 
 // MARK: - Video Content
@@ -378,7 +379,8 @@ struct JellyfinItemDTO: Decodable {
     func toMusicLibrary() -> JellyfinMusicLibrary {
         JellyfinMusicLibrary(
             id: Id,
-            name: Name
+            name: Name,
+            collectionType: CollectionType
         )
     }
     

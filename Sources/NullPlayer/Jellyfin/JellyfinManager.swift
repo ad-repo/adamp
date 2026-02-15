@@ -316,19 +316,24 @@ class JellyfinManager {
                     self.currentMusicLibrary = libraries.first
                 }
                 
-                // Auto-select movie library
+                // Auto-select movie library: prefer saved, then find first "movies" type, then single fallback
                 if let savedMovieLibId = UserDefaults.standard.string(forKey: "JellyfinCurrentMovieLibraryID"),
                    let savedLib = vidLibraries.first(where: { $0.id == savedMovieLibId }) {
                     self.currentMovieLibrary = savedLib
+                } else if let movieLib = vidLibraries.first(where: { $0.collectionType == "movies" }) {
+                    self.currentMovieLibrary = movieLib
                 } else if vidLibraries.count == 1 {
-                    // Single video library serves both movies and shows
                     self.currentMovieLibrary = vidLibraries.first
-                    self.currentShowLibrary = vidLibraries.first
                 }
                 
+                // Auto-select show library: prefer saved, then find first "tvshows" type, then single fallback
                 if let savedShowLibId = UserDefaults.standard.string(forKey: "JellyfinCurrentShowLibraryID"),
                    let savedLib = vidLibraries.first(where: { $0.id == savedShowLibId }) {
                     self.currentShowLibrary = savedLib
+                } else if let showLib = vidLibraries.first(where: { $0.collectionType == "tvshows" }) {
+                    self.currentShowLibrary = showLib
+                } else if vidLibraries.count == 1 {
+                    self.currentShowLibrary = vidLibraries.first
                 }
             }
             
@@ -472,7 +477,7 @@ class JellyfinManager {
     }
     
     /// Clear cached library content
-    private func clearCachedContent() {
+    func clearCachedContent() {
         cachedArtists = []
         cachedAlbums = []
         cachedPlaylists = []

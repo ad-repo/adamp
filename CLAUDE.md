@@ -212,6 +212,7 @@ Sources/NullPlayer/
   }
   ```
 - **Skin coordinates**: skin skins use top-left origin, macOS uses bottom-left
+- **Library browser expand tasks must use `Task.detached`**: In `ModernLibraryBrowserView`, expand tasks (artist → albums, album → songs, etc.) for Jellyfin and Subsonic must use `Task.detached { @MainActor ... }` instead of `Task { @MainActor ... }`. Regular `Task { }` can inherit cancellation state from the calling context on the main actor, causing the task to be immediately cancelled. Artist expansion should also prefer filtering cached albums by `artistId` (instant) before falling back to a network request
 - **Streaming audio**: Uses `AudioStreaming` library, different from local `AVAudioEngine`
 - **Local file completion handler**: Must use `scheduleFile(_:at:completionCallbackType:completionHandler:)` with `.dataPlayedBack` - NOT the deprecated 3-parameter `scheduleFile(_:at:completionHandler:)` which defaults to `.dataConsumed` and fires before audio finishes playing, causing premature track advancement and UI desync
 - **Window docking**: Complex snapping logic in `WindowManager` - test edge cases
