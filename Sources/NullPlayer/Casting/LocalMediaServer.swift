@@ -613,8 +613,10 @@ class LocalMediaServer {
         
         // Thread-safe lookup
         var streamURL: URL?
+        var storedContentType: String?
         queue.sync {
             streamURL = registeredStreams[token]
+            storedContentType = registeredStreamContentTypes[token]
         }
         
         guard let originalURL = streamURL else {
@@ -644,7 +646,9 @@ class LocalMediaServer {
                 return HTTPResponse(statusCode: .badGateway)
             }
             
-            let upstreamContentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "audio/mpeg"
+            let upstreamContentType = httpResponse.value(forHTTPHeaderField: "Content-Type")
+                ?? storedContentType
+                ?? "audio/mpeg"
             let upstreamContentLength = httpResponse.value(forHTTPHeaderField: "Content-Length")
             NSLog("LocalMediaServer: Upstream returned status %d, %d bytes, type=%@, length=%@", 
                   httpResponse.statusCode, data.count, upstreamContentType, upstreamContentLength ?? "nil")

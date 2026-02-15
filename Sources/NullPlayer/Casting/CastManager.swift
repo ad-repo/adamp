@@ -637,8 +637,9 @@ class CastManager {
         NSLog("CastManager: track.subsonicId=%@, track.jellyfinId=%@, track.plexRatingKey=%@", 
               track.subsonicId ?? "nil", track.jellyfinId ?? "nil", track.plexRatingKey ?? "nil")
         
-        // Get castable URL
+        // Get castable URL and effective content type
         let castURL: URL
+        var effectiveContentType: String? = track.contentType
         
         // Check if this is a Subsonic/Jellyfin track casting to Sonos - needs proxy due to query string issues
         let needsSubsonicProxy = track.subsonicId != nil && device.type == .sonos
@@ -646,23 +647,11 @@ class CastManager {
         
         if track.url.scheme == "http" || track.url.scheme == "https" {
             if needsSubsonicProxy || needsJellyfinProxy {
-                // Subsonic to Sonos: Use proxy to avoid query string issues
-                // Ensure server is running
-                if !LocalMediaServer.shared.isRunning {
-                    do {
-                        try await LocalMediaServer.shared.start()
-                    } catch {
-                        throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
-                    }
-                }
-                
-                // Rewrite localhost first, then register for proxy (pass content type for HEAD responses)
-                let rewrittenURL = rewriteLocalhostForCasting(track.url)
-                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL, contentType: track.contentType) else {
-                    throw CastError.localServerError("Could not register stream with local media server")
-                }
-                castURL = proxyURL
-                NSLog("CastManager: Using proxy for Subsonic/Jellyfin->Sonos: %@", proxyURL.absoluteString)
+                // Subsonic/Jellyfin to Sonos: Use proxy with HEAD-based content type detection
+                let result = try await prepareProxyURL(for: track, device: device)
+                castURL = result.url
+                effectiveContentType = result.contentType
+                NSLog("CastManager: Using proxy for Subsonic/Jellyfin->Sonos: %@", castURL.absoluteString)
             } else {
                 // For Plex/remote URLs, ensure token is included
                 if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
@@ -704,9 +693,9 @@ class CastManager {
             }
         }
         
-        // Use track's content type if available (Subsonic/Jellyfin set this from server metadata),
+        // Use effective content type (from track or upstream HEAD detection),
         // otherwise fall back to URL extension detection (works for Plex and local files)
-        let contentType = track.contentType ?? Self.detectAudioContentType(for: track.url)
+        let contentType = effectiveContentType ?? Self.detectAudioContentType(for: track.url)
         
         // For radio streams cast to Sonos, use x-rincon-mp3radio:// scheme (Fix 10)
         let finalCastURL = sonosRadioURL(for: castURL, device: device)
@@ -776,28 +765,21 @@ class CastManager {
             }
         }
         
-        // Get castable URL
+        // Get castable URL and effective content type
         let castURL: URL
+        var effectiveContentType: String? = track.contentType
         if track.url.scheme == "http" || track.url.scheme == "https" {
             if needsSubsonicProxy || needsJellyfinProxy {
-                // Subsonic/Jellyfin to Sonos: Use proxy to avoid query string issues
-                // Ensure server is running before registering
-                if !LocalMediaServer.shared.isRunning {
-                    do {
-                        try await LocalMediaServer.shared.start()
-                    } catch {
-                        await clearLoadingState()
-                        throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
-                    }
-                }
-                
-                let rewrittenURL = rewriteLocalhostForCasting(track.url)
-                guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL, contentType: track.contentType) else {
+                // Subsonic/Jellyfin to Sonos: Use proxy with HEAD-based content type detection
+                do {
+                    let result = try await prepareProxyURL(for: track, device: session.device)
+                    castURL = result.url
+                    effectiveContentType = result.contentType
+                    NSLog("CastManager: castNewTrack using proxy for Subsonic/Jellyfin->Sonos: %@", castURL.absoluteString)
+                } catch {
                     await clearLoadingState()
-                    throw CastError.localServerError("Could not register stream with local media server")
+                    throw error
                 }
-                castURL = proxyURL
-                NSLog("CastManager: castNewTrack using proxy for Subsonic/Jellyfin->Sonos: %@", proxyURL.absoluteString)
             } else if let tokenizedURL = PlexManager.shared.getCastableStreamURL(for: track.url) {
                 castURL = rewriteLocalhostForCasting(tokenizedURL)
             } else {
@@ -854,9 +836,9 @@ class CastManager {
             }
         }
         
-        // Use track's content type if available (Subsonic/Jellyfin set this from server metadata),
+        // Use effective content type (from track or upstream HEAD detection),
         // otherwise fall back to URL extension detection (works for Plex and local files)
-        let contentType = track.contentType ?? Self.detectAudioContentType(for: track.url)
+        let contentType = effectiveContentType ?? Self.detectAudioContentType(for: track.url)
         
         // For radio streams cast to Sonos, use x-rincon-mp3radio:// scheme (Fix 10)
         let finalCastURL = sonosRadioURL(for: castURL, device: session.device)
@@ -1535,6 +1517,54 @@ class CastManager {
     private func stopTopologyRefresh() {
         topologyRefreshTimer?.invalidate()
         topologyRefreshTimer = nil
+    }
+    
+    // MARK: - Proxy URL Preparation
+    
+    /// Prepare a proxy URL for casting a Subsonic/Jellyfin track to Sonos.
+    /// Starts LocalMediaServer if needed, rewrites localhost URLs, detects content type
+    /// via upstream HEAD request when track.contentType is nil, and registers the proxy.
+    /// Returns the proxy URL and the effective content type for DIDL-Lite metadata.
+    private func prepareProxyURL(for track: Track, device: CastDevice) async throws -> (url: URL, contentType: String?) {
+        if !LocalMediaServer.shared.isRunning {
+            do {
+                try await LocalMediaServer.shared.start()
+            } catch {
+                throw CastError.localServerError("Could not start local media server: \(error.localizedDescription)")
+            }
+        }
+        
+        let rewrittenURL = rewriteLocalhostForCasting(track.url)
+        
+        // Detect content type from upstream if track doesn't have it
+        var effectiveContentType = track.contentType
+        if effectiveContentType == nil {
+            effectiveContentType = await detectUpstreamContentType(rewrittenURL)
+            NSLog("CastManager: Detected upstream content type: %@", effectiveContentType ?? "nil")
+        }
+        
+        guard let proxyURL = LocalMediaServer.shared.registerStreamURL(rewrittenURL, contentType: effectiveContentType) else {
+            throw CastError.localServerError("Could not register stream with local media server")
+        }
+        
+        return (proxyURL, effectiveContentType)
+    }
+    
+    /// Send a HEAD request to an upstream URL to detect its Content-Type.
+    /// Returns the MIME type if it starts with "audio/", nil otherwise.
+    private func detectUpstreamContentType(_ url: URL) async -> String? {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse,
+              let ct = http.value(forHTTPHeaderField: "Content-Type"),
+              ct.hasPrefix("audio/") else {
+            NSLog("CastManager: HEAD content type detection failed or returned non-audio for %@", url.host ?? "unknown")
+            return nil
+        }
+        NSLog("CastManager: HEAD response Content-Type: %@", ct)
+        return ct
     }
     
     // MARK: - Content Type Detection (Fix 2)

@@ -205,6 +205,18 @@ Jellyfin tracks support casting to Sonos, Chromecast, and DLNA devices:
 - Artwork is loaded via `JellyfinManager.shared.imageURL()`
 - Stream URLs use `api_key` auth parameter, not header auth
 
+### Content Type Detection for Sonos Casting
+
+Jellyfin (and Subsonic) streaming URLs use paths like `/Audio/{id}/stream` with no file extension. This means `CastManager.detectAudioContentType(for:)` (which checks URL path extension) defaults to `audio/mpeg`, which is wrong for FLAC/WAV/etc. A content type mismatch in DIDL-Lite `protocolInfo` causes Sonos to fail silently on the first track.
+
+**Fix**: `CastManager.prepareProxyURL(for:device:)` handles this with a multi-layer strategy:
+1. Use `track.contentType` if available (set by `JellyfinManager.convertToTrack()` from the `Container` field)
+2. If nil, send a HEAD request to the upstream URL and read the `Content-Type` response header
+3. Pass the detected content type to both the proxy registration (for Sonos HEAD requests) and the DIDL-Lite metadata
+4. Fall back to `detectAudioContentType(for:)` (URL extension) only as a last resort
+
+**State restoration**: `SavedTrack.contentType` persists the MIME type across app restarts, so restored tracks don't lose their content type. This is a new optional `Codable` field — old saved states decode it as nil (backward compatible).
+
 ### Video Casting
 
 Jellyfin movies and episodes can be cast to video-capable devices (Chromecast, DLNA TVs):

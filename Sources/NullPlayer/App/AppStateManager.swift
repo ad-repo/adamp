@@ -76,6 +76,10 @@ class AppStateManager {
         var album: String?
         var duration: Double?
         
+        // MIME content type hint for casting (e.g. "audio/flac")
+        // Preserves content type across restarts so Sonos casting doesn't default to audio/mpeg
+        var contentType: String?
+        
         /// Create from a Track
         static func from(_ track: Track, plexServerId: String?) -> SavedTrack {
             if track.url.isFileURL {
@@ -102,7 +106,8 @@ class AppStateManager {
                     title: track.title,
                     artist: track.artist,
                     album: track.album,
-                    duration: track.duration
+                    duration: track.duration,
+                    contentType: track.contentType
                 )
             } else if let jfId = track.jellyfinId {
                 return SavedTrack(
@@ -111,7 +116,8 @@ class AppStateManager {
                     title: track.title,
                     artist: track.artist,
                     album: track.album,
-                    duration: track.duration
+                    duration: track.duration,
+                    contentType: track.contentType
                 )
             } else if !track.url.isFileURL {
                 // Non-file URL without streaming service IDs = radio/internet stream
@@ -778,7 +784,8 @@ class AppStateManager {
                     title: savedTrack.title,
                     artist: savedTrack.artist,
                     album: savedTrack.album,
-                    duration: savedTrack.duration
+                    duration: savedTrack.duration,
+                    contentType: savedTrack.contentType
                 )
                 plexIndicesToFetch.append((savedTrack, allTracks.count))
                 allTracks.append(placeholder)
@@ -788,7 +795,8 @@ class AppStateManager {
                     title: savedTrack.title,
                     artist: savedTrack.artist,
                     album: savedTrack.album,
-                    duration: savedTrack.duration
+                    duration: savedTrack.duration,
+                    contentType: savedTrack.contentType
                 )
                 subsonicIndicesToFetch.append((savedTrack, allTracks.count))
                 allTracks.append(placeholder)
@@ -798,7 +806,8 @@ class AppStateManager {
                     title: savedTrack.title,
                     artist: savedTrack.artist,
                     album: savedTrack.album,
-                    duration: savedTrack.duration
+                    duration: savedTrack.duration,
+                    contentType: savedTrack.contentType
                 )
                 jellyfinIndicesToFetch.append((savedTrack, allTracks.count))
                 allTracks.append(placeholder)
