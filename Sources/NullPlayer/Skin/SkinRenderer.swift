@@ -198,7 +198,7 @@ class SkinRenderer {
             drawFallbackMainBackground(in: context, bounds: bounds, isActive: isActive)
         }
         
-        // Draw title bar
+        // Draw title bar overlay (without text)
         drawTitleBar(in: context, bounds: bounds, isActive: isActive)
     }
     
@@ -1412,7 +1412,7 @@ class SkinRenderer {
             let sourceRect = NSRect(x: 0, y: 0, width: 275, height: 116)
             drawSprite(from: eqImage, sourceRect: sourceRect, to: bounds, in: context)
             
-            // Draw title bar using PLEDIT tiles (matching ProjectM/Library/Analyzer style)
+            // Draw title bar using PLEDIT tiles (no custom text)
             let titleHeight: CGFloat = 20  // Native PLEDIT sprite height
             if let pleditImage = skin.pledit {
                 let leftCornerWidth: CGFloat = 25
@@ -1439,9 +1439,7 @@ class SkinRenderer {
                 }
             }
             
-            // Draw "NULLPLAYER EQUALIZER" text using GenFont with dark background gap
-            // fontScale: 1.0 because the view already applies context scaling
-            drawGenFontTitleText("NULLPLAYER EQUALIZER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
+            // Note: Custom "NULLPLAYER EQUALIZER" text removed - let skin title show through
         } else {
             // Fallback EQ background
             drawFallbackEQBackground(in: context, bounds: bounds)
@@ -1619,11 +1617,11 @@ class SkinRenderer {
         // Bottom bar
         context.fill(NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: bottomHeight))
         
-        // Draw title bar using PLEDIT.BMP sprites (same style as playlist window)
+        // Draw title bar using PLEDIT.BMP sprites (without custom text)
         drawProjectMTitleBarFromPledit(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
     }
     
-    /// Draw ProjectM title bar using PLEDIT.BMP sprites with "PROJECTM" text overlay
+    /// Draw ProjectM title bar using PLEDIT.BMP sprites (without custom text)
     private func drawProjectMTitleBarFromPledit(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: ProjectMButtonType?) {
         guard let pleditImage = skin.pledit else {
             drawFallbackProjectMTitleBar(in: context, bounds: bounds, isActive: isActive)
@@ -1659,8 +1657,7 @@ class SkinRenderer {
             x += tileWidth
         }
         
-        // Draw "PROJECTM" text using GenFont with dark background gap
-        drawGenFontTitleText("PROJECTM", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        // Note: Custom text removed - let the skin's title bar show through
         
         // Draw close button pressed state if needed
         if pressedButton == .close {
@@ -1804,11 +1801,11 @@ class SkinRenderer {
         // Bottom bar
         context.fill(NSRect(x: 0, y: bounds.height - bottomHeight, width: bounds.width, height: bottomHeight))
         
-        // Draw title bar using PLEDIT.BMP sprites
+        // Draw title bar using PLEDIT.BMP sprites (without custom text)
         drawSpectrumAnalyzerTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
     }
     
-    /// Draw spectrum analyzer title bar using PLEDIT.BMP sprites with "NULLPLAYER ANALYZER" text
+    /// Draw spectrum analyzer title bar using PLEDIT.BMP sprites (without custom text)
     private func drawSpectrumAnalyzerTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: ProjectMButtonType?) {
         guard let pleditImage = skin.pledit else {
             drawFallbackProjectMTitleBar(in: context, bounds: bounds, isActive: isActive)
@@ -1844,8 +1841,7 @@ class SkinRenderer {
             x += tileWidth
         }
         
-        // Draw "NULLPLAYER ANALYZER" text using GenFont with dark background gap
-        drawGenFontTitleText("NULLPLAYER ANALYZER", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        // Note: Custom text removed - let the skin's title bar show through
         
         // Draw close button pressed state if needed
         if pressedButton == .close {
@@ -2518,7 +2514,7 @@ class SkinRenderer {
         skin.playlistColors.normalBackground.setFill()
         context.fill(bounds)
         
-        // Draw title bar
+        // Draw title bar (without custom text)
         drawPlaylistTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
         
         // Draw side borders
@@ -2583,9 +2579,7 @@ class SkinRenderer {
         drawSprite(from: pleditImage, sourceRect: rightCorner,
                   to: NSRect(x: bounds.width - rightCornerWidth - cornerOverlap, y: 0, width: rightCornerWidth + cornerOverlap, height: titleHeight), in: context)
         
-        // Draw "NULLPLAYER PLAYLIST" text CENTERED over the tiles (instead of skin sprite with baked-in text)
-        // fontScale: 1.0 because the view already applies context scaling
-        drawGenFontTitleText("NULLPLAYER PLAYLIST", in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive, fontScale: 1.0)
+        // Note: Custom text removed - let the skin's title bar show through
         
         // Draw window control button pressed states if needed
         if pressedButton == .close {
@@ -2926,13 +2920,13 @@ class SkinRenderer {
         // Draw status bar at bottom
         drawPlexBrowserStatusBar(in: context, bounds: bounds)
         
-        // Draw title bar LAST so it draws on top of borders (like ProjectM)
+        // Draw title bar (without custom text)
         drawPlexBrowserTitleBar(in: context, bounds: bounds, isActive: isActive, pressedButton: pressedButton)
         
         // Scrollbar removed - users scroll with trackpad/wheel
     }
     
-    /// Draw Plex browser title bar with skin sprites
+    /// Draw Plex browser title bar with skin sprites (without custom text)
     /// Uses PLEDIT.BMP for skin following (same approach as ProjectM window)
     func drawPlexBrowserTitleBar(in context: CGContext, bounds: NSRect, isActive: Bool, pressedButton: PlexBrowserButtonType?) {
         // Use PLEDIT sprites for skin-following (matches ProjectM window approach)
@@ -2981,7 +2975,7 @@ class SkinRenderer {
             x += tileWidth
         }
         
-        drawLibraryTitleText(in: context, bounds: bounds, titleHeight: titleHeight, isActive: isActive)
+        // Note: Custom text removed - let the skin's title bar show through
         
         if pressedButton == .close {
             let closeRect = NSRect(x: bounds.width - SkinElements.Playlist.TitleBarButtons.closeOffset,
