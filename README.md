@@ -9,7 +9,7 @@
 
 ## Features
 
-- A Brand new library browser window for Plex, Navidrome/Subsonic, and local library files
+- A Brand new library browser window for Plex, Jellyfin, Navidrome/Subsonic, and local library files
 - Plex Media Server integration with PIN-based authentication
 - Plex music and video streaming and playlist support
 - ProjectM visualizations with 100 included. Users can download more
