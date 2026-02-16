@@ -27,6 +27,7 @@
 - Local media library backup and restore
 - Media Drag and drop support
 - Navidrome/Subsonic server integration with scrobbling support
+- Jellyfin server integration with full support
 - Album/Cover/Movie art browser with visualizations
 - IMDB integration
 - Internet radio (Shoutcast/Icecast) with live metadata and auto-reconnect
