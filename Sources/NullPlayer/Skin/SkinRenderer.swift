@@ -2381,8 +2381,7 @@ class SkinRenderer {
             x += tile.width
         }
         
-        // Draw "PROJECTM" text using GenFont with dark background gap
-        drawGenFontTitleText("PROJECTM", in: context, bounds: bounds, titleHeight: shadeHeight, isActive: isActive)
+        // Note: Custom text removed - let the skin's title bar show through
         
         // Close button pressed state
         if pressedButton == .close {
